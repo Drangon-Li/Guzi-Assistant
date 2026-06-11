@@ -1,0 +1,234 @@
+import { useState } from 'react'
+import type { TaskRecord, TaskStatus } from '@shared/types'
+import { api } from '../api'
+import { dayKey, fmtTime, PRIORITY_LABELS, STATUS_LABELS, todayKey, TYPE_LABELS } from '../labels'
+import EditTaskModal from '../components/EditTaskModal'
+import SourceModal from '../components/SourceModal'
+
+interface Props {
+  tasks: TaskRecord[]
+}
+
+type Tab = 'today' | 'week' | 'all'
+
+const ACTIVE_STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'overdue']
+const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+function timeOf(t: TaskRecord): string | null {
+  return t.dueTime ?? t.startTime
+}
+
+function byTime(a: TaskRecord, b: TaskRecord): number {
+  const ta = timeOf(a)
+  const tb = timeOf(b)
+  if (!ta && !tb) return 0
+  if (!ta) return 1
+  if (!tb) return -1
+  return ta.localeCompare(tb)
+}
+
+function nowLocal(): string {
+  const d = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+export default function Schedule({ tasks }: Props): React.JSX.Element {
+  const [tab, setTab] = useState<Tab>('today')
+  const [editing, setEditing] = useState<TaskRecord | null>(null)
+  const [sourceId, setSourceId] = useState<string | null>(null)
+
+  const active = tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).sort(byTime)
+  const done = tasks.filter((t) => t.status === 'done')
+  const overdue = active.filter((t) => t.status === 'overdue')
+  const unscheduled = active.filter((t) => !timeOf(t) && t.status !== 'overdue')
+
+  const sections: { title: string; list: TaskRecord[]; empty?: string }[] = []
+  if (tab === 'today') {
+    const today = todayKey()
+    if (overdue.length) sections.push({ title: '已延期', list: overdue })
+    sections.push({
+      title: '今日',
+      list: active.filter((t) => dayKey(timeOf(t)) === today && t.status !== 'overdue'),
+      empty: '今天没有安排的任务'
+    })
+    if (unscheduled.length) sections.push({ title: '未排期', list: unscheduled })
+  } else if (tab === 'week') {
+    if (overdue.length) sections.push({ title: '已延期', list: overdue })
+    const base = new Date()
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i)
+      const pad = (n: number): string => String(n).padStart(2, '0')
+      const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+      const list = active.filter((t) => dayKey(timeOf(t)) === key && t.status !== 'overdue')
+      if (!list.length && i > 0) continue
+      const label =
+        i === 0 ? '今天' : i === 1 ? '明天' : `${WEEKDAY[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`
+      sections.push({ title: label, list, empty: i === 0 ? '今天没有安排的任务' : undefined })
+    }
+    if (unscheduled.length) sections.push({ title: '未排期', list: unscheduled })
+  } else {
+    sections.push({ title: '全部未完成', list: active, empty: '没有未完成的任务' })
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl px-8 py-8">
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold">日程</h1>
+        <div className="flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs">
+          {(
+            [
+              ['today', '今日'],
+              ['week', '本周'],
+              ['all', '全部']
+            ] as [Tab, string][]
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`rounded-md px-3 py-1 ${
+                tab === key ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-col gap-6 pb-10">
+        {sections.map((sec) => (
+          <section key={sec.title}>
+            <h2 className="mb-2 text-xs font-medium text-slate-400">{sec.title}</h2>
+            <div className="flex flex-col gap-2">
+              {sec.list.map((t) => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  onEdit={() => setEditing(t)}
+                  onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
+                />
+              ))}
+              {!sec.list.length && sec.empty && (
+                <div className="rounded-xl border border-dashed border-slate-200 py-6 text-center text-xs text-slate-400">
+                  {sec.empty}
+                </div>
+              )}
+            </div>
+          </section>
+        ))}
+
+        {done.length > 0 && (
+          <details>
+            <summary className="cursor-pointer text-xs text-slate-400 select-none">
+              已完成（{done.length}）
+            </summary>
+            <div className="mt-2 flex flex-col gap-2">
+              {done.map((t) => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  onEdit={() => setEditing(t)}
+                  onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
+                />
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+
+      {editing && (
+        <EditTaskModal
+          task={editing}
+          heading="编辑任务"
+          confirmLabel="保存"
+          onClose={() => setEditing(null)}
+          onSave={(patch) => {
+            // 延期任务改到未来时间后恢复为已安排
+            if (editing.status === 'overdue' && patch.dueTime && patch.dueTime > nowLocal()) {
+              patch.status = 'scheduled'
+            }
+            void api.updateTask(editing.id, patch)
+            setEditing(null)
+          }}
+        />
+      )}
+      {sourceId && <SourceModal sourceId={sourceId} onClose={() => setSourceId(null)} />}
+    </div>
+  )
+}
+
+function TaskRow({
+  task,
+  onEdit,
+  onShowSource
+}: {
+  task: TaskRecord
+  onEdit: () => void
+  onShowSource: () => void
+}): React.JSX.Element {
+  const isDone = task.status === 'done'
+  const isOverdue = task.status === 'overdue'
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <input
+        type="checkbox"
+        checked={isDone}
+        onChange={() =>
+          void api.updateTask(task.id, { status: isDone ? 'not_started' : 'done' })
+        }
+        className="size-4 shrink-0 accent-indigo-600"
+      />
+      <div className="min-w-0 flex-1">
+        <div className={`truncate text-sm ${isDone ? 'text-slate-400 line-through' : ''}`}>
+          {task.title}
+        </div>
+        <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-slate-400">
+          <span>{TYPE_LABELS[task.itemType]}</span>
+          {task.startTime && <span>开始 {fmtTime(task.startTime)}</span>}
+          {task.dueTime && (
+            <span className={isOverdue ? 'font-medium text-red-500' : ''}>
+              截止 {fmtTime(task.dueTime)}
+            </span>
+          )}
+          {task.location && <span>{task.location}</span>}
+          {task.priority !== 'unknown' && <span>优先级 {PRIORITY_LABELS[task.priority]}</span>}
+        </div>
+      </div>
+      {isOverdue ? (
+        <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[11px] text-red-600">
+          已延期
+        </span>
+      ) : (
+        !isDone && (
+          <select
+            value={task.status}
+            onChange={(e) => void api.updateTask(task.id, { status: e.target.value as TaskStatus })}
+            className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-500 focus:outline-none"
+          >
+            {(['not_started', 'scheduled', 'in_progress'] as TaskStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        )
+      )}
+      <button
+        className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-indigo-600"
+        onClick={onEdit}
+      >
+        编辑
+      </button>
+      {task.sourceId && (
+        <button
+          className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-indigo-600"
+          onClick={onShowSource}
+        >
+          来源
+        </button>
+      )}
+    </div>
+  )
+}

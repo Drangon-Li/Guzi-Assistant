@@ -1,0 +1,242 @@
+import { app, clipboard, nativeImage } from 'electron'
+import type { NativeImage } from 'electron'
+import { execFile } from 'child_process'
+import { existsSync, readFileSync, unlinkSync } from 'fs'
+import { basename, extname, join } from 'path'
+import { randomUUID } from 'crypto'
+import pdfParse from 'pdf-parse'
+import mammoth from 'mammoth'
+import { detectSensitive } from './sensitive'
+import { createSource, createTask, getProfile } from './db'
+import { parseToItems, type ParsedItem } from './parser'
+import { broadcast } from './windows'
+import type { ParseSummary, PendingCapture, SourceType, TaskStatus } from '@shared/types'
+
+interface PendingPayload {
+  type: SourceType
+  text?: string
+  imageDataUrl?: string
+  filePath?: string
+}
+
+const pendings = new Map<string, PendingPayload>()
+
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']
+const TEXT_EXTS = ['.txt', '.md', '.eml', '.csv', '.log']
+
+function excerptOf(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 80)
+}
+
+function shrink(img: NativeImage, maxWidth: number): NativeImage {
+  return img.getSize().width > maxWidth ? img.resize({ width: maxWidth }) : img
+}
+
+function register(payload: PendingPayload, view: Omit<PendingCapture, 'captureId'>): PendingCapture {
+  const captureId = randomUUID()
+  pendings.set(captureId, payload)
+  return { captureId, ...view }
+}
+
+// ---------- 读取剪切板（仅在用户触发时调用，CAP-04） ----------
+
+export function readClipboardPending(): PendingCapture | { error: string } {
+  const img = clipboard.readImage()
+  if (!img.isEmpty()) {
+    return register(
+      { type: 'clipboard_image', imageDataUrl: shrink(img, 1600).toDataURL() },
+      {
+        type: 'clipboard_image',
+        kind: 'image',
+        excerpt: '[剪切板图片]',
+        charCount: 0,
+        fileName: null,
+        thumbnailDataUrl: shrink(img, 320).toDataURL(),
+        sensitiveHits: []
+      }
+    )
+  }
+
+  const fileUrl = process.platform === 'darwin' ? clipboard.read('public.file-url') : ''
+  if (fileUrl.startsWith('file://')) {
+    const filePath = decodeURIComponent(fileUrl.replace('file://', ''))
+    return register(
+      { type: 'clipboard_file', filePath },
+      {
+        type: 'clipboard_file',
+        kind: 'file',
+        excerpt: `文件：${basename(filePath)}`,
+        charCount: 0,
+        fileName: basename(filePath),
+        thumbnailDataUrl: null,
+        sensitiveHits: []
+      }
+    )
+  }
+
+  const text = clipboard.readText().trim()
+  if (text) {
+    return register(
+      { type: 'clipboard_text', text },
+      {
+        type: 'clipboard_text',
+        kind: 'text',
+        excerpt: excerptOf(text),
+        charCount: text.length,
+        fileName: null,
+        thumbnailDataUrl: null,
+        sensitiveHits: detectSensitive(text)
+      }
+    )
+  }
+  return { error: '剪切板为空，请先复制内容' }
+}
+
+export function cancelPending(captureId: string): void {
+  pendings.delete(captureId)
+}
+
+// ---------- 截图（macOS screencapture 框选） ----------
+
+export async function takeScreenshot(): Promise<string | null> {
+  const file = join(app.getPath('temp'), `al1-shot-${Date.now()}.png`)
+  await new Promise<void>((resolve, reject) => {
+    execFile('screencapture', ['-i', '-x', file], (err) => (err ? reject(err) : resolve()))
+  })
+  if (!existsSync(file)) return null // 用户按 Esc 取消了框选
+  const dataUrl = shrink(nativeImage.createFromPath(file), 1600).toDataURL()
+  unlinkSync(file)
+  return dataUrl
+}
+
+// ---------- 文件文本抽取 ----------
+
+async function extractFromFile(filePath: string): Promise<{ text?: string; imageDataUrl?: string }> {
+  const ext = extname(filePath).toLowerCase()
+  if (IMAGE_EXTS.includes(ext)) {
+    return { imageDataUrl: shrink(nativeImage.createFromPath(filePath), 1600).toDataURL() }
+  }
+  if (TEXT_EXTS.includes(ext)) {
+    return { text: readFileSync(filePath, 'utf-8').slice(0, 20000) }
+  }
+  if (ext === '.pdf') {
+    const { text } = await pdfParse(readFileSync(filePath))
+    if (!text.trim()) throw new Error('PDF 中没有可抽取的文本（可能是扫描件），请改用截图提交')
+    return { text: text.slice(0, 20000) }
+  }
+  if (ext === '.docx') {
+    const { value } = await mammoth.extractRawText({ path: filePath })
+    return { text: value.slice(0, 20000) }
+  }
+  throw new Error(`暂不支持 ${ext || '该'} 格式，请使用图片、PDF、docx、txt`)
+}
+
+// ---------- 解析入库 ----------
+
+const HINTS: Record<string, string> = {
+  clipboard_text: '以下是用户从剪切板提交的文本（通常来自聊天、通知或邮件），请提取其中的行动项。',
+  clipboard_image: '用户从剪切板提交了一张图片（通常是聊天或通知截图），请识别图中文字并提取行动项。',
+  clipboard_file: '以下是用户提交的文件内容，请提取其中的行动项。',
+  screenshot: '用户提交了一张屏幕截图（通常是聊天、群通知、网页或课程平台），请识别图中文字并提取行动项。',
+  file: '以下是用户拖拽提交的文件内容，请提取其中的行动项。',
+  text_input: '以下是用户粘贴/输入的文本，请提取其中的行动项。'
+}
+
+function createTasksFromItems(sourceId: string, items: ParsedItem[]): { related: number; autoAdded: number } {
+  const profile = getProfile()
+  const mode = profile?.confirmMode ?? 'standard'
+  let related = 0
+  let autoAdded = 0
+  for (const it of items) {
+    if (it.belongs_to_user === 'no') continue // 分配给别人的任务不入库（文档 4.3 多人分配）
+    related++
+    let status: TaskStatus = 'pending'
+    if (mode === 'aggressive' && it.belongs_to_user === 'yes' && it.confidence >= 0.85 && it.suggested_action === 'add') {
+      status = it.due_time || it.start_time ? 'scheduled' : 'not_started'
+      autoAdded++
+    }
+    createTask({
+      sourceId,
+      title: it.title,
+      itemType: it.item_type,
+      belongsToUser: it.belongs_to_user,
+      belongingReason: it.belonging_reason,
+      userRole: it.user_role,
+      startTime: it.start_time,
+      dueTime: it.due_time,
+      location: it.location,
+      priority: it.priority,
+      confidence: it.confidence,
+      suggestedAction: it.suggested_action,
+      evidence: it.evidence,
+      status,
+      feedback: null
+    })
+  }
+  return { related, autoAdded }
+}
+
+async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
+  let text = payload.text
+  let imageDataUrl = payload.imageDataUrl
+  if (payload.filePath) {
+    const extracted = await extractFromFile(payload.filePath)
+    text = extracted.text
+    imageDataUrl = extracted.imageDataUrl
+  }
+
+  const source = createSource({
+    type: payload.type,
+    excerpt: text ? excerptOf(text) : payload.filePath ? `文件：${basename(payload.filePath)}` : '[图片]',
+    content: text ?? imageDataUrl ?? null,
+    filePath: payload.filePath ?? null
+  })
+
+  try {
+    const items = await parseToItems({ text, imageDataUrl, hint: HINTS[payload.type] ?? HINTS.text_input })
+    const { related, autoAdded } = createTasksFromItems(source.id, items)
+    broadcast('al1:tasks-updated')
+    return { sourceId: source.id, total: items.length, related, autoAdded, error: null }
+  } catch (e) {
+    return {
+      sourceId: source.id,
+      total: 0,
+      related: 0,
+      autoAdded: 0,
+      error: e instanceof Error ? e.message : String(e)
+    }
+  }
+}
+
+export async function submitPending(captureId: string): Promise<ParseSummary> {
+  const payload = pendings.get(captureId)
+  if (!payload) return { sourceId: '', total: 0, related: 0, autoAdded: 0, error: '提交内容已失效，请重新捕获' }
+  pendings.delete(captureId)
+  return parseAndStore(payload)
+}
+
+export async function submitText(text: string): Promise<ParseSummary> {
+  return parseAndStore({ type: 'text_input', text })
+}
+
+export async function submitScreenshot(dataUrl: string): Promise<ParseSummary> {
+  return parseAndStore({ type: 'screenshot', imageDataUrl: dataUrl })
+}
+
+export async function submitFiles(paths: string[]): Promise<ParseSummary[]> {
+  const results: ParseSummary[] = []
+  for (const p of paths) {
+    try {
+      results.push(await parseAndStore({ type: 'file', filePath: p }))
+    } catch (e) {
+      results.push({
+        sourceId: '',
+        total: 0,
+        related: 0,
+        autoAdded: 0,
+        error: `${basename(p)}：${e instanceof Error ? e.message : String(e)}`
+      })
+    }
+  }
+  return results
+}
