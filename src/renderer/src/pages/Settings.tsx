@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import type { AppSettings, HotkeyMode, Identity, PermissionStatus, Profile } from '@shared/types'
+import type { AppSettings, Identity, PermissionStatus, Profile } from '@shared/types'
 import { api } from '../api'
-import { CONFIRM_MODES, IDENTITIES } from '../labels'
+import { CONFIRM_MODES, formatHotkey, IDENTITIES } from '../labels'
 
 interface Props {
   onProfileChange: (p: Profile) => void
@@ -10,23 +10,47 @@ interface Props {
 const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none'
 
-const HOTKEYS: { value: HotkeyMode; label: string; desc: string }[] = [
-  {
-    value: 'alt_c',
-    label: 'Option + C（默认）',
-    desc: '复制完顺手就能按；会占用特殊字符 ç 的输入，对中文输入无影响'
-  },
-  {
-    value: 'alt_space',
-    label: 'Option + Space',
-    desc: '可能与 Alfred / Raycast 等工具的唤起键冲突'
-  },
-  {
-    value: 'cmd_shift_c',
-    label: 'Cmd + Shift + C',
-    desc: '会占用 Chrome「检查元素」等应用内快捷键'
-  }
-]
+const PRESET_HOTKEYS = ['Alt+C', 'Alt+Space', 'CommandOrControl+Shift+C']
+
+const CODE_KEYS: Record<string, string> = {
+  Space: 'Space',
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
+  Semicolon: ';',
+  Quote: "'",
+  BracketLeft: '[',
+  BracketRight: ']',
+  Backslash: '\\',
+  Minus: '-',
+  Equal: '=',
+  Backquote: '`',
+  Enter: 'Enter',
+  Tab: 'Tab',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right'
+}
+
+/** KeyboardEvent → Electron accelerator；组合不完整时返回 null（继续等待按键） */
+function eventToAccelerator(e: KeyboardEvent): string | null {
+  const mods: string[] = []
+  if (e.metaKey) mods.push('Command')
+  if (e.ctrlKey) mods.push('Control')
+  if (e.altKey) mods.push('Alt')
+  if (e.shiftKey) mods.push('Shift')
+  let key: string | null = null
+  const c = e.code
+  if (/^Key[A-Z]$/.test(c)) key = c.slice(3)
+  else if (/^Digit\d$/.test(c)) key = c.slice(5)
+  else if (/^F\d{1,2}$/.test(c)) key = c
+  else if (c in CODE_KEYS) key = CODE_KEYS[c]
+  if (!key) return null
+  // 普通键必须带修饰键，否则会全局吞掉日常输入；F1-F12 例外
+  if (!mods.length && !/^F\d/.test(key)) return null
+  return [...mods, key].join('+')
+}
 
 function splitList(s: string): string[] {
   return s
@@ -51,6 +75,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
   const [note, setNote] = useState('')
+  const [recording, setRecording] = useState(false)
 
   const loadPerms = (): void => {
     void api.permissions().then(setPerms)
@@ -68,12 +93,40 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     loadPerms()
   }, [])
 
-  if (!profile || !settings) return <div className="p-8 text-sm text-slate-400">加载中…</div>
-
   const flash = (msg: string): void => {
     setNote(msg)
     window.setTimeout(() => setNote(''), 2500)
   }
+
+  const applyHotkey = async (acc: string): Promise<void> => {
+    const ok = await api.saveSettings({ hotkey: acc })
+    if (ok) {
+      setSettings((s) => (s ? { ...s, hotkey: acc } : s))
+      flash(`快捷键已设为 ${formatHotkey(acc)}`)
+    } else {
+      flash('注册失败：该组合可能被系统或其他应用占用')
+    }
+  }
+
+  useEffect(() => {
+    if (!recording) return
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') {
+        setRecording(false)
+        return
+      }
+      const acc = eventToAccelerator(e)
+      if (!acc) return
+      setRecording(false)
+      void applyHotkey(acc)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [recording])
+
+  if (!profile || !settings) return <div className="p-8 text-sm text-slate-400">加载中…</div>
 
   const saveProfile = async (next: Profile): Promise<void> => {
     setProfile(next)
@@ -90,12 +143,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       accounts: splitList(accounts)
     })
     flash('档案已保存')
-  }
-
-  const setHotkey = async (mode: HotkeyMode): Promise<void> => {
-    setSettings({ ...settings, hotkeyMode: mode })
-    const ok = await api.saveSettings({ hotkeyMode: mode })
-    flash(ok ? '快捷键已更新' : '注册失败：该快捷键可能被其他应用占用，请换一个')
   }
 
   const saveApi = async (): Promise<void> => {
@@ -208,19 +255,37 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
 
       <Section title="快捷键">
-        <div className="flex flex-col gap-2">
-          {HOTKEYS.map((h) => (
+        <div className="flex items-center gap-3 text-sm">
+          <span className="text-slate-500">提交剪切板</span>
+          <button
+            onClick={() => setRecording(!recording)}
+            className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
+              recording
+                ? 'animate-pulse border-indigo-400 bg-indigo-50 text-indigo-600'
+                : 'border-slate-300 hover:border-slate-400'
+            }`}
+          >
+            {recording ? '按下新组合键…' : formatHotkey(settings.hotkey)}
+          </button>
+          {recording && <span className="text-xs text-slate-400">Esc 取消</span>}
+        </div>
+        <p className="mt-2 text-xs leading-5 text-slate-400">
+          点击按键框后直接按下想要的组合：需包含至少一个修饰键（⌘ ⌥ ⌃ ⇧），F1–F12
+          可单独使用。注册失败说明该组合被系统或其他应用占用。
+        </p>
+        <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+          常用：
+          {PRESET_HOTKEYS.map((acc) => (
             <button
-              key={h.value}
-              onClick={() => void setHotkey(h.value)}
-              className={`rounded-xl border px-4 py-2.5 text-left ${
-                settings.hotkeyMode === h.value
-                  ? 'border-indigo-400 bg-indigo-50'
-                  : 'border-slate-200 hover:border-slate-300'
+              key={acc}
+              onClick={() => void applyHotkey(acc)}
+              className={`rounded-lg border px-2 py-1 ${
+                settings.hotkey === acc
+                  ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
+                  : 'border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}
             >
-              <div className="text-sm font-medium">{h.label}</div>
-              <div className="text-xs leading-5 text-slate-400">{h.desc}</div>
+              {formatHotkey(acc)}
             </button>
           ))}
         </div>

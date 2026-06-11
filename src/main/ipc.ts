@@ -20,7 +20,7 @@ import {
   submitText,
   takeScreenshot
 } from './capture'
-import { setHotkeyMode } from './hotkey'
+import { setHotkey } from './hotkey'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
@@ -35,9 +35,15 @@ export function registerIpc(): void {
 
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {
+    let ok = true
+    // 快捷键先注册成功再落库，避免把无效组合持久化导致下次启动无快捷键
+    if (patch.hotkey !== undefined) {
+      ok = setHotkey(patch.hotkey)
+      if (!ok) delete patch.hotkey
+    }
     saveSettings(patch)
-    if (patch.hotkeyMode) return setHotkeyMode(patch.hotkeyMode)
-    return true
+    broadcast('al1:settings-updated')
+    return ok
   })
 
   ipcMain.handle('capture:clipboard', () => triggerClipboardCapture())

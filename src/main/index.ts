@@ -36,7 +36,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc()
     createMainWindow()
     createTray()
-    initHotkey(getSettings().hotkeyMode, triggerClipboardCapture)
+    initHotkey(getSettings().hotkey, triggerClipboardCapture)
   })
 
   app.on('activate', () => focusMain())

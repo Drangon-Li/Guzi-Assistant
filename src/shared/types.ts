@@ -13,7 +13,6 @@ export type Priority = 'high' | 'medium' | 'low' | 'unknown'
 export type SuggestedAction = 'add' | 'confirm' | 'ignore' | 'ask_user'
 export type ConfirmMode = 'conservative' | 'standard' | 'aggressive'
 export type Identity = 'student' | 'worker' | 'freelancer'
-export type HotkeyMode = 'alt_c' | 'alt_space' | 'cmd_shift_c'
 
 /** 文档 5.2 的七种任务状态 */
 export type TaskStatus =
@@ -93,7 +92,8 @@ export interface PermissionStatus {
 }
 
 export interface AppSettings {
-  hotkeyMode: HotkeyMode
+  /** Electron accelerator 字符串，如 "Alt+C"、"Command+Shift+K" */
+  hotkey: string
   apiBase: string
   apiKey: string
   model: string

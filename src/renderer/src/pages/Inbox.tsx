@@ -9,13 +9,14 @@ import SourceModal from '../components/SourceModal'
 interface Props {
   tasks: TaskRecord[]
   showToast: (msg: string) => void
+  hotkeyLabel: string
 }
 
 function joinStatus(t: { startTime?: string | null; dueTime?: string | null }): 'scheduled' | 'not_started' {
   return t.dueTime || t.startTime ? 'scheduled' : 'not_started'
 }
 
-export default function Inbox({ tasks, showToast }: Props): React.JSX.Element {
+export default function Inbox({ tasks, showToast, hotkeyLabel }: Props): React.JSX.Element {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<TaskRecord | null>(null)
@@ -143,8 +144,8 @@ export default function Inbox({ tasks, showToast }: Props): React.JSX.Element {
           <div className="mt-10 text-center text-sm leading-7 text-slate-400">
             现在没有待确认的事项。
             <br />
-            看到通知先复制，再按 <kbd className="rounded bg-slate-200 px-1.5 py-0.5 text-xs">⌥ Option</kbd>{' '}
-            + <kbd className="rounded bg-slate-200 px-1.5 py-0.5 text-xs">C</kbd> 丢给 al1。
+            看到通知先复制，再按{' '}
+            <kbd className="rounded bg-slate-200 px-1.5 py-0.5 text-xs">{hotkeyLabel}</kbd> 丢给 al1。
           </div>
         )}
       </div>

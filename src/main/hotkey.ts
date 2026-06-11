@@ -1,13 +1,6 @@
 import { globalShortcut } from 'electron'
-import type { HotkeyMode } from '@shared/types'
 
-const ACCELERATORS: Record<HotkeyMode, string> = {
-  alt_c: 'Alt+C',
-  alt_space: 'Alt+Space',
-  cmd_shift_c: 'CommandOrControl+Shift+C'
-}
-
-let current: HotkeyMode | null = null
+let current: string | null = null
 let lastTrigger = 0
 let onTrigger: () => void = () => {}
 
@@ -20,17 +13,27 @@ function fire(): void {
   onTrigger()
 }
 
-/** 切换全局快捷键；返回 false 表示注册失败（被其他应用占用） */
-export function setHotkeyMode(next: HotkeyMode): boolean {
-  if (current) globalShortcut.unregister(ACCELERATORS[current])
-  current = next
-  return globalShortcut.register(ACCELERATORS[next], fire)
+/** 注册新快捷键；失败时恢复旧键并返回 false（组合无效或被其他应用占用） */
+export function setHotkey(accelerator: string): boolean {
+  if (current) globalShortcut.unregister(current)
+  let ok = false
+  try {
+    ok = globalShortcut.register(accelerator, fire)
+  } catch {
+    ok = false
+  }
+  if (ok) {
+    current = accelerator
+  } else if (current) {
+    globalShortcut.register(current, fire)
+  }
+  return ok
 }
 
-export function initHotkey(initial: HotkeyMode, trigger: () => void): void {
+export function initHotkey(initial: string, trigger: () => void): void {
   onTrigger = trigger
-  if (!setHotkeyMode(initial)) {
-    console.warn(`[hotkey] ${ACCELERATORS[initial]} 注册失败，可能被其他应用占用`)
+  if (!setHotkey(initial)) {
+    console.warn(`[hotkey] ${initial} 注册失败，可能被其他应用占用`)
   }
 }
 

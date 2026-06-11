@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { api } from './api'
-import { summaryToast } from './labels'
+import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
 import Inbox from './pages/Inbox'
 import Schedule from './pages/Schedule'
@@ -27,6 +27,7 @@ function MainApp(): React.JSX.Element | null {
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [hotkeyLabel, setHotkeyLabel] = useState('⌥ C')
   const toastTimer = useRef<number | undefined>(undefined)
   const dragDepth = useRef(0)
 
@@ -43,12 +44,18 @@ function MainApp(): React.JSX.Element | null {
   useEffect(() => {
     void api.getProfile().then(setProfile)
     refresh()
+    const loadHotkey = (): void => {
+      void api.getSettings().then((s) => setHotkeyLabel(formatHotkey(s.hotkey)))
+    }
+    loadHotkey()
     const offTasks = api.on('al1:tasks-updated', refresh)
+    const offSettings = api.on('al1:settings-updated', loadHotkey)
     const offNav = api.on('al1:navigate', (route) => {
       if (route === 'inbox' || route === 'schedule' || route === 'settings') setPage(route)
     })
     return () => {
       offTasks()
+      offSettings()
       offNav()
     }
   }, [refresh])
@@ -110,12 +117,12 @@ function MainApp(): React.JSX.Element | null {
           ))}
         </nav>
         <div className="mt-auto px-5 pb-5 text-[11px] leading-5 text-slate-400">
-          复制内容后按 ⌥C（Option + C），快速提交剪切板。
+          复制内容后按 {hotkeyLabel}，快速提交剪切板。
         </div>
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        {page === 'inbox' && <Inbox tasks={tasks} showToast={showToast} />}
+        {page === 'inbox' && <Inbox tasks={tasks} showToast={showToast} hotkeyLabel={hotkeyLabel} />}
         {page === 'schedule' && <Schedule tasks={tasks} />}
         {page === 'settings' && <Settings onProfileChange={setProfile} />}
       </main>

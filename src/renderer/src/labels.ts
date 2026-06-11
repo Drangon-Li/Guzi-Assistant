@@ -91,6 +91,22 @@ export const CONFIRM_MODES: {
   }
 ]
 
+const ACC_SYMBOLS: Record<string, string> = {
+  Command: '⌘',
+  CommandOrControl: '⌘',
+  Control: '⌃',
+  Alt: '⌥',
+  Shift: '⇧'
+}
+
+/** Electron accelerator → macOS 风格展示，如 "Command+Shift+K" → "⌘ ⇧ K" */
+export function formatHotkey(acc: string): string {
+  return acc
+    .split('+')
+    .map((t) => ACC_SYMBOLS[t] ?? t)
+    .join(' ')
+}
+
 export function summaryToast(s: ParseSummary): string {
   if (s.error) return `解析失败：${s.error}`
   if (!s.related) return '解析完成，未发现与你相关的事项'
