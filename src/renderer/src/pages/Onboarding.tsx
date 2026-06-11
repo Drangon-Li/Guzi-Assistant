@@ -60,7 +60,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
           ))}
         </div>
 
-        <div className="mt-6 flex min-h-[260px] flex-col gap-4">
+        <div key={step} className="animate-page mt-6 flex min-h-[260px] flex-col gap-4">
           {step === 0 && (
             <>
               <label className="flex flex-col gap-1 text-sm">

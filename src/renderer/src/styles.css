@@ -17,3 +17,40 @@ body {
   background: transparent;
   -webkit-font-smoothing: antialiased;
 }
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes modal-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.97) translateY(8px); }
+}
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+.animate-overlay-in { animation: overlay-in 0.18s ease-out; }
+.animate-overlay-out { animation: overlay-out 0.16s ease-in forwards; }
+.animate-modal-in { animation: modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-modal-out { animation: modal-out 0.16s ease-in forwards; }
+.animate-page { animation: page-in 0.26s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-toast { animation: toast-in 0.2s ease-out; }
+.animate-card-in { animation: card-in 0.24s cubic-bezier(0.16, 1, 0.3, 1); }

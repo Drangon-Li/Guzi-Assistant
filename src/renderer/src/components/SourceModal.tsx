@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { SourceRecord } from '@shared/types'
 import { api } from '../api'
+import Modal from './Modal'
 import { fmtTime, SOURCE_LABELS } from '../labels'
 
 interface Props {
@@ -23,14 +24,15 @@ export default function SourceModal({ sourceId, onClose }: Props): React.JSX.Ele
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div
-        className="flex max-h-[80vh] w-[560px] flex-col rounded-xl bg-white p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal
+      panelClass="flex max-h-[80vh] w-[560px] flex-col rounded-xl bg-white p-5 shadow-2xl"
+      onClose={onClose}
+    >
+      {(close) => (
+        <>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-base font-semibold">来源证据</h3>
-          <button className="text-slate-400 hover:text-slate-600" onClick={onClose}>
+          <button className="text-slate-400 hover:text-slate-600" onClick={close}>
             ✕
           </button>
         </div>
@@ -66,7 +68,8 @@ export default function SourceModal({ sourceId, onClose }: Props): React.JSX.Ele
             )}
           </>
         )}
-      </div>
-    </div>
+        </>
+      )}
+    </Modal>
   )
 }

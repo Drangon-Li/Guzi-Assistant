@@ -74,7 +74,12 @@ function MainApp(): React.JSX.Element | null {
     showToast(filesToast(results))
   }
 
-  if (profile === undefined) return null
+  if (profile === undefined)
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-100">
+        <div className="size-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+      </div>
+    )
   if (profile === null) return <Onboarding onDone={setProfile} />
 
   const pendingCount = tasks.filter((t) => t.status === 'pending').length
@@ -125,22 +130,27 @@ function MainApp(): React.JSX.Element | null {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        {page === 'inbox' && <Inbox tasks={tasks} showToast={showToast} hotkeyLabel={hotkeyLabel} />}
-        {page === 'timeline' && <Timeline tasks={tasks} />}
-        {page === 'schedule' && <Schedule tasks={tasks} />}
-        {page === 'settings' && <Settings onProfileChange={setProfile} />}
+        <div key={page} className="animate-page">
+          {page === 'inbox' && <Inbox tasks={tasks} showToast={showToast} hotkeyLabel={hotkeyLabel} />}
+          {page === 'timeline' && <Timeline tasks={tasks} />}
+          {page === 'schedule' && <Schedule tasks={tasks} />}
+          {page === 'settings' && <Settings onProfileChange={setProfile} />}
+        </div>
       </main>
 
       {dragging && (
-        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-indigo-600/10 backdrop-blur-[1px]">
-          <div className="rounded-xl border-2 border-dashed border-indigo-400 bg-white px-8 py-6 text-indigo-600 shadow-lg">
+        <div className="animate-overlay-in pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-indigo-600/10 backdrop-blur-[1px]">
+          <div className="animate-modal-in rounded-xl border-2 border-dashed border-indigo-400 bg-white px-8 py-6 text-indigo-600 shadow-lg">
             松开以提交文件（图片 / PDF / docx / txt）
           </div>
         </div>
       )}
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm text-white shadow-lg">
+        <div
+          key={toast}
+          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm text-white shadow-lg"
+        >
           {toast}
         </div>
       )}

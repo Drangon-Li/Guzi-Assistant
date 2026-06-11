@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ItemType, Priority, TaskRecord } from '@shared/types'
+import Modal from './Modal'
 import { TYPE_LABELS } from '../labels'
 
 interface Props {
@@ -40,11 +41,9 @@ export default function EditTaskModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div
-        className="w-[480px] rounded-xl bg-white p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal panelClass="w-[480px] rounded-xl bg-white p-5 shadow-2xl" onClose={onClose}>
+      {(close) => (
+        <>
         <h3 className="mb-4 text-base font-semibold">{heading}</h3>
         <div className="flex flex-col gap-3 text-sm">
           <label className="flex flex-col gap-1">
@@ -108,7 +107,7 @@ export default function EditTaskModal({
         <div className="mt-5 flex justify-end gap-2">
           <button
             className="rounded-lg px-4 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
-            onClick={onClose}
+            onClick={close}
           >
             取消
           </button>
@@ -119,7 +118,8 @@ export default function EditTaskModal({
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+        </>
+      )}
+    </Modal>
   )
 }

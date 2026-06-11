@@ -68,7 +68,10 @@ export default function PreviewCard(): React.JSX.Element | null {
 
   return (
     <div className="flex h-screen items-end justify-end p-2">
-      <div className="flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-2xl">
+      <div
+        key={state.phase}
+        className="animate-card-in flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-2xl"
+      >
         <div className="flex items-center gap-2">
           <span className="font-semibold">al1</span>
           {state.phase === 'preview' && (

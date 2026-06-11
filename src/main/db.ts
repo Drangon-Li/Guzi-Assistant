@@ -250,7 +250,8 @@ const TASK_EDITABLE: Record<string, string> = {
   location: 'location',
   priority: 'priority',
   status: 'status',
-  feedback: 'feedback'
+  feedback: 'feedback',
+  notes: 'notes'
 }
 
 export function updateTask(id: string, patch: Partial<TaskRecord>): void {
@@ -259,7 +260,8 @@ export function updateTask(id: string, patch: Partial<TaskRecord>): void {
   for (const [k, col] of Object.entries(TASK_EDITABLE)) {
     if (k in patch) {
       sets.push(`${col} = ?`)
-      values.push((patch as Record<string, unknown>)[k])
+      const v = (patch as Record<string, unknown>)[k]
+      values.push(k === 'notes' ? JSON.stringify(v) : v)
     }
   }
   if (!sets.length) return
