@@ -89,7 +89,9 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
     .sort((a, b) => timeOf(a)!.localeCompare(timeOf(b)!))
   const unscheduled = active.filter((t) => !timeOf(t) && t.status !== 'overdue')
 
-  const upcoming = timed.filter((t) => t.dueTime).slice(0, 3)
+  const upcoming = active
+    .filter((t) => timeOf(t))
+    .sort((a, b) => timeOf(a)!.localeCompare(timeOf(b)!))
   const groups = buildGroups(timed, mode)
 
   return (
@@ -120,12 +122,14 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
       {upcoming.length > 0 && (
         <div className="mt-5 flex flex-col gap-2">
           {upcoming.map((t) => {
-            const urgent = daysUntil(t.dueTime!) <= 3
+            const time = timeOf(t)!
+            const urgent = t.status === 'overdue' || daysUntil(time) <= 3
+            const suffix = t.status === 'overdue' ? '' : t.dueTime ? '截止' : '开始'
             return (
               <button
                 key={t.id}
                 onClick={() => setDetail(t)}
-                className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left shadow-sm ${
+                className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 text-left shadow-sm ${
                   urgent ? 'border-red-200 bg-red-50/60' : 'border-indigo-100 bg-indigo-50/60'
                 }`}
               >
@@ -133,7 +137,8 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
                 <span
                   className={`shrink-0 text-sm font-semibold ${urgent ? 'text-red-600' : 'text-indigo-600'}`}
                 >
-                  {countdownLabel(t.dueTime!)}截止
+                  {countdownLabel(time)}
+                  {suffix}
                 </span>
                 <span className="shrink-0 text-xs text-slate-400">
                   优先级：{PRIORITY_LABELS[t.priority]}
