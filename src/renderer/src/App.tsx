@@ -4,14 +4,16 @@ import { api } from './api'
 import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
 import Inbox from './pages/Inbox'
+import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
 import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
 
-type Page = 'inbox' | 'schedule' | 'settings'
+type Page = 'inbox' | 'timeline' | 'schedule' | 'settings'
 
 const NAV: { key: Page; label: string }[] = [
   { key: 'inbox', label: '待确认收件箱' },
+  { key: 'timeline', label: '时间轴' },
   { key: 'schedule', label: '日程' },
   { key: 'settings', label: '设置' }
 ]
@@ -51,7 +53,8 @@ function MainApp(): React.JSX.Element | null {
     const offTasks = api.on('al1:tasks-updated', refresh)
     const offSettings = api.on('al1:settings-updated', loadHotkey)
     const offNav = api.on('al1:navigate', (route) => {
-      if (route === 'inbox' || route === 'schedule' || route === 'settings') setPage(route)
+      if (route === 'inbox' || route === 'timeline' || route === 'schedule' || route === 'settings')
+        setPage(route)
     })
     return () => {
       offTasks()
@@ -123,6 +126,7 @@ function MainApp(): React.JSX.Element | null {
 
       <main className="min-w-0 flex-1 overflow-y-auto">
         {page === 'inbox' && <Inbox tasks={tasks} showToast={showToast} hotkeyLabel={hotkeyLabel} />}
+        {page === 'timeline' && <Timeline tasks={tasks} />}
         {page === 'schedule' && <Schedule tasks={tasks} />}
         {page === 'settings' && <Settings onProfileChange={setProfile} />}
       </main>

@@ -60,6 +60,8 @@ export interface TaskRecord {
   confidence: number
   suggestedAction: SuggestedAction
   evidence: string[]
+  /** 注意事项/须知，AI 从原文提炼 */
+  notes: string[]
   status: TaskStatus
   feedback: string | null
   createdAt: string

@@ -4,6 +4,7 @@ import { api } from '../api'
 import { dayKey, fmtTime, PRIORITY_LABELS, STATUS_LABELS, todayKey, TYPE_LABELS } from '../labels'
 import EditTaskModal from '../components/EditTaskModal'
 import SourceModal from '../components/SourceModal'
+import TaskDetailModal from '../components/TaskDetailModal'
 
 interface Props {
   tasks: TaskRecord[]
@@ -36,6 +37,7 @@ function nowLocal(): string {
 export default function Schedule({ tasks }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('today')
   const [editing, setEditing] = useState<TaskRecord | null>(null)
+  const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
 
   const active = tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).sort(byTime)
@@ -105,6 +107,7 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
                 <TaskRow
                   key={t.id}
                   task={t}
+                  onOpen={() => setDetail(t)}
                   onEdit={() => setEditing(t)}
                   onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
                 />
@@ -128,6 +131,7 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
                 <TaskRow
                   key={t.id}
                   task={t}
+                  onOpen={() => setDetail(t)}
                   onEdit={() => setEditing(t)}
                   onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
                 />
@@ -153,6 +157,13 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
           }}
         />
       )}
+      {detail && (
+        <TaskDetailModal
+          task={detail}
+          onClose={() => setDetail(null)}
+          onShowSource={() => detail.sourceId && setSourceId(detail.sourceId)}
+        />
+      )}
       {sourceId && <SourceModal sourceId={sourceId} onClose={() => setSourceId(null)} />}
     </div>
   )
@@ -160,10 +171,12 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
 
 function TaskRow({
   task,
+  onOpen,
   onEdit,
   onShowSource
 }: {
   task: TaskRecord
+  onOpen: () => void
   onEdit: () => void
   onShowSource: () => void
 }): React.JSX.Element {
@@ -181,11 +194,17 @@ function TaskRow({
         className="size-4 shrink-0 accent-indigo-600"
       />
       <div className="min-w-0 flex-1">
-        <div className={`truncate text-sm ${isDone ? 'text-slate-400 line-through' : ''}`}>
+        <button
+          onClick={onOpen}
+          className={`block w-full truncate text-left text-sm hover:text-indigo-600 ${
+            isDone ? 'text-slate-400 line-through' : ''
+          }`}
+        >
           {task.title}
-        </div>
+        </button>
         <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-slate-400">
           <span>{TYPE_LABELS[task.itemType]}</span>
+          {task.notes.length > 0 && <span>{task.notes.length} 条注意事项</span>}
           {task.startTime && <span>开始 {fmtTime(task.startTime)}</span>}
           {task.dueTime && (
             <span className={isOverdue ? 'font-medium text-red-500' : ''}>

@@ -91,6 +91,26 @@ export const CONFIRM_MODES: {
   }
 ]
 
+/** 目标时间距今天的自然日差（负数表示已过去） */
+export function daysUntil(t: string): number {
+  const d = new Date(t)
+  const now = new Date()
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((a.getTime() - b.getTime()) / 86400000)
+}
+
+export function countdownLabel(t: string): string {
+  const n = daysUntil(t)
+  if (n < 0) return `已超期 ${-n} 天`
+  if (n === 0) {
+    const h = Math.floor((new Date(t).getTime() - Date.now()) / 3600000)
+    return h <= 0 ? '今天' : `还有 ${h} 小时`
+  }
+  if (n === 1) return '明天'
+  return `还有 ${n} 天`
+}
+
 const ACC_SYMBOLS: Record<string, string> = {
   Command: '⌘',
   CommandOrControl: '⌘',

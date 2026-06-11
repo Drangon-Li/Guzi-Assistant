@@ -13,6 +13,7 @@ export interface ParsedItem {
   confidence: number
   suggested_action: SuggestedAction
   evidence: string[]
+  notes: string[]
 }
 
 /** 本地时区的 YYYY-MM-DDTHH:mm，与任务时间字段同格式，可直接字符串比较 */
@@ -58,12 +59,17 @@ ${lines.join('\n')}
 7. belonging_reason 用一句中文说明判断依据（如"内容点名了用户姓名张三"）。
 8. evidence 必须是原文中逐字出现的句子或片段，每项 1~3 条。
 
+# 信息提取要求
+- 地点尽量提取完整：楼宇/房间号/校区/会议室/线上会议链接等（如 "C8-8308 象山"）。
+- notes：提取与该任务直接相关的注意事项、须知和准备要求（需携带的证件材料、提前到场时间、禁带物品、着装要求、联系方式等），每条凝练成一句话，按重要性排序，最多 10 条；没有则为空数组。
+- 同一通知里的主事项与附属事项要拆成独立任务（如笔试和面试是两个任务），各自带自己的时间、地点和 notes。
+
 # 时间解析
-当前时间是 ${now}（${weekday}）。把"明天""周五前""6月20日"等相对时间解析为本地时间，格式 YYYY-MM-DDTHH:mm。只有日期没有具体时间的截止，时间用 23:59。原文没有提到时间的字段必须为 null，不要编造。
+当前时间是 ${now}（${weekday}）。把"明天""周五前""6月20日"等相对时间解析为本地时间，格式 YYYY-MM-DDTHH:mm。考试/会议等有明确开始时间的填 start_time；"X 前完成"类填 due_time；只有日期没有具体时间的截止，时间用 23:59。日期明确但只说"全天"或具体钟点待通知的活动，start_time 填当天 00:00，不要因为钟点未定就留 null。原文连日期都没有提到的字段必须为 null，不要编造。
 
 # 输出格式
 只输出一个 JSON 对象，不要输出任何其他文字或代码块标记：
-{"items":[{"title":"任务标题","item_type":"deadline|meeting|reminder|preparation|follow_up|other","belongs_to_user":"yes|no|uncertain","belonging_reason":"判断依据","user_role":"owner|participant|notified|helper|unclear","start_time":"YYYY-MM-DDTHH:mm 或 null","due_time":"YYYY-MM-DDTHH:mm 或 null","location":"地点或 null","priority":"high|medium|low|unknown","confidence":0.0,"suggested_action":"add|confirm|ignore|ask_user","evidence":["原文片段"]}]}
+{"items":[{"title":"任务标题","item_type":"deadline|meeting|reminder|preparation|follow_up|other","belongs_to_user":"yes|no|uncertain","belonging_reason":"判断依据","user_role":"owner|participant|notified|helper|unclear","start_time":"YYYY-MM-DDTHH:mm 或 null","due_time":"YYYY-MM-DDTHH:mm 或 null","location":"地点或 null","priority":"high|medium|low|unknown","confidence":0.0,"suggested_action":"add|confirm|ignore|ask_user","notes":["注意事项，可为空数组"],"evidence":["原文片段"]}]}
 没有可提取的任务时输出 {"items":[]}。`
 }
 
@@ -85,11 +91,12 @@ export function extractText(data: ResponsesOutput): string {
   return parts.join('\n')
 }
 
-const ISO_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?/
-
 function normalizeTime(v: unknown): string | null {
-  if (typeof v !== 'string' || !ISO_RE.test(v)) return null
-  return v.length === 10 ? `${v}T23:59` : v.slice(0, 16)
+  if (typeof v !== 'string') return null
+  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?/)
+  if (!m) return null
+  if (!m[4]) return `${m[1]}-${m[2]}-${m[3]}T23:59`
+  return `${m[1]}-${m[2]}-${m[3]}T${m[4].padStart(2, '0')}:${m[5]}`
 }
 
 function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
@@ -112,7 +119,8 @@ export function normalizeItem(raw: Record<string, unknown>): ParsedItem | null {
     priority: oneOf(raw.priority, ['high', 'medium', 'low', 'unknown'] as const, 'unknown'),
     confidence: conf,
     suggested_action: oneOf(raw.suggested_action, ['add', 'confirm', 'ignore', 'ask_user'] as const, 'confirm'),
-    evidence: Array.isArray(raw.evidence) ? raw.evidence.filter((e): e is string => typeof e === 'string').slice(0, 5) : []
+    evidence: Array.isArray(raw.evidence) ? raw.evidence.filter((e): e is string => typeof e === 'string').slice(0, 5) : [],
+    notes: Array.isArray(raw.notes) ? raw.notes.filter((n): n is string => typeof n === 'string').slice(0, 10) : []
   }
 }
 

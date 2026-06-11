@@ -45,12 +45,20 @@ export function initDb(): void {
       confidence REAL NOT NULL,
       suggested_action TEXT NOT NULL,
       evidence TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT '[]',
       status TEXT NOT NULL,
       feedback TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `)
+  // 老库迁移：早期版本没有 notes 列
+  const taskCols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(
+    (c) => c.name
+  )
+  if (!taskCols.includes('notes')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN notes TEXT NOT NULL DEFAULT '[]'")
+  }
 }
 
 export { localNow }
@@ -168,6 +176,7 @@ interface TaskRow {
   confidence: number
   suggested_action: string
   evidence: string
+  notes: string
   status: string
   feedback: string | null
   created_at: string
@@ -190,6 +199,7 @@ function rowToTask(r: TaskRow): TaskRecord {
     confidence: r.confidence,
     suggestedAction: r.suggested_action as TaskRecord['suggestedAction'],
     evidence: JSON.parse(r.evidence) as string[],
+    notes: JSON.parse(r.notes || '[]') as string[],
     status: r.status as TaskStatus,
     feedback: r.feedback,
     createdAt: r.created_at,
@@ -206,13 +216,13 @@ export function createTask(
     INSERT INTO tasks (
       id, source_id, title, item_type, belongs_to_user, belonging_reason, user_role,
       start_time, due_time, location, priority, confidence, suggested_action,
-      evidence, status, feedback, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      evidence, notes, status, feedback, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     rec.id, rec.sourceId, rec.title, rec.itemType, rec.belongsToUser, rec.belongingReason,
     rec.userRole, rec.startTime, rec.dueTime, rec.location, rec.priority, rec.confidence,
-    rec.suggestedAction, JSON.stringify(rec.evidence), rec.status, rec.feedback,
-    rec.createdAt, rec.updatedAt
+    rec.suggestedAction, JSON.stringify(rec.evidence), JSON.stringify(rec.notes), rec.status,
+    rec.feedback, rec.createdAt, rec.updatedAt
   )
   return rec
 }

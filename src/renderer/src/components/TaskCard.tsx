@@ -51,6 +51,19 @@ export default function TaskCard({
         {task.belongingReason || '无说明'}
       </div>
 
+      {task.notes.length > 0 && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs text-slate-400 select-none hover:text-slate-600">
+            注意事项（{task.notes.length}）
+          </summary>
+          <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-xs leading-5 text-slate-600">
+            {task.notes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {task.evidence.length > 0 && (
         <details className="mt-2">
           <summary className="cursor-pointer text-xs text-slate-400 select-none hover:text-slate-600">

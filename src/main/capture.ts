@@ -169,6 +169,7 @@ function createTasksFromItems(sourceId: string, items: ParsedItem[]): { related:
       confidence: it.confidence,
       suggestedAction: it.suggested_action,
       evidence: it.evidence,
+      notes: it.notes,
       status,
       feedback: null
     })
