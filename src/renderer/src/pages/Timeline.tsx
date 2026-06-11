@@ -124,7 +124,12 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
           {upcoming.map((t) => {
             const time = timeOf(t)!
             const urgent = t.status === 'overdue' || daysUntil(time) <= 3
-            const suffix = t.status === 'overdue' ? '' : t.dueTime ? '截止' : '开始'
+            const label =
+              t.status === 'overdue'
+                ? daysUntil(time) === 0
+                  ? '今天已超期'
+                  : countdownLabel(time)
+                : `${countdownLabel(time)}${t.dueTime ? '截止' : '开始'}`
             return (
               <button
                 key={t.id}
@@ -137,8 +142,7 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
                 <span
                   className={`shrink-0 text-sm font-semibold ${urgent ? 'text-red-600' : 'text-indigo-600'}`}
                 >
-                  {countdownLabel(time)}
-                  {suffix}
+                  {label}
                 </span>
                 <span className="shrink-0 text-xs text-slate-400">
                   优先级：{PRIORITY_LABELS[t.priority]}
