@@ -189,7 +189,9 @@ function TaskRow({
         type="checkbox"
         checked={isDone}
         onChange={() =>
-          void api.updateTask(task.id, { status: isDone ? 'not_started' : 'done' })
+          void api.updateTask(task.id, {
+            status: isDone ? (task.dueTime || task.startTime ? 'scheduled' : 'not_started') : 'done'
+          })
         }
         className="size-4 shrink-0 accent-indigo-600"
       />

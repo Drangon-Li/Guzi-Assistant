@@ -135,7 +135,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   }
 
   const saveProfileForm = async (): Promise<void> => {
-    if (!profile.name.trim()) return
+    if (!profile.name.trim()) {
+      flash('真实姓名不能为空')
+      return
+    }
     await saveProfile({
       ...profile,
       name: profile.name.trim(),

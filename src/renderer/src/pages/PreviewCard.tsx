@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ParseSummary, PendingCapture } from '@shared/types'
 import { api } from '../api'
 import { SOURCE_LABELS } from '../labels'
@@ -15,10 +15,26 @@ const AUTO_SECONDS = 3
 
 export default function PreviewCard(): React.JSX.Element | null {
   const [state, setState] = useState<State>({ phase: 'idle' })
+  // 解析期间用户再次触发快捷键时，旧提交的结果不能覆盖新预览
+  const submitIdRef = useRef('')
 
   const submit = async (capture: PendingCapture): Promise<void> => {
+    submitIdRef.current = capture.captureId
     setState({ phase: 'loading' })
-    const summary = await api.previewSubmit(capture.captureId)
+    let summary: ParseSummary
+    try {
+      summary = await api.previewSubmit(capture.captureId)
+    } catch (e) {
+      summary = {
+        sourceId: '',
+        total: 0,
+        related: 0,
+        autoAdded: 0,
+        duplicates: 0,
+        error: e instanceof Error ? e.message : String(e)
+      }
+    }
+    if (submitIdRef.current !== capture.captureId) return
     if (summary.error) setState({ phase: 'error', message: summary.error })
     else setState({ phase: 'result', summary })
   }
@@ -31,15 +47,16 @@ export default function PreviewCard(): React.JSX.Element | null {
   useEffect(() => {
     return api.on('al1:preview', (payload) => {
       const p = payload as (PendingCapture & { error?: undefined }) | { error: string }
+      submitIdRef.current = ''
       if ('error' in p && p.error) {
         setState({ phase: 'empty', message: p.error })
       } else {
         const capture = p as PendingCapture
-        // 命中敏感内容时不自动提交，必须手动确认（文档 CAP-07）
+        // 敏感内容（CAP-07）和图片/文件（内容外发前用户应过目）都不自动提交
         setState({
           phase: 'preview',
           capture,
-          left: capture.sensitiveHits.length ? -1 : AUTO_SECONDS
+          left: capture.sensitiveHits.length || capture.kind !== 'text' ? -1 : AUTO_SECONDS
         })
       }
     })
@@ -107,6 +124,9 @@ export default function PreviewCard(): React.JSX.Element | null {
             <div className="text-[11px] text-slate-400">
               {state.capture.kind === 'text' && `${state.capture.charCount} 字`}
               {state.capture.fileName && state.capture.fileName}
+              {state.capture.kind !== 'text' && !state.capture.sensitiveHits.length && (
+                <span className="ml-1">图片/文件不会自动提交，请确认后发送</span>
+              )}
             </div>
             {state.capture.sensitiveHits.length > 0 && (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
@@ -154,7 +174,16 @@ export default function PreviewCard(): React.JSX.Element | null {
                   )}
                 </>
               ) : (
-                <span className="text-slate-500">未发现与你相关的事项</span>
+                <span className="text-slate-500">
+                  {state.summary.duplicates
+                    ? `内容与已有任务重复，已跳过 ${state.summary.duplicates} 个`
+                    : '未发现与你相关的事项'}
+                </span>
+              )}
+              {state.summary.related > 0 && state.summary.duplicates > 0 && (
+                <span className="text-xs text-slate-400">
+                  （另跳过 {state.summary.duplicates} 个重复任务）
+                </span>
               )}
             </div>
             {state.summary.related > 0 && (

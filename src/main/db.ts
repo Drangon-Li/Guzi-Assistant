@@ -90,8 +90,9 @@ export function getSettings(): AppSettings {
   }
   return {
     hotkey: map.hotkey || legacy[map.hotkeyMode] || 'Alt+C',
-    apiBase: map.apiBase || env.AL1_API_BASE || '',
-    apiKey: map.apiKey || env.AL1_API_KEY || '',
+    // ?? 而不是 ||：用户显式清空后不能从 .env 静默复活
+    apiBase: map.apiBase ?? env.AL1_API_BASE ?? '',
+    apiKey: map.apiKey ?? env.AL1_API_KEY ?? '',
     model: map.model || env.AL1_MODEL || 'gpt-5.5'
   }
 }
@@ -157,6 +158,11 @@ export function deleteSourceContent(id: string): void {
   db.prepare(
     "UPDATE sources SET content = NULL, file_path = NULL, excerpt = '[来源已删除]', deleted = 1 WHERE id = ?"
   ).run(id)
+}
+
+/** 整行删除：解析失败时清理孤儿来源，避免无任务引用的原文滞留 */
+export function deleteSourceRow(id: string): void {
+  db.prepare('DELETE FROM sources WHERE id = ?').run(id)
 }
 
 // ---------- tasks ----------
@@ -227,13 +233,22 @@ export function createTask(
   return rec
 }
 
-/** 已确认但超过截止时间的任务自动标记为已延期（文档 5.2） */
+/** 已确认但超过截止时间的任务自动标记为已延期（文档 5.2）；进行中是用户显式选择，不覆盖 */
 function markOverdue(): void {
   db.prepare(`
     UPDATE tasks SET status = 'overdue', updated_at = ?
-    WHERE status IN ('not_started', 'scheduled', 'in_progress')
+    WHERE status IN ('not_started', 'scheduled')
       AND due_time IS NOT NULL AND due_time < ?
   `).run(localNow(), localNow())
+}
+
+/** 是否已存在同名同截止时间的有效任务（重复提交去重） */
+export function taskExists(title: string, dueTime: string | null): boolean {
+  return !!db
+    .prepare(
+      "SELECT 1 FROM tasks WHERE title = ? AND IFNULL(due_time, '') = IFNULL(?, '') AND status != 'ignored' LIMIT 1"
+    )
+    .get(title, dueTime)
 }
 
 export function listTasks(): TaskRecord[] {
@@ -268,6 +283,15 @@ export function updateTask(id: string, patch: Partial<TaskRecord>): void {
   sets.push('updated_at = ?')
   values.push(localNow(), id)
   db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+
+  // 截止时间被清空或改到未来后，不应继续卡在"已延期"
+  const row = db
+    .prepare('SELECT status, due_time, start_time FROM tasks WHERE id = ?')
+    .get(id) as { status: string; due_time: string | null; start_time: string | null } | undefined
+  if (row && row.status === 'overdue' && (!row.due_time || row.due_time > localNow())) {
+    const next = row.due_time || row.start_time ? 'scheduled' : 'not_started'
+    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run(next, localNow(), id)
+  }
 }
 
 export function bulkUpdateStatus(ids: string[], status: TaskStatus): void {
@@ -280,4 +304,7 @@ export function bulkUpdateStatus(ids: string[], status: TaskStatus): void {
 
 export function wipeAll(): void {
   db.exec('DELETE FROM tasks; DELETE FROM sources; DELETE FROM profile;')
+  // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
+  db.pragma('wal_checkpoint(TRUNCATE)')
+  db.exec('VACUUM')
 }

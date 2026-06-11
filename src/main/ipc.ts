@@ -13,6 +13,7 @@ import {
 } from './db'
 import {
   cancelPending,
+  clearPendings,
   readClipboardPending,
   submitFiles,
   submitPending,
@@ -24,7 +25,17 @@ import { setHotkey } from './hotkey'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
-/** Space+C / 托盘共用的剪切板捕获入口 */
+const STATUSES: TaskStatus[] = [
+  'pending',
+  'not_started',
+  'scheduled',
+  'in_progress',
+  'done',
+  'overdue',
+  'ignored'
+]
+
+/** 快捷键 / 托盘共用的剪切板捕获入口 */
 export function triggerClipboardCapture(): void {
   showPreview(readClipboardPending())
 }
@@ -60,14 +71,19 @@ export function registerIpc(): void {
     cancelPending(captureId)
     hidePreview()
   })
-  ipcMain.handle('preview:hide', () => hidePreview())
+  ipcMain.handle('preview:hide', () => {
+    clearPendings()
+    hidePreview()
+  })
 
   ipcMain.handle('tasks:list', () => listTasks())
   ipcMain.handle('tasks:update', (_e, id: string, patch: Partial<TaskRecord>) => {
+    if (patch.status && !STATUSES.includes(patch.status)) return
     updateTask(id, patch)
     broadcast('al1:tasks-updated')
   })
   ipcMain.handle('tasks:bulk', (_e, ids: string[], status: TaskStatus) => {
+    if (!STATUSES.includes(status)) return
     bulkUpdateStatus(ids, status)
     broadcast('al1:tasks-updated')
   })

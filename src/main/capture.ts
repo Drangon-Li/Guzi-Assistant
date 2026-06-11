@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import { detectSensitive } from './sensitive'
-import { createSource, createTask, getProfile } from './db'
+import { createSource, createTask, deleteSourceRow, getProfile, taskExists } from './db'
 import { parseToItems, type ParsedItem } from './parser'
 import { broadcast } from './windows'
 import type { ParseSummary, PendingCapture, SourceType, TaskStatus } from '@shared/types'
@@ -32,7 +32,14 @@ function shrink(img: NativeImage, maxWidth: number): NativeImage {
   return img.getSize().width > maxWidth ? img.resize({ width: maxWidth }) : img
 }
 
+/** JPEG 比 PNG dataURL 小一个量级，截图入库/上传都用它 */
+function toJpegDataUrl(img: NativeImage, maxWidth: number): string {
+  return `data:image/jpeg;base64,${shrink(img, maxWidth).toJPEG(80).toString('base64')}`
+}
+
 function register(payload: PendingPayload, view: Omit<PendingCapture, 'captureId'>): PendingCapture {
+  // 预览卡一次只显示一条，旧的未提交内容直接作废，避免 Map 泄漏
+  pendings.clear()
   const captureId = randomUUID()
   pendings.set(captureId, payload)
   return { captureId, ...view }
@@ -44,14 +51,14 @@ export function readClipboardPending(): PendingCapture | { error: string } {
   const img = clipboard.readImage()
   if (!img.isEmpty()) {
     return register(
-      { type: 'clipboard_image', imageDataUrl: shrink(img, 1600).toDataURL() },
+      { type: 'clipboard_image', imageDataUrl: toJpegDataUrl(img, 1600) },
       {
         type: 'clipboard_image',
         kind: 'image',
         excerpt: '[剪切板图片]',
         charCount: 0,
         fileName: null,
-        thumbnailDataUrl: shrink(img, 320).toDataURL(),
+        thumbnailDataUrl: toJpegDataUrl(img, 320),
         sensitiveHits: []
       }
     )
@@ -96,6 +103,11 @@ export function cancelPending(captureId: string): void {
   pendings.delete(captureId)
 }
 
+/** 预览窗隐藏时调用：未提交的内容一律作废 */
+export function clearPendings(): void {
+  pendings.clear()
+}
+
 // ---------- 截图（macOS screencapture 框选） ----------
 
 export async function takeScreenshot(): Promise<string | null> {
@@ -104,7 +116,7 @@ export async function takeScreenshot(): Promise<string | null> {
     execFile('screencapture', ['-i', '-x', file], (err) => (err ? reject(err) : resolve()))
   })
   if (!existsSync(file)) return null // 用户按 Esc 取消了框选
-  const dataUrl = shrink(nativeImage.createFromPath(file), 1600).toDataURL()
+  const dataUrl = toJpegDataUrl(nativeImage.createFromPath(file), 1600)
   unlinkSync(file)
   return dataUrl
 }
@@ -114,7 +126,7 @@ export async function takeScreenshot(): Promise<string | null> {
 async function extractFromFile(filePath: string): Promise<{ text?: string; imageDataUrl?: string }> {
   const ext = extname(filePath).toLowerCase()
   if (IMAGE_EXTS.includes(ext)) {
-    return { imageDataUrl: shrink(nativeImage.createFromPath(filePath), 1600).toDataURL() }
+    return { imageDataUrl: toJpegDataUrl(nativeImage.createFromPath(filePath), 1600) }
   }
   if (TEXT_EXTS.includes(ext)) {
     return { text: readFileSync(filePath, 'utf-8').slice(0, 20000) }
@@ -142,13 +154,21 @@ const HINTS: Record<string, string> = {
   text_input: '以下是用户粘贴/输入的文本，请提取其中的行动项。'
 }
 
-function createTasksFromItems(sourceId: string, items: ParsedItem[]): { related: number; autoAdded: number } {
+function createTasksFromItems(
+  sourceId: string,
+  items: ParsedItem[]
+): { related: number; autoAdded: number; duplicates: number } {
   const profile = getProfile()
   const mode = profile?.confirmMode ?? 'standard'
   let related = 0
   let autoAdded = 0
+  let duplicates = 0
   for (const it of items) {
     if (it.belongs_to_user === 'no') continue // 分配给别人的任务不入库（文档 4.3 多人分配）
+    if (taskExists(it.title, it.due_time)) {
+      duplicates++ // 同一通知被重复提交（群转发两遍、手滑双击）很常见，静默生成重复任务最伤信任
+      continue
+    }
     related++
     let status: TaskStatus = 'pending'
     if (mode === 'aggressive' && it.belongs_to_user === 'yes' && it.confidence >= 0.85 && it.suggested_action === 'add') {
@@ -174,36 +194,41 @@ function createTasksFromItems(sourceId: string, items: ParsedItem[]): { related:
       feedback: null
     })
   }
-  return { related, autoAdded }
+  return { related, autoAdded, duplicates }
 }
 
 async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
-  let text = payload.text
-  let imageDataUrl = payload.imageDataUrl
-  if (payload.filePath) {
-    const extracted = await extractFromFile(payload.filePath)
-    text = extracted.text
-    imageDataUrl = extracted.imageDataUrl
-  }
-
-  const source = createSource({
-    type: payload.type,
-    excerpt: text ? excerptOf(text) : payload.filePath ? `文件：${basename(payload.filePath)}` : '[图片]',
-    content: text ?? imageDataUrl ?? null,
-    filePath: payload.filePath ?? null
-  })
-
+  let source: ReturnType<typeof createSource> | null = null
   try {
+    let text = payload.text
+    let imageDataUrl = payload.imageDataUrl
+    // 文件抽取失败（不支持的格式/文件已删除/扫描件 PDF）也要走到 error summary，不能让 IPC reject
+    if (payload.filePath) {
+      const extracted = await extractFromFile(payload.filePath)
+      text = extracted.text
+      imageDataUrl = extracted.imageDataUrl
+    }
+
+    source = createSource({
+      type: payload.type,
+      excerpt: text ? excerptOf(text) : payload.filePath ? `文件：${basename(payload.filePath)}` : '[图片]',
+      content: text ?? imageDataUrl ?? null,
+      filePath: payload.filePath ?? null
+    })
+
     const items = await parseToItems({ text, imageDataUrl, hint: HINTS[payload.type] ?? HINTS.text_input })
-    const { related, autoAdded } = createTasksFromItems(source.id, items)
+    const { related, autoAdded, duplicates } = createTasksFromItems(source.id, items)
     broadcast('al1:tasks-updated')
-    return { sourceId: source.id, total: items.length, related, autoAdded, error: null }
+    return { sourceId: source.id, total: items.length, related, autoAdded, duplicates, error: null }
   } catch (e) {
+    // 解析失败的来源没有任何任务引用，UI 上不可见也删不掉，必须当场清理
+    if (source) deleteSourceRow(source.id)
     return {
-      sourceId: source.id,
+      sourceId: '',
       total: 0,
       related: 0,
       autoAdded: 0,
+      duplicates: 0,
       error: e instanceof Error ? e.message : String(e)
     }
   }
@@ -211,7 +236,15 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
 
 export async function submitPending(captureId: string): Promise<ParseSummary> {
   const payload = pendings.get(captureId)
-  if (!payload) return { sourceId: '', total: 0, related: 0, autoAdded: 0, error: '提交内容已失效，请重新捕获' }
+  if (!payload)
+    return {
+      sourceId: '',
+      total: 0,
+      related: 0,
+      autoAdded: 0,
+      duplicates: 0,
+      error: '提交内容已失效，请重新捕获'
+    }
   pendings.delete(captureId)
   return parseAndStore(payload)
 }
@@ -235,6 +268,7 @@ export async function submitFiles(paths: string[]): Promise<ParseSummary[]> {
         total: 0,
         related: 0,
         autoAdded: 0,
+        duplicates: 0,
         error: `${basename(p)}：${e instanceof Error ? e.message : String(e)}`
       })
     }

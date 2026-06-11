@@ -85,6 +85,8 @@ export interface ParseSummary {
   total: number
   related: number
   autoAdded: number
+  /** 与已有任务重复而被跳过的数量 */
+  duplicates: number
   error: string | null
 }
 

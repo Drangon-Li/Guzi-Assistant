@@ -5,3 +5,5 @@ dist/
 *.local
 .DS_Store
 *.tsbuildinfo
+test/agent-tmp/
+test/agent-shots/

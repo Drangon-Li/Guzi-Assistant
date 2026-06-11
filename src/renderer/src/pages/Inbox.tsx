@@ -23,24 +23,35 @@ export default function Inbox({ tasks, showToast, hotkeyLabel }: Props): React.J
   const [sourceId, setSourceId] = useState<string | null>(null)
 
   const pending = tasks.filter((t) => t.status === 'pending')
+  const ignored = tasks.filter((t) => t.status === 'ignored')
 
   const submitText = async (): Promise<void> => {
     const value = text.trim()
     if (!value || busy) return
     setBusy(true)
     showToast('解析中…')
-    const summary = await api.captureText(value)
-    setBusy(false)
-    if (!summary.error) setText('')
-    showToast(summaryToast(summary))
+    try {
+      const summary = await api.captureText(value)
+      if (!summary.error) setText('')
+      showToast(summaryToast(summary))
+    } catch (e) {
+      showToast(`解析失败：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const screenshot = async (): Promise<void> => {
     if (busy) return
     setBusy(true)
-    const summary = await api.captureScreenshot()
-    setBusy(false)
-    showToast(summary ? summaryToast(summary) : '已取消截图')
+    try {
+      const summary = await api.captureScreenshot()
+      showToast(summary ? summaryToast(summary) : '已取消截图')
+    } catch (e) {
+      showToast(`截图失败：${e instanceof Error ? e.message : String(e)}（请检查屏幕录制权限）`)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const join = (t: TaskRecord): void => {
@@ -135,8 +146,14 @@ export default function Inbox({ tasks, showToast, hotkeyLabel }: Props): React.J
             task={t}
             onJoin={() => join(t)}
             onEdit={() => setEditing(t)}
-            onIgnore={() => void api.updateTask(t.id, { status: 'ignored' })}
-            onNotMine={() => void api.updateTask(t.id, { status: 'ignored', feedback: 'not_mine' })}
+            onIgnore={() => {
+              void api.updateTask(t.id, { status: 'ignored' })
+              showToast('已忽略，可在下方「已忽略」区恢复')
+            }}
+            onNotMine={() => {
+              void api.updateTask(t.id, { status: 'ignored', feedback: 'not_mine' })
+              showToast('已标记为不是你的任务，可在下方「已忽略」区恢复')
+            }}
             onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
           />
         ))}
@@ -147,6 +164,35 @@ export default function Inbox({ tasks, showToast, hotkeyLabel }: Props): React.J
             看到通知先复制，再按{' '}
             <kbd className="rounded bg-slate-200 px-1.5 py-0.5 text-xs">{hotkeyLabel}</kbd> 丢给 al1。
           </div>
+        )}
+
+        {ignored.length > 0 && (
+          <details className="mt-4">
+            <summary className="cursor-pointer text-xs text-slate-400 select-none hover:text-slate-600">
+              已忽略（{ignored.length}）
+            </summary>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {ignored.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs text-slate-500">{t.title}</span>
+                  {t.feedback === 'not_mine' && (
+                    <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">
+                      不是我的
+                    </span>
+                  )}
+                  <button
+                    className="shrink-0 rounded px-2 py-1 text-[11px] text-indigo-600 hover:bg-indigo-50"
+                    onClick={() => void api.updateTask(t.id, { status: 'pending', feedback: null })}
+                  >
+                    恢复
+                  </button>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
       </div>
 

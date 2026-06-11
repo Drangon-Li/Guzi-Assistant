@@ -50,7 +50,7 @@ function buildGroups(timed: TaskRecord[], mode: ViewMode): Group[] {
       key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       const n = daysUntil(timeOf(task)!)
       label = n === 0 ? '今天' : n === 1 ? '明天' : `${md(d)} ${WEEKDAY[d.getDay()]}`
-      sub = n === 0 || n === 1 ? `${md(d)} ${WEEKDAY[d.getDay()]}` : `${n} 天后`
+      sub = n === 0 || n === 1 ? `${md(d)} ${WEEKDAY[d.getDay()]}` : n < 0 ? '已过去' : `${n} 天后`
     } else if (mode === 'week') {
       const mon = mondayOf(d)
       key = mon.toDateString()
@@ -58,7 +58,7 @@ function buildGroups(timed: TaskRecord[], mode: ViewMode): Group[] {
       const weekDiff = Math.round((mon.getTime() - thisMon.getTime()) / (7 * 86400000))
       const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6)
       label = weekDiff === 0 ? '本周' : weekDiff === 1 ? '下周' : `${md(mon)} – ${md(sun)}`
-      sub = weekDiff <= 1 ? `${md(mon)} – ${md(sun)}` : `${weekDiff} 周后`
+      sub = weekDiff < 0 ? '已过去' : weekDiff <= 1 ? `${md(mon)} – ${md(sun)}` : `${weekDiff} 周后`
     } else {
       key = `${d.getFullYear()}-${d.getMonth()}`
       label =
@@ -124,12 +124,17 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
           {upcoming.map((t) => {
             const time = timeOf(t)!
             const urgent = t.status === 'overdue' || daysUntil(time) <= 3
+            const cd = countdownLabel(time)
             const label =
               t.status === 'overdue'
                 ? daysUntil(time) === 0
                   ? '今天已超期'
-                  : countdownLabel(time)
-                : `${countdownLabel(time)}${t.dueTime ? '截止' : '开始'}`
+                  : cd
+                : cd === '今天已过' || daysUntil(time) < 0
+                  ? t.dueTime
+                    ? '已到期'
+                    : '已开始'
+                  : `${cd}${t.dueTime ? '截止' : '开始'}`
             return (
               <button
                 key={t.id}

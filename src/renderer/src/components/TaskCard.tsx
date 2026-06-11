@@ -38,7 +38,7 @@ export default function TaskCard({
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
         {task.startTime && <span>开始：{fmtTime(task.startTime)}</span>}
         {task.dueTime && <span className="text-red-500">截止：{fmtTime(task.dueTime)}</span>}
-        {task.location && <span>地点:{task.location}</span>}
+        {task.location && <span>地点：{task.location}</span>}
         <span>{ROLE_LABELS[task.userRole]}</span>
       </div>
 

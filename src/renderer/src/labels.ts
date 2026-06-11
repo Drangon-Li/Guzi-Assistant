@@ -102,10 +102,11 @@ export function daysUntil(t: string): number {
 
 export function countdownLabel(t: string): string {
   const n = daysUntil(t)
+  if (Number.isNaN(n)) return ''
   if (n < 0) return `已超期 ${-n} 天`
   if (n === 0) {
     const h = Math.floor((new Date(t).getTime() - Date.now()) / 3600000)
-    return h <= 0 ? '今天' : `还有 ${h} 小时`
+    return h <= 0 ? '今天已过' : `还有 ${h} 小时`
   }
   if (n === 1) return '明天'
   return `还有 ${n} 天`
@@ -129,8 +130,12 @@ export function formatHotkey(acc: string): string {
 
 export function summaryToast(s: ParseSummary): string {
   if (s.error) return `解析失败：${s.error}`
-  if (!s.related) return '解析完成，未发现与你相关的事项'
+  if (!s.related) {
+    return s.duplicates
+      ? `内容与已有任务重复，已跳过 ${s.duplicates} 个`
+      : '解析完成，未发现与你相关的事项'
+  }
   return `发现 ${s.related} 个可能与你有关的事项${
     s.autoAdded ? `，其中 ${s.autoAdded} 个已自动加入日程` : '，已进入待确认收件箱'
-  }`
+  }${s.duplicates ? `；另跳过 ${s.duplicates} 个重复任务` : ''}`
 }

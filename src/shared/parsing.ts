@@ -55,11 +55,13 @@ ${lines.join('\n')}
 3. @所有人 / 全体成员 / 群发任务 → belongs_to_user=uncertain，confidence 不超过 0.7，suggested_action=confirm，绝不能直接 add。
 4. 多人分工（A 做调研，B 做汇总）→ 只提取分配给用户的项；明确分配给别人的事项 belongs_to_user=no。
 5. 模糊通知（"近期请大家完成填报"）→ uncertain，confidence 0.3~0.5，suggested_action=confirm。
+5b. 点名了用户但语气委婉、无明确义务或时限的请求（"有空看一下""不急"）→ belongs 可为 yes，但 priority=low 且 suggested_action=confirm，不要 add。
 6. 纯宣传/广告/讲座海报等无明确义务的内容 → 不生成任务；只有存在明确报名/缴费截止且与用户身份强相关时才生成 uncertain 项。
 7. belonging_reason 用一句中文说明判断依据（如"内容点名了用户姓名张三"）。
 8. evidence 必须是原文中逐字出现的句子或片段，每项 1~3 条。
 
 # 信息提取要求
+- 原文中的密码、验证码、token、卡号等凭据**绝不能**出现在 title/notes 中（如需提及用 *** 代替）；evidence 优先选取不含凭据的句子。
 - 地点尽量提取完整：楼宇/房间号/校区/会议室/线上会议链接等（如 "C8-8308 象山"）。
 - notes：提取与该任务直接相关的注意事项、须知和准备要求（需携带的证件材料、提前到场时间、禁带物品、着装要求、联系方式等），每条凝练成一句话，按重要性排序，最多 10 条；没有则为空数组。
 - 同一通知里的主事项与附属事项要拆成独立任务（如笔试和面试是两个任务），各自带自己的时间、地点和 notes。
@@ -93,10 +95,21 @@ export function extractText(data: ResponsesOutput): string {
 
 function normalizeTime(v: unknown): string | null {
   if (typeof v !== 'string') return null
-  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?/)
+  const m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{1,2}))?(?![\d:])/)
   if (!m) return null
-  if (!m[4]) return `${m[1]}-${m[2]}-${m[3]}T23:59`
-  return `${m[1]}-${m[2]}-${m[3]}T${m[4].padStart(2, '0')}:${m[5]}`
+  const year = Number(m[1])
+  const month = Number(m[2])
+  const day = Number(m[3])
+  // 时间部分缺失按当天 23:59 截止；时间部分存在但非法则整体作废，宁缺勿错
+  const hour = m[4] !== undefined ? Number(m[4]) : 23
+  const minute = m[5] !== undefined ? Number(m[5]) : 59
+  if (hour > 23 || minute > 59) return null
+  const probe = new Date(year, month - 1, day)
+  if (probe.getFullYear() !== year || probe.getMonth() !== month - 1 || probe.getDate() !== day) {
+    return null
+  }
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}`
 }
 
 function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
@@ -106,7 +119,10 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T)
 export function normalizeItem(raw: Record<string, unknown>): ParsedItem | null {
   const title = typeof raw.title === 'string' ? raw.title.trim() : ''
   if (!title) return null
-  const conf = typeof raw.confidence === 'number' ? Math.min(1, Math.max(0, raw.confidence)) : 0.3
+  const conf =
+    typeof raw.confidence === 'number' && Number.isFinite(raw.confidence)
+      ? Math.min(1, Math.max(0, raw.confidence))
+      : 0.3
   return {
     title,
     item_type: oneOf(raw.item_type, ['deadline', 'meeting', 'reminder', 'preparation', 'follow_up', 'other'] as const, 'other'),
