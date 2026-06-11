@@ -10,6 +10,24 @@ interface Props {
 const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none'
 
+const HOTKEYS: { value: HotkeyMode; label: string; desc: string }[] = [
+  {
+    value: 'alt_c',
+    label: 'Option + C（默认）',
+    desc: '复制完顺手就能按；会占用特殊字符 ç 的输入，对中文输入无影响'
+  },
+  {
+    value: 'alt_space',
+    label: 'Option + Space',
+    desc: '可能与 Alfred / Raycast 等工具的唤起键冲突'
+  },
+  {
+    value: 'cmd_shift_c',
+    label: 'Cmd + Shift + C',
+    desc: '会占用 Chrome「检查元素」等应用内快捷键'
+  }
+]
+
 function splitList(s: string): string[] {
   return s
     .split(/[,，、;；\s]+/)
@@ -76,8 +94,8 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
   const setHotkey = async (mode: HotkeyMode): Promise<void> => {
     setSettings({ ...settings, hotkeyMode: mode })
-    await api.saveSettings({ hotkeyMode: mode })
-    loadPerms()
+    const ok = await api.saveSettings({ hotkeyMode: mode })
+    flash(ok ? '快捷键已更新' : '注册失败：该快捷键可能被其他应用占用，请换一个')
   }
 
   const saveApi = async (): Promise<void> => {
@@ -191,49 +209,26 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
       <Section title="快捷键">
         <div className="flex flex-col gap-2">
-          <button
-            onClick={() => void setHotkey('space_c')}
-            className={`rounded-xl border px-4 py-2.5 text-left ${
-              settings.hotkeyMode === 'space_c'
-                ? 'border-indigo-400 bg-indigo-50'
-                : 'border-slate-200 hover:border-slate-300'
-            }`}
-          >
-            <div className="text-sm font-medium">按住 Space 再按 C（默认）</div>
-            <div className="text-xs leading-5 text-slate-400">
-              需要 macOS 辅助功能权限。注意：若焦点在其他应用的输入框，空格和 c 仍会被输入。
-            </div>
-          </button>
-          <button
-            onClick={() => void setHotkey('alt_space')}
-            className={`rounded-xl border px-4 py-2.5 text-left ${
-              settings.hotkeyMode === 'alt_space'
-                ? 'border-indigo-400 bg-indigo-50'
-                : 'border-slate-200 hover:border-slate-300'
-            }`}
-          >
-            <div className="text-sm font-medium">Option + Space</div>
-            <div className="text-xs text-slate-400">无输入副作用；与 Space+C 冲突时的推荐备选。</div>
-          </button>
+          {HOTKEYS.map((h) => (
+            <button
+              key={h.value}
+              onClick={() => void setHotkey(h.value)}
+              className={`rounded-xl border px-4 py-2.5 text-left ${
+                settings.hotkeyMode === h.value
+                  ? 'border-indigo-400 bg-indigo-50'
+                  : 'border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              <div className="text-sm font-medium">{h.label}</div>
+              <div className="text-xs leading-5 text-slate-400">{h.desc}</div>
+            </button>
+          ))}
         </div>
       </Section>
 
       <Section title="权限状态">
         {perms && (
           <div className="flex flex-col gap-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span>辅助功能（Space+C 全局监听需要）</span>
-              {perms.accessibility ? (
-                <span className="text-xs text-emerald-600">已授权</span>
-              ) : (
-                <button
-                  className="rounded-lg border border-amber-300 px-2 py-1 text-xs text-amber-600 hover:bg-amber-50"
-                  onClick={() => void api.openAccessibility()}
-                >
-                  未授权，去系统设置开启
-                </button>
-              )}
-            </div>
             <div className="flex items-center justify-between">
               <span>屏幕录制（截图捕获其他应用内容需要）</span>
               <span

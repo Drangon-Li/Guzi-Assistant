@@ -18,7 +18,8 @@ export const api = {
   saveProfile: (p: Profile) => inv<void>('profile:save', p),
 
   getSettings: () => inv<AppSettings>('settings:get'),
-  saveSettings: (patch: Partial<AppSettings>) => inv<void>('settings:save', patch),
+  /** 返回 false 表示快捷键注册失败（被其他应用占用） */
+  saveSettings: (patch: Partial<AppSettings>) => inv<boolean>('settings:save', patch),
 
   listTasks: () => inv<TaskRecord[]>('tasks:list'),
   updateTask: (id: string, patch: Partial<TaskRecord>) => inv<void>('tasks:update', id, patch),
@@ -38,7 +39,6 @@ export const api = {
 
   wipeData: () => inv<void>('data:wipe'),
   permissions: () => inv<PermissionStatus>('permissions:get'),
-  openAccessibility: () => inv<void>('permissions:open-accessibility'),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
 
   on: (channel: string, cb: (payload: unknown) => void) => window.al1.on(channel, cb)

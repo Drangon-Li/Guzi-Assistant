@@ -1,4 +1,4 @@
-import { ipcMain, shell, systemPreferences } from 'electron'
+import { ipcMain, systemPreferences } from 'electron'
 import {
   bulkUpdateStatus,
   deleteSourceContent,
@@ -20,7 +20,7 @@ import {
   submitText,
   takeScreenshot
 } from './capture'
-import { accessibilityGranted, ensureHotkey, setHotkeyMode } from './hotkey'
+import { setHotkeyMode } from './hotkey'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
@@ -36,7 +36,8 @@ export function registerIpc(): void {
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {
     saveSettings(patch)
-    if (patch.hotkeyMode) setHotkeyMode(patch.hotkeyMode)
+    if (patch.hotkeyMode) return setHotkeyMode(patch.hotkeyMode)
+    return true
   })
 
   ipcMain.handle('capture:clipboard', () => triggerClipboardCapture())
@@ -77,20 +78,13 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('permissions:get', (): PermissionStatus => {
-    ensureHotkey()
     const settings = getSettings()
     return {
-      accessibility: accessibilityGranted(),
       screen:
         process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'granted',
       apiConfigured: !!(settings.apiBase && settings.apiKey)
     }
   })
-  ipcMain.handle('permissions:open-accessibility', () =>
-    shell.openExternal(
-      'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
-    )
-  )
 
   ipcMain.handle('app:focus-main', (_e, route?: string) => {
     hidePreview()

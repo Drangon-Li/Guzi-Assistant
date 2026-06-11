@@ -74,8 +74,12 @@ export function getSettings(): AppSettings {
   const env = loadEnv()
   const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
+  const hotkeys: AppSettings['hotkeyMode'][] = ['alt_c', 'alt_space', 'cmd_shift_c']
   return {
-    hotkeyMode: (map.hotkeyMode as AppSettings['hotkeyMode']) || 'space_c',
+    // 旧版本存过 space_c，统一回落到 alt_c
+    hotkeyMode: hotkeys.includes(map.hotkeyMode as AppSettings['hotkeyMode'])
+      ? (map.hotkeyMode as AppSettings['hotkeyMode'])
+      : 'alt_c',
     apiBase: map.apiBase || env.AL1_API_BASE || '',
     apiKey: map.apiKey || env.AL1_API_KEY || '',
     model: map.model || env.AL1_MODEL || 'gpt-5.5'

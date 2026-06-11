@@ -110,7 +110,7 @@ function MainApp(): React.JSX.Element | null {
           ))}
         </nav>
         <div className="mt-auto px-5 pb-5 text-[11px] leading-5 text-slate-400">
-          复制内容后按住 Space 再按 C，快速提交剪切板。
+          复制内容后按 ⌥C（Option + C），快速提交剪切板。
         </div>
       </aside>
 
