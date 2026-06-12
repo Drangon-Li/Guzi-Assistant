@@ -76,6 +76,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
   const [note, setNote] = useState('')
   const [recording, setRecording] = useState(false)
+  const [qaInstalled, setQaInstalled] = useState(false)
 
   const loadPerms = (): void => {
     void api.permissions().then(setPerms)
@@ -90,6 +91,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       }
     })
     void api.getSettings().then(setSettings)
+    void api.quickActionStatus().then(setQaInstalled)
     loadPerms()
   }, [])
 
@@ -291,6 +293,39 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               {formatHotkey(acc)}
             </button>
           ))}
+        </div>
+      </Section>
+
+      <Section title="系统集成">
+        <div className="flex flex-col gap-3 text-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div>访达右键快速操作</div>
+              <div className="mt-0.5 text-xs leading-5 text-slate-400">
+                安装后在访达中选中文件 → 右键 → 快速操作 → 「发送到 al1」，文件会直接进入解析流程（应用未运行时会在下次启动时补处理）。
+              </div>
+            </div>
+            <button
+              className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs ${
+                qaInstalled
+                  ? 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                  : 'border-indigo-300 text-indigo-600 hover:bg-indigo-50'
+              }`}
+              onClick={async () => {
+                const ok = await api.installQuickAction()
+                setQaInstalled(ok)
+                flash(ok ? '已安装到 访达 右键菜单' : '安装失败，请重试')
+              }}
+            >
+              {qaInstalled ? '已安装（点击重装）' : '安装'}
+            </button>
+          </div>
+          <div>
+            <div>托盘拖拽</div>
+            <div className="mt-0.5 text-xs leading-5 text-slate-400">
+              把文件直接拖到菜单栏的 al1 图标上即可提交解析，无需安装。
+            </div>
+          </div>
         </div>
       </Section>
 

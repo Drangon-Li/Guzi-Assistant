@@ -39,6 +39,8 @@ export const api = {
 
   wipeData: () => inv<void>('data:wipe'),
   permissions: () => inv<PermissionStatus>('permissions:get'),
+  quickActionStatus: () => inv<boolean>('quickaction:status'),
+  installQuickAction: () => inv<boolean>('quickaction:install'),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
 
   on: (channel: string, cb: (payload: unknown) => void) => window.al1.on(channel, cb)

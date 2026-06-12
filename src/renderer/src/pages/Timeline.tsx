@@ -92,6 +92,7 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
   const upcoming = active
     .filter((t) => timeOf(t))
     .sort((a, b) => timeOf(a)!.localeCompare(timeOf(b)!))
+    .slice(0, 3)
   const groups = buildGroups(timed, mode)
 
   return (

@@ -6,7 +6,7 @@ import { SOURCE_LABELS } from '../labels'
 type State =
   | { phase: 'idle' }
   | { phase: 'preview'; capture: PendingCapture; left: number }
-  | { phase: 'loading' }
+  | { phase: 'loading'; message?: string }
   | { phase: 'result'; summary: ParseSummary }
   | { phase: 'error'; message: string }
   | { phase: 'empty'; message: string }
@@ -46,9 +46,19 @@ export default function PreviewCard(): React.JSX.Element | null {
 
   useEffect(() => {
     return api.on('al1:preview', (payload) => {
-      const p = payload as (PendingCapture & { error?: undefined }) | { error: string }
+      const p = payload as
+        | (PendingCapture & { error?: undefined; busy?: undefined; summary?: undefined })
+        | { error: string; busy?: undefined; summary?: undefined }
+        | { busy: string; error?: undefined; summary?: undefined }
+        | { summary: ParseSummary; error?: undefined; busy?: undefined }
       submitIdRef.current = ''
-      if ('error' in p && p.error) {
+      if (p.busy) {
+        // 托盘拖拽 / 右键快速操作：主进程直接驱动进度与结果
+        setState({ phase: 'loading', message: p.busy })
+      } else if (p.summary) {
+        if (p.summary.error) setState({ phase: 'error', message: p.summary.error })
+        else setState({ phase: 'result', summary: p.summary })
+      } else if ('error' in p && p.error) {
         setState({ phase: 'empty', message: p.error })
       } else {
         const capture = p as PendingCapture
@@ -156,7 +166,7 @@ export default function PreviewCard(): React.JSX.Element | null {
         {state.phase === 'loading' && (
           <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
             <span className="size-3 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-            al1 正在解析…
+            {state.message ?? 'al1 正在解析…'}
           </div>
         )}
 

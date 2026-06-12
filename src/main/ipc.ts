@@ -22,6 +22,7 @@ import {
   takeScreenshot
 } from './capture'
 import { setHotkey } from './hotkey'
+import { installQuickAction, quickActionInstalled } from './quickaction'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
@@ -107,6 +108,9 @@ export function registerIpc(): void {
       apiConfigured: !!(settings.apiBase && settings.apiKey)
     }
   })
+
+  ipcMain.handle('quickaction:status', () => quickActionInstalled())
+  ipcMain.handle('quickaction:install', () => installQuickAction())
 
   ipcMain.handle('app:focus-main', (_e, route?: string) => {
     hidePreview()

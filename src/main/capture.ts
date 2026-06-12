@@ -9,7 +9,7 @@ import mammoth from 'mammoth'
 import { detectSensitive } from './sensitive'
 import { createSource, createTask, deleteSourceRow, getProfile, taskExists } from './db'
 import { parseToItems, type ParsedItem } from './parser'
-import { broadcast } from './windows'
+import { broadcast, showPreview } from './windows'
 import type { ParseSummary, PendingCapture, SourceType, TaskStatus } from '@shared/types'
 
 interface PendingPayload {
@@ -218,8 +218,10 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
 
     const items = await parseToItems({ text, imageDataUrl, hint: HINTS[payload.type] ?? HINTS.text_input })
     const { related, autoAdded, duplicates } = createTasksFromItems(source.id, items)
+    // 没有任何任务引用的来源在 UI 上不可见也删不掉，不留库
+    if (related === 0) deleteSourceRow(source.id)
     broadcast('al1:tasks-updated')
-    return { sourceId: source.id, total: items.length, related, autoAdded, duplicates, error: null }
+    return { sourceId: related ? source.id : '', total: items.length, related, autoAdded, duplicates, error: null }
   } catch (e) {
     // 解析失败的来源没有任何任务引用，UI 上不可见也删不掉，必须当场清理
     if (source) deleteSourceRow(source.id)
@@ -255,6 +257,25 @@ export async function submitText(text: string): Promise<ParseSummary> {
 
 export async function submitScreenshot(dataUrl: string): Promise<ParseSummary> {
   return parseAndStore({ type: 'screenshot', imageDataUrl: dataUrl })
+}
+
+/** 托盘拖拽 / 右键快速操作的入口：用预览卡反馈进度和结果 */
+export async function submitExternalFiles(paths: string[]): Promise<void> {
+  showPreview({
+    busy: paths.length === 1 ? `正在解析 ${basename(paths[0])}…` : `正在解析 ${paths.length} 个文件…`
+  })
+  const results = await submitFiles(paths)
+  const merged: ParseSummary = {
+    sourceId: '',
+    total: results.reduce((n, r) => n + r.total, 0),
+    related: results.reduce((n, r) => n + r.related, 0),
+    autoAdded: results.reduce((n, r) => n + r.autoAdded, 0),
+    duplicates: results.reduce((n, r) => n + r.duplicates, 0),
+    error: null
+  }
+  const errors = results.filter((r) => r.error)
+  if (errors.length && !merged.related && !merged.duplicates) merged.error = errors[0].error!
+  showPreview({ summary: merged })
 }
 
 export async function submitFiles(paths: string[]): Promise<ParseSummary[]> {
