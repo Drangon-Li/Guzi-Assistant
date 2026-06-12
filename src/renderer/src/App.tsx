@@ -3,16 +3,16 @@ import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { api } from './api'
 import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
-import Inbox from './pages/Inbox'
+import Assistant from './pages/Assistant'
 import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
 import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
 
-type Page = 'inbox' | 'timeline' | 'schedule' | 'settings'
+type Page = 'assistant' | 'timeline' | 'schedule' | 'settings'
 
 const NAV: { key: Page; label: string }[] = [
-  { key: 'inbox', label: '待确认收件箱' },
+  { key: 'assistant', label: '助手' },
   { key: 'timeline', label: '时间轴' },
   { key: 'schedule', label: '日程' },
   { key: 'settings', label: '设置' }
@@ -25,7 +25,7 @@ export default function App(): React.JSX.Element {
 
 function MainApp(): React.JSX.Element | null {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
-  const [page, setPage] = useState<Page>('inbox')
+  const [page, setPage] = useState<Page>('assistant')
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -53,8 +53,8 @@ function MainApp(): React.JSX.Element | null {
     const offTasks = api.on('al1:tasks-updated', refresh)
     const offSettings = api.on('al1:settings-updated', loadHotkey)
     const offNav = api.on('al1:navigate', (route) => {
-      if (route === 'inbox' || route === 'timeline' || route === 'schedule' || route === 'settings')
-        setPage(route)
+      if (route === 'inbox' || route === 'assistant') setPage('assistant')
+      else if (route === 'timeline' || route === 'schedule' || route === 'settings') setPage(route)
     })
     return () => {
       offTasks()
@@ -116,7 +116,7 @@ function MainApp(): React.JSX.Element | null {
               }`}
             >
               <span>{item.label}</span>
-              {item.key === 'inbox' && pendingCount > 0 && (
+              {item.key === 'assistant' && pendingCount > 0 && (
                 <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] leading-none text-white">
                   {pendingCount}
                 </span>
@@ -130,8 +130,15 @@ function MainApp(): React.JSX.Element | null {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div key={page} className="animate-page">
-          {page === 'inbox' && <Inbox tasks={tasks} showToast={showToast} hotkeyLabel={hotkeyLabel} />}
+        <div key={page} className={page === 'assistant' ? 'animate-page h-full' : 'animate-page'}>
+          {page === 'assistant' && (
+            <Assistant
+              tasks={tasks}
+              showToast={showToast}
+              hotkeyLabel={hotkeyLabel}
+              userName={profile.name}
+            />
+          )}
           {page === 'timeline' && <Timeline tasks={tasks} />}
           {page === 'schedule' && <Schedule tasks={tasks} />}
           {page === 'settings' && <Settings onProfileChange={setProfile} />}

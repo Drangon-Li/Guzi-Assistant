@@ -18,9 +18,10 @@ import {
   submitFiles,
   submitPending,
   submitScreenshot,
-  submitText,
   takeScreenshot
 } from './capture'
+import { assistantAdd, assistantChat } from './assistant'
+import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
 import { setHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
@@ -59,7 +60,6 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('capture:clipboard', () => triggerClipboardCapture())
-  ipcMain.handle('capture:text', (_e, text: string) => submitText(text))
   ipcMain.handle('capture:files', (_e, paths: string[]) => submitFiles(paths))
   ipcMain.handle('capture:screenshot', async () => {
     const dataUrl = await takeScreenshot()
@@ -111,6 +111,15 @@ export function registerIpc(): void {
 
   ipcMain.handle('quickaction:status', () => quickActionInstalled())
   ipcMain.handle('quickaction:install', () => installQuickAction())
+
+  ipcMain.handle(
+    'assistant:chat',
+    (_e, payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
+      assistantChat(payload)
+  )
+  ipcMain.handle('assistant:add', (_e, payload: { sourceText: string; item: ParsedItem }) =>
+    assistantAdd(payload)
+  )
 
   ipcMain.handle('app:focus-main', (_e, route?: string) => {
     hidePreview()

@@ -207,7 +207,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                 <button
                   className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700"
                   onClick={() => {
-                    void api.focusMain('inbox')
+                    void api.focusMain('assistant')
                     setState({ phase: 'idle' })
                   }}
                 >

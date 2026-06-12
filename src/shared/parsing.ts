@@ -31,26 +31,20 @@ const IDENTITY_LABELS: Record<Profile['identity'], string> = {
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
-export function buildInstructions(profile: Profile): string {
-  const lines = [
+function profileBlock(profile: Profile): string {
+  return [
     `- 姓名：${profile.name}`,
     profile.nicknames.length ? `- 常用昵称/英文名：${profile.nicknames.join('、')}` : '',
     profile.accounts.length ? `- 常用账号名：${profile.accounts.join('、')}` : '',
     `- 身份：${IDENTITY_LABELS[profile.identity]}`,
     profile.org ? `- 组织/学校/公司：${profile.org}` : '',
     profile.group ? `- 班级/课题组/岗位/客户项目：${profile.group}` : ''
-  ].filter(Boolean)
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
 
-  const now = localNow()
-  const weekday = WEEKDAYS[new Date().getDay()]
-
-  return `你是 al1（个人事项捕获助手）的解析引擎。用户会提交剪切板文本、聊天截图、通知、邮件或文件内容，你需要从中提取「行动项/待办」，并判断每一项是否属于该用户本人。
-
-# 用户档案
-${lines.join('\n')}
-
-# 归属判断规则
-1. 内容明确点名用户姓名/昵称/账号 → belongs_to_user=yes，confidence 0.85~1.0，suggested_action=add。
+const BELONGING_RULES = `1. 内容明确点名用户姓名/昵称/账号 → belongs_to_user=yes，confidence 0.85~1.0，suggested_action=add。
 2. 按角色/身份匹配（如"产品同学"且用户岗位是产品）→ belongs_to_user=yes 或 uncertain，confidence 0.6~0.85，suggested_action=confirm。
 3. @所有人 / 全体成员 / 群发任务 → belongs_to_user=uncertain，confidence 不超过 0.7，suggested_action=confirm，绝不能直接 add。
 4. 多人分工（A 做调研，B 做汇总）→ 只提取分配给用户的项；明确分配给别人的事项 belongs_to_user=no。
@@ -58,21 +52,135 @@ ${lines.join('\n')}
 5b. 点名了用户但语气委婉、无明确义务或时限的请求（"有空看一下""不急"）→ belongs 可为 yes，但 priority=low 且 suggested_action=confirm，不要 add。
 6. 纯宣传/广告/讲座海报等无明确义务的内容 → 不生成任务；只有存在明确报名/缴费截止且与用户身份强相关时才生成 uncertain 项。
 7. belonging_reason 用一句中文说明判断依据（如"内容点名了用户姓名张三"）。
-8. evidence 必须是原文中逐字出现的句子或片段，每项 1~3 条。
+8. evidence 必须是原文中逐字出现的句子或片段，每项 1~3 条。`
 
-# 信息提取要求
-- 原文中的密码、验证码、token、卡号等凭据**绝不能**出现在 title/notes 中（如需提及用 *** 代替）；evidence 优先选取不含凭据的句子。
+const EXTRACT_RULES = `- 原文中的密码、验证码、token、卡号等凭据**绝不能**出现在 title/notes 中（如需提及用 *** 代替）；evidence 优先选取不含凭据的句子。
 - 地点尽量提取完整：楼宇/房间号/校区/会议室/线上会议链接等（如 "C8-8308 象山"）。
 - notes：提取与该任务直接相关的注意事项、须知和准备要求（需携带的证件材料、提前到场时间、禁带物品、着装要求、联系方式等），每条凝练成一句话，按重要性排序，最多 10 条；没有则为空数组。
-- 同一通知里的主事项与附属事项要拆成独立任务（如笔试和面试是两个任务），各自带自己的时间、地点和 notes。
+- 同一通知里的主事项与附属事项要拆成独立任务（如笔试和面试是两个任务），各自带自己的时间、地点和 notes。`
+
+function timeRules(): string {
+  const now = localNow()
+  const weekday = WEEKDAYS[new Date().getDay()]
+  return `当前时间是 ${now}（${weekday}）。把"明天""周五前""6月20日"等相对时间解析为本地时间，格式 YYYY-MM-DDTHH:mm。考试/会议等有明确开始时间的填 start_time；"X 前完成"类填 due_time；只有日期没有具体时间的截止，时间用 23:59。日期明确但只说"全天"或具体钟点待通知的活动，start_time 填当天 00:00，不要因为钟点未定就留 null。原文连日期都没有提到的字段必须为 null，不要编造。`
+}
+
+const ITEM_FIELDS = `{"title":"任务标题","item_type":"deadline|meeting|reminder|preparation|follow_up|other","belongs_to_user":"yes|no|uncertain","belonging_reason":"判断依据","user_role":"owner|participant|notified|helper|unclear","start_time":"YYYY-MM-DDTHH:mm 或 null","due_time":"YYYY-MM-DDTHH:mm 或 null","location":"地点或 null","priority":"high|medium|low|unknown","confidence":0.0,"suggested_action":"add|confirm|ignore|ask_user","notes":["注意事项，可为空数组"],"evidence":["原文片段"]}`
+
+/** 捕获解析（剪切板/截图/文件提交）的系统提示词 */
+export function buildInstructions(profile: Profile): string {
+  return `你是 al1（个人事项捕获助手）的解析引擎。用户会提交剪切板文本、聊天截图、通知、邮件或文件内容，你需要从中提取「行动项/待办」，并判断每一项是否属于该用户本人。
+
+# 用户档案
+${profileBlock(profile)}
+
+# 归属判断规则
+${BELONGING_RULES}
+
+# 信息提取要求
+${EXTRACT_RULES}
 
 # 时间解析
-当前时间是 ${now}（${weekday}）。把"明天""周五前""6月20日"等相对时间解析为本地时间，格式 YYYY-MM-DDTHH:mm。考试/会议等有明确开始时间的填 start_time；"X 前完成"类填 due_time；只有日期没有具体时间的截止，时间用 23:59。日期明确但只说"全天"或具体钟点待通知的活动，start_time 填当天 00:00，不要因为钟点未定就留 null。原文连日期都没有提到的字段必须为 null，不要编造。
+${timeRules()}
 
 # 输出格式
 只输出一个 JSON 对象，不要输出任何其他文字或代码块标记：
-{"items":[{"title":"任务标题","item_type":"deadline|meeting|reminder|preparation|follow_up|other","belongs_to_user":"yes|no|uncertain","belonging_reason":"判断依据","user_role":"owner|participant|notified|helper|unclear","start_time":"YYYY-MM-DDTHH:mm 或 null","due_time":"YYYY-MM-DDTHH:mm 或 null","location":"地点或 null","priority":"high|medium|low|unknown","confidence":0.0,"suggested_action":"add|confirm|ignore|ask_user","notes":["注意事项，可为空数组"],"evidence":["原文片段"]}]}
+{"items":[${ITEM_FIELDS}]}
 没有可提取的任务时输出 {"items":[]}。`
+}
+
+// ---------- 助手对话 ----------
+
+export interface ChatHistoryItem {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/** 上一轮生成的候选事项及其来源原文，作为下一轮对话的上下文 */
+export interface CandidateContext {
+  sourceText: string
+  items: ParsedItem[]
+}
+
+export interface AddInstruction {
+  candidate: number
+  patch: Record<string, unknown> | null
+}
+
+export interface AssistantEnvelope {
+  reply: string
+  candidates: ParsedItem[]
+  add: AddInstruction[]
+}
+
+export interface AddedInfo {
+  candidate: number
+  title: string
+  time: string | null
+  duplicate: boolean
+}
+
+export interface AssistantTurnResult {
+  reply: string
+  candidates: ParsedItem[] | null
+  added: AddedInfo[]
+  error: string | null
+}
+
+/** 助手对话的系统提示词：捕获 + 日程问答 + 候选确认三合一 */
+export function buildAssistantInstructions(
+  profile: Profile,
+  tasksJson: string,
+  candidates: ParsedItem[] | null
+): string {
+  const now = localNow()
+  const weekday = WEEKDAYS[new Date().getDay()]
+  return `你是 al1，${profile.name} 的个人事项助手。你帮用户从日常信息中捕获待办、回答日程问题、给出行动建议。语气自然、简洁、可靠，像一位靠谱的私人助理。
+
+# 用户档案
+${profileBlock(profile)}
+
+# 当前时间
+${now}（${weekday}）
+
+# 用户的任务数据（最新）
+${tasksJson}
+status 含义：pending=待确认（用户还没确认，不算正式日程）、not_started=未开始、scheduled=已安排、in_progress=进行中、overdue=已延期。
+
+# 输出格式
+每轮只输出一个 JSON 对象，不要输出任何其他文字或代码块标记：
+{"reply":"对用户说的话","candidates":[],"add":[]}
+
+## reply（必填）
+简洁中文，可换行。列日程时一行一条、用「· 」开头，时间写成「6月15日 14:00」这种格式，并注明剩余时间（今天/明天/还有 N 天/已延期）。不要用 markdown 表格或标题。
+
+## candidates（捕获场景才填）
+当用户消息本质上是要记录的信息（粘贴的群通知/聊天记录/邮件/口头描述的事项）时，提取最多 3 个候选事项，按与用户的相关度排序；其余场景为 []。
+每个候选的结构：${ITEM_FIELDS}
+归属判断规则：
+${BELONGING_RULES}
+时间解析：
+${timeRules()}
+信息提取要求：
+${EXTRACT_RULES}
+生成候选时，reply 简短说明发现了什么，并提醒用户可以点卡片加入，或直接用一句话告诉你选哪个、要改什么。
+
+## add（用户确认候选时才填）
+当用户明确表示要加入某个候选（如"加第一个""第二个吧，时间改到周五下午"）时填写：[{"candidate":候选序号,"patch":{要修改的字段}或null}]。
+- candidate 是下方「当前候选列表」的序号，从 1 开始
+- patch 只包含要修改的字段，可用：title/start_time/due_time/location/priority/item_type/notes；时间字段格式 YYYY-MM-DDTHH:mm
+- 加入后在 reply 里确认（标题 + 时间）；用户表示都不要时 add 为 [] 并在 reply 里确认不添加
+- 没有候选时用户却要求添加 → 在 reply 里说明需要先把信息发给你
+
+# 当前候选列表（用户上一轮收到的草稿）
+${candidates && candidates.length ? JSON.stringify(candidates.map((c, i) => ({ 序号: i + 1, ...c }))) : '（无）'}
+
+# 回答日程问题的原则
+- "今天/最近有什么安排" → 从任务数据中按时间挑出相关项列出
+- "哪些紧急" → 按截止时间近、优先级高排序，给前 2~3 个并说明原因
+- "我现在该干什么" → 结合当前时间、截止压力和优先级，明确建议先做哪一件，给一两句理由
+- 任务数据里没有的不要编造；没有匹配的任务就直说
+- 提到 pending 状态的任务时，提醒用户它还在待确认，确认后才进日程`
 }
 
 export interface ResponsesOutput {
@@ -116,6 +224,9 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T)
   return allowed.includes(v as T) ? (v as T) : fallback
 }
 
+const ITEM_TYPES = ['deadline', 'meeting', 'reminder', 'preparation', 'follow_up', 'other'] as const
+const PRIORITIES = ['high', 'medium', 'low', 'unknown'] as const
+
 export function normalizeItem(raw: Record<string, unknown>): ParsedItem | null {
   const title = typeof raw.title === 'string' ? raw.title.trim() : ''
   if (!title) return null
@@ -125,14 +236,14 @@ export function normalizeItem(raw: Record<string, unknown>): ParsedItem | null {
       : 0.3
   return {
     title,
-    item_type: oneOf(raw.item_type, ['deadline', 'meeting', 'reminder', 'preparation', 'follow_up', 'other'] as const, 'other'),
+    item_type: oneOf(raw.item_type, ITEM_TYPES, 'other'),
     belongs_to_user: oneOf(raw.belongs_to_user, ['yes', 'no', 'uncertain'] as const, 'uncertain'),
     belonging_reason: typeof raw.belonging_reason === 'string' ? raw.belonging_reason : '',
     user_role: oneOf(raw.user_role, ['owner', 'participant', 'notified', 'helper', 'unclear'] as const, 'unclear'),
     start_time: normalizeTime(raw.start_time),
     due_time: normalizeTime(raw.due_time),
     location: typeof raw.location === 'string' && raw.location ? raw.location : null,
-    priority: oneOf(raw.priority, ['high', 'medium', 'low', 'unknown'] as const, 'unknown'),
+    priority: oneOf(raw.priority, PRIORITIES, 'unknown'),
     confidence: conf,
     suggested_action: oneOf(raw.suggested_action, ['add', 'confirm', 'ignore', 'ask_user'] as const, 'confirm'),
     evidence: Array.isArray(raw.evidence) ? raw.evidence.filter((e): e is string => typeof e === 'string').slice(0, 5) : [],
@@ -140,20 +251,61 @@ export function normalizeItem(raw: Record<string, unknown>): ParsedItem | null {
   }
 }
 
-/** 从模型返回文本中截取 JSON 并规整为 ParsedItem 列表 */
-export function parseModelOutput(text: string): ParsedItem[] {
+function extractJson(text: string): Record<string, unknown> {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start < 0 || end <= start) throw new Error('解析结果不是有效 JSON')
-  let parsed: { items?: unknown[] }
   try {
-    parsed = JSON.parse(text.slice(start, end + 1))
+    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>
   } catch {
     throw new Error('解析结果 JSON 格式损坏')
   }
+}
+
+/** 从捕获解析的模型输出中规整 ParsedItem 列表 */
+export function parseModelOutput(text: string): ParsedItem[] {
+  const parsed = extractJson(text)
   const items = Array.isArray(parsed.items) ? parsed.items : []
   return items
     .filter((it): it is Record<string, unknown> => typeof it === 'object' && it !== null)
     .map(normalizeItem)
     .filter((it): it is ParsedItem => it !== null)
+}
+
+/** 从助手对话的模型输出中规整 {reply, candidates, add} 信封 */
+export function parseAssistantOutput(text: string): AssistantEnvelope {
+  const parsed = extractJson(text)
+  const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : ''
+  const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : []
+  const candidates = rawCandidates
+    .filter((it): it is Record<string, unknown> => typeof it === 'object' && it !== null)
+    .map(normalizeItem)
+    .filter((it): it is ParsedItem => it !== null)
+    .slice(0, 3)
+  const rawAdd = Array.isArray(parsed.add) ? parsed.add : []
+  const add = rawAdd
+    .filter((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
+    .filter((a) => typeof a.candidate === 'number' && Number.isInteger(a.candidate) && a.candidate >= 1)
+    .map((a) => ({
+      candidate: a.candidate as number,
+      patch: typeof a.patch === 'object' && a.patch !== null ? (a.patch as Record<string, unknown>) : null
+    }))
+  return { reply: reply || (candidates.length ? '我发现了这些事项：' : '（无回复）'), candidates, add }
+}
+
+/** 把对话中提出的修改应用到候选事项上（字段逐一校验，非法值忽略） */
+export function applyCandidatePatch(item: ParsedItem, patch: Record<string, unknown>): ParsedItem {
+  const next = { ...item }
+  if (typeof patch.title === 'string' && patch.title.trim()) next.title = patch.title.trim()
+  if ('start_time' in patch) next.start_time = normalizeTime(patch.start_time)
+  if ('due_time' in patch) next.due_time = normalizeTime(patch.due_time)
+  if ('location' in patch) {
+    next.location = typeof patch.location === 'string' && patch.location ? patch.location : null
+  }
+  if ('priority' in patch) next.priority = oneOf(patch.priority, PRIORITIES, next.priority)
+  if ('item_type' in patch) next.item_type = oneOf(patch.item_type, ITEM_TYPES, next.item_type)
+  if (Array.isArray(patch.notes)) {
+    next.notes = patch.notes.filter((n): n is string => typeof n === 'string').slice(0, 10)
+  }
+  return next
 }

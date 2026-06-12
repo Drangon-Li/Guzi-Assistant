@@ -8,6 +8,13 @@ import type {
   TaskRecord,
   TaskStatus
 } from '@shared/types'
+import type {
+  AddedInfo,
+  AssistantTurnResult,
+  CandidateContext,
+  ChatHistoryItem,
+  ParsedItem
+} from '@shared/parsing'
 
 function inv<T>(channel: string, ...args: unknown[]): Promise<T> {
   return window.al1.invoke(channel, ...args) as Promise<T>
@@ -25,7 +32,6 @@ export const api = {
   updateTask: (id: string, patch: Partial<TaskRecord>) => inv<void>('tasks:update', id, patch),
   bulkTasks: (ids: string[], status: TaskStatus) => inv<void>('tasks:bulk', ids, status),
 
-  captureText: (text: string) => inv<ParseSummary>('capture:text', text),
   captureFiles: (paths: string[]) => inv<ParseSummary[]>('capture:files', paths),
   captureScreenshot: () => inv<ParseSummary | null>('capture:screenshot'),
   captureClipboard: () => inv<void>('capture:clipboard'),
@@ -41,6 +47,11 @@ export const api = {
   permissions: () => inv<PermissionStatus>('permissions:get'),
   quickActionStatus: () => inv<boolean>('quickaction:status'),
   installQuickAction: () => inv<boolean>('quickaction:install'),
+
+  assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
+    inv<AssistantTurnResult>('assistant:chat', payload),
+  assistantAdd: (payload: { sourceText: string; item: ParsedItem }) =>
+    inv<AddedInfo>('assistant:add', payload),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
 
   on: (channel: string, cb: (payload: unknown) => void) => window.al1.on(channel, cb)

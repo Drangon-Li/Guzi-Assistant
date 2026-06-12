@@ -251,10 +251,6 @@ export async function submitPending(captureId: string): Promise<ParseSummary> {
   return parseAndStore(payload)
 }
 
-export async function submitText(text: string): Promise<ParseSummary> {
-  return parseAndStore({ type: 'text_input', text })
-}
-
 export async function submitScreenshot(dataUrl: string): Promise<ParseSummary> {
   return parseAndStore({ type: 'screenshot', imageDataUrl: dataUrl })
 }

@@ -42,6 +42,7 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
 
   const active = tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).sort(byTime)
   const done = tasks.filter((t) => t.status === 'done')
+  const ignored = tasks.filter((t) => t.status === 'ignored')
   const overdue = active.filter((t) => t.status === 'overdue')
   const unscheduled = active.filter((t) => !timeOf(t) && t.status !== 'overdue')
 
@@ -120,6 +121,35 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
             </div>
           </section>
         ))}
+
+        {ignored.length > 0 && (
+          <details>
+            <summary className="cursor-pointer text-xs text-slate-400 select-none">
+              已忽略（{ignored.length}）
+            </summary>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {ignored.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs text-slate-500">{t.title}</span>
+                  {t.feedback === 'not_mine' && (
+                    <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">
+                      不是我的
+                    </span>
+                  )}
+                  <button
+                    className="shrink-0 rounded px-2 py-1 text-[11px] text-indigo-600 hover:bg-indigo-50"
+                    onClick={() => void api.updateTask(t.id, { status: 'pending', feedback: null })}
+                  >
+                    恢复
+                  </button>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         {done.length > 0 && (
           <details>
