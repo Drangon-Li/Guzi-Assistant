@@ -22,6 +22,8 @@ interface ChatMsg {
   text: string
   error?: boolean
   candidates?: { ctx: CandidateContext; added: Record<number, AddState> }
+  /** 完全重复被拦下后，提供「仍要加入」的强制添加入口 */
+  forceAdd?: { msgId: number; idx1: number; sourceText: string; item: ParsedItem; used?: boolean }
 }
 
 // 模块级缓存：切换页面不丢对话（应用重启后清空）
@@ -96,7 +98,9 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
       return
     }
     // 对话指令加入的候选 → 标记对应卡片
+    const dupMsgs: ChatMsg[] = []
     if (res.added.length && ctx) {
+      const ctxMsg = store.msgs.find((m) => m.candidates?.ctx === ctx)
       store.msgs = store.msgs.map((m) =>
         m.candidates?.ctx === ctx
           ? {
@@ -111,12 +115,42 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
             }
           : m
       )
+      for (const a of res.added) {
+        if (a.duplicate && a.item) {
+          dupMsgs.push({
+            id: store.nextId++,
+            role: 'assistant',
+            text: `「${a.title}」和已有任务完全相同，我先没有加。确定要重复添加的话点下面的按钮，或者回复"仍要添加"。`,
+            forceAdd: { msgId: ctxMsg?.id ?? 0, idx1: a.candidate, sourceText: ctx.sourceText, item: a.item }
+          })
+        }
+      }
     }
     const reply: ChatMsg = { id: store.nextId++, role: 'assistant', text: res.reply }
     if (res.candidates?.length) {
       reply.candidates = { ctx: { sourceText: value, items: res.candidates }, added: {} }
     }
-    update([...store.msgs, reply])
+    update([...store.msgs, reply, ...dupMsgs])
+  }
+
+  const forceAddNow = async (m: ChatMsg): Promise<void> => {
+    if (!m.forceAdd || m.forceAdd.used) return
+    const { msgId, idx1, sourceText, item } = m.forceAdd
+    const info = await api.assistantAdd({ sourceText, item, force: true })
+    store.msgs = store.msgs.map((x) => {
+      if (x.id === m.id && x.forceAdd) return { ...x, forceAdd: { ...x.forceAdd, used: true } }
+      if (x.id === msgId && x.candidates)
+        return { ...x, candidates: { ...x.candidates, added: { ...x.candidates.added, [idx1]: 'added' } } }
+      return x
+    })
+    update([
+      ...store.msgs,
+      {
+        id: store.nextId++,
+        role: 'assistant',
+        text: `好的，已重复加入「${info.title}」${info.time ? `（${fmtTime(info.time)}）` : ''}。`
+      }
+    ])
   }
 
   const addCandidate = async (msgId: number, idx1: number, ctx: CandidateContext, item: ParsedItem): Promise<void> => {
@@ -126,16 +160,19 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
         ? { ...m, candidates: { ...m.candidates, added: { ...m.candidates.added, [idx1]: info.duplicate ? 'duplicate' : 'added' } } }
         : m
     )
-    update([
-      ...store.msgs,
-      {
-        id: store.nextId++,
-        role: 'assistant',
-        text: info.duplicate
-          ? `「${info.title}」已有相同任务，没有重复添加。`
-          : `已加入「${info.title}」${info.time ? `（${fmtTime(info.time)}）` : ''}，可以在日程里查看。`
-      }
-    ])
+    const confirm: ChatMsg = info.duplicate
+      ? {
+          id: store.nextId++,
+          role: 'assistant',
+          text: `「${info.title}」和已有任务完全相同，我先没有加。确定要重复添加的话点下面的按钮。`,
+          forceAdd: { msgId, idx1, sourceText: ctx.sourceText, item: info.item ?? item }
+        }
+      : {
+          id: store.nextId++,
+          role: 'assistant',
+          text: `已加入「${info.title}」${info.time ? `（${fmtTime(info.time)}）` : ''}，可以在日程里查看。`
+        }
+    update([...store.msgs, confirm])
   }
 
   const screenshot = async (): Promise<void> => {
@@ -207,6 +244,14 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                   >
                     {m.text}
                   </div>
+                  {m.forceAdd && !m.forceAdd.used && (
+                    <button
+                      className="self-start rounded-lg border border-amber-300 px-3 py-1 text-xs text-amber-700 hover:bg-amber-50"
+                      onClick={() => void forceAddNow(m)}
+                    >
+                      仍要加入
+                    </button>
+                  )}
                   {m.candidates &&
                     m.candidates.ctx.items.map((item, idx) => {
                       const idx1 = idx + 1
@@ -231,20 +276,29 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                           {item.belonging_reason && (
                             <div className="mt-1 text-xs text-slate-400">{item.belonging_reason}</div>
                           )}
+                          {item.duplicate_of && !state && (
+                            <div className="mt-1 text-xs text-amber-600">
+                              疑似重复：可能与已有任务「{item.duplicate_of}」是同一件事
+                            </div>
+                          )}
                           <div className="mt-2 flex items-center gap-2">
                             {state ? (
                               <span
                                 className={`text-xs ${state === 'added' ? 'text-emerald-600' : 'text-slate-400'}`}
                               >
-                                {state === 'added' ? '✓ 已加入日程' : '已有相同任务'}
+                                {state === 'added' ? '✓ 已加入日程' : '已有相同任务，未重复添加'}
                               </span>
                             ) : (
                               <>
                                 <button
-                                  className="rounded-lg bg-indigo-600 px-3 py-1 text-xs text-white hover:bg-indigo-700"
+                                  className={`rounded-lg px-3 py-1 text-xs text-white ${
+                                    item.duplicate_of
+                                      ? 'bg-amber-500 hover:bg-amber-600'
+                                      : 'bg-indigo-600 hover:bg-indigo-700'
+                                  }`}
                                   onClick={() => void addCandidate(m.id, idx1, m.candidates!.ctx, item)}
                                 >
-                                  加入
+                                  {item.duplicate_of ? '仍要加入' : '加入'}
                                 </button>
                                 <span className="text-[11px] text-slate-400">或直接告诉我怎么改</span>
                               </>
@@ -285,12 +339,19 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                       {t.location && <span>地点：{t.location}</span>}
                     </div>
                     {t.belongingReason && <div className="mt-1 text-xs text-slate-400">{t.belongingReason}</div>}
+                    {t.duplicateOf && (
+                      <div className="mt-1 text-xs text-amber-600">
+                        疑似重复：可能与已有任务「{t.duplicateOf}」是同一件事
+                      </div>
+                    )}
                     <div className="mt-2 flex items-center gap-2">
                       <button
-                        className="rounded-lg bg-indigo-600 px-3 py-1 text-xs text-white hover:bg-indigo-700"
+                        className={`rounded-lg px-3 py-1 text-xs text-white ${
+                          t.duplicateOf ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'
+                        }`}
                         onClick={() => void api.updateTask(t.id, { status: joinStatus(t) })}
                       >
-                        加入
+                        {t.duplicateOf ? '仍要加入' : '加入'}
                       </button>
                       <button
                         className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"

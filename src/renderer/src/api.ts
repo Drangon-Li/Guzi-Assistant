@@ -50,7 +50,7 @@ export const api = {
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),
-  assistantAdd: (payload: { sourceText: string; item: ParsedItem }) =>
+  assistantAdd: (payload: { sourceText: string; item: ParsedItem; force?: boolean }) =>
     inv<AddedInfo>('assistant:add', payload),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
 

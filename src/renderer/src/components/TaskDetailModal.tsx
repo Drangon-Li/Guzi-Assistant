@@ -191,6 +191,12 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   {current.belongingReason || '无说明'}
                 </div>
 
+                {current.duplicateOf && (
+                  <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                    疑似重复：可能与已有任务「{current.duplicateOf}」是同一件事
+                  </div>
+                )}
+
                 {current.notes.length > 0 && (
                   <div className="mt-4">
                     <h4 className="mb-2 text-xs font-medium text-slate-400">注意事项</h4>

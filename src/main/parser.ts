@@ -1,8 +1,9 @@
-import { getProfile, getSettings } from './db'
+import { getProfile, getSettings, listTasks } from './db'
 import {
   buildInstructions,
   extractText,
   parseModelOutput,
+  type ExistingTaskBrief,
   type ParsedItem,
   type ResponsesOutput
 } from '@shared/parsing'
@@ -58,6 +59,11 @@ export async function parseToItems(input: {
   })
   if (input.imageDataUrl) content.push({ type: 'input_image', image_url: input.imageDataUrl })
 
-  const output = await callModel(buildInstructions(profile), [{ role: 'user', content }])
+  const existing: ExistingTaskBrief[] = listTasks()
+    .filter((t) => t.status !== 'ignored' && t.status !== 'done')
+    .slice(0, 60)
+    .map((t) => ({ title: t.title, due_time: t.dueTime }))
+
+  const output = await callModel(buildInstructions(profile, existing), [{ role: 'user', content }])
   return parseModelOutput(output)
 }

@@ -14,6 +14,7 @@ export interface ParsedItem {
   suggested_action: SuggestedAction
   evidence: string[]
   notes: string[]
+  duplicate_of: string | null
 }
 
 /** 本地时区的 YYYY-MM-DDTHH:mm，与任务时间字段同格式，可直接字符串比较 */
@@ -65,14 +66,25 @@ function timeRules(): string {
   return `当前时间是 ${now}（${weekday}）。把"明天""周五前""6月20日"等相对时间解析为本地时间，格式 YYYY-MM-DDTHH:mm。考试/会议等有明确开始时间的填 start_time；"X 前完成"类填 due_time；只有日期没有具体时间的截止，时间用 23:59。日期明确但只说"全天"或具体钟点待通知的活动，start_time 填当天 00:00，不要因为钟点未定就留 null。原文连日期都没有提到的字段必须为 null，不要编造。`
 }
 
-const ITEM_FIELDS = `{"title":"任务标题","item_type":"deadline|meeting|reminder|preparation|follow_up|other","belongs_to_user":"yes|no|uncertain","belonging_reason":"判断依据","user_role":"owner|participant|notified|helper|unclear","start_time":"YYYY-MM-DDTHH:mm 或 null","due_time":"YYYY-MM-DDTHH:mm 或 null","location":"地点或 null","priority":"high|medium|low|unknown","confidence":0.0,"suggested_action":"add|confirm|ignore|ask_user","notes":["注意事项，可为空数组"],"evidence":["原文片段"]}`
+const ITEM_FIELDS = `{"title":"任务标题","item_type":"deadline|meeting|reminder|preparation|follow_up|other","belongs_to_user":"yes|no|uncertain","belonging_reason":"判断依据","user_role":"owner|participant|notified|helper|unclear","start_time":"YYYY-MM-DDTHH:mm 或 null","due_time":"YYYY-MM-DDTHH:mm 或 null","location":"地点或 null","priority":"high|medium|low|unknown","confidence":0.0,"suggested_action":"add|confirm|ignore|ask_user","notes":["注意事项，可为空数组"],"evidence":["原文片段"],"duplicate_of":"疑似与已有任务重复时填其标题，否则 null"}`
+
+const DUP_RULE = `查重：把每个提取出的事项与「用户已有任务」对照，若明显是同一件事（同一事件的不同表述、同一时间点的同名活动），在 duplicate_of 字段填对应已有任务的标题；否则为 null。疑似重复的事项仍然要输出，由用户决定是否重复添加。`
+
+export interface ExistingTaskBrief {
+  title: string
+  due_time: string | null
+}
 
 /** 捕获解析（剪切板/截图/文件提交）的系统提示词 */
-export function buildInstructions(profile: Profile): string {
+export function buildInstructions(profile: Profile, existingTasks: ExistingTaskBrief[] = []): string {
   return `你是 al1（个人事项捕获助手）的解析引擎。用户会提交剪切板文本、聊天截图、通知、邮件或文件内容，你需要从中提取「行动项/待办」，并判断每一项是否属于该用户本人。
 
 # 用户档案
 ${profileBlock(profile)}
+
+# 用户已有任务（查重用）
+${existingTasks.length ? JSON.stringify(existingTasks) : '（无）'}
+${DUP_RULE}
 
 # 归属判断规则
 ${BELONGING_RULES}
@@ -105,6 +117,8 @@ export interface CandidateContext {
 export interface AddInstruction {
   candidate: number
   patch: Record<string, unknown> | null
+  /** 用户明知重复仍要添加 */
+  force: boolean
 }
 
 export interface AssistantEnvelope {
@@ -118,6 +132,8 @@ export interface AddedInfo {
   title: string
   time: string | null
   duplicate: boolean
+  /** duplicate=true 时回传被拦下的事项（含已应用的 patch），便于用户选择强制添加 */
+  item?: ParsedItem
 }
 
 export interface AssistantTurnResult {
@@ -157,6 +173,7 @@ status 含义：pending=待确认（用户还没确认，不算正式日程）�
 ## candidates（捕获场景才填）
 当用户消息本质上是要记录的信息（粘贴的群通知/聊天记录/邮件/口头描述的事项）时，提取最多 3 个候选事项，按与用户的相关度排序；其余场景为 []。
 每个候选的结构：${ITEM_FIELDS}
+${DUP_RULE}（对照上方「用户的任务数据」；候选 duplicate_of 非空时在 reply 里提一句它可能与哪条已有任务重复）
 归属判断规则：
 ${BELONGING_RULES}
 时间解析：
@@ -166,9 +183,11 @@ ${EXTRACT_RULES}
 生成候选时，reply 简短说明发现了什么，并提醒用户可以点卡片加入，或直接用一句话告诉你选哪个、要改什么。
 
 ## add（用户确认候选时才填）
-当用户明确表示要加入某个候选（如"加第一个""第二个吧，时间改到周五下午"）时填写：[{"candidate":候选序号,"patch":{要修改的字段}或null}]。
+当用户明确表示要加入某个候选（如"加第一个""第二个吧，时间改到周五下午"）时填写：[{"candidate":候选序号,"patch":{要修改的字段}或null,"force":布尔，可省略}]。
 - candidate 是下方「当前候选列表」的序号，从 1 开始
 - patch 只包含要修改的字段，可用：title/start_time/due_time/location/priority/item_type/notes；时间字段格式 YYYY-MM-DDTHH:mm
+- 想加入的候选 duplicate_of 非空、且用户没有明确表示"仍要加/再加一条"时 → 不要放进 add，在 reply 里说明它与哪条已有任务重复并询问是否仍要添加
+- 用户明确表示明知重复仍要添加 → 该项带 "force": true
 - 加入后在 reply 里确认（标题 + 时间）；用户表示都不要时 add 为 [] 并在 reply 里确认不添加
 - 没有候选时用户却要求添加 → 在 reply 里说明需要先把信息发给你
 
@@ -247,7 +266,8 @@ export function normalizeItem(raw: Record<string, unknown>): ParsedItem | null {
     confidence: conf,
     suggested_action: oneOf(raw.suggested_action, ['add', 'confirm', 'ignore', 'ask_user'] as const, 'confirm'),
     evidence: Array.isArray(raw.evidence) ? raw.evidence.filter((e): e is string => typeof e === 'string').slice(0, 5) : [],
-    notes: Array.isArray(raw.notes) ? raw.notes.filter((n): n is string => typeof n === 'string').slice(0, 10) : []
+    notes: Array.isArray(raw.notes) ? raw.notes.filter((n): n is string => typeof n === 'string').slice(0, 10) : [],
+    duplicate_of: typeof raw.duplicate_of === 'string' && raw.duplicate_of ? raw.duplicate_of : null
   }
 }
 
@@ -288,7 +308,8 @@ export function parseAssistantOutput(text: string): AssistantEnvelope {
     .filter((a) => typeof a.candidate === 'number' && Number.isInteger(a.candidate) && a.candidate >= 1)
     .map((a) => ({
       candidate: a.candidate as number,
-      patch: typeof a.patch === 'object' && a.patch !== null ? (a.patch as Record<string, unknown>) : null
+      patch: typeof a.patch === 'object' && a.patch !== null ? (a.patch as Record<string, unknown>) : null,
+      force: a.force === true
     }))
   return { reply: reply || (candidates.length ? '我发现了这些事项：' : '（无回复）'), candidates, add }
 }

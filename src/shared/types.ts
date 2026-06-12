@@ -62,6 +62,8 @@ export interface TaskRecord {
   evidence: string[]
   /** 注意事项/须知，AI 从原文提炼 */
   notes: string[]
+  /** 疑似与之重复的已有任务标题（AI 语义查重结果） */
+  duplicateOf: string | null
   status: TaskStatus
   feedback: string | null
   createdAt: string

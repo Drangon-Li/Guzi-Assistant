@@ -190,6 +190,7 @@ function createTasksFromItems(
       suggestedAction: it.suggested_action,
       evidence: it.evidence,
       notes: it.notes,
+      duplicateOf: it.duplicate_of,
       status,
       feedback: null
     })

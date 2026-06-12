@@ -46,6 +46,7 @@ export function initDb(): void {
       suggested_action TEXT NOT NULL,
       evidence TEXT NOT NULL,
       notes TEXT NOT NULL DEFAULT '[]',
+      duplicate_of TEXT,
       status TEXT NOT NULL,
       feedback TEXT,
       created_at TEXT NOT NULL,
@@ -58,6 +59,9 @@ export function initDb(): void {
   )
   if (!taskCols.includes('notes')) {
     db.exec("ALTER TABLE tasks ADD COLUMN notes TEXT NOT NULL DEFAULT '[]'")
+  }
+  if (!taskCols.includes('duplicate_of')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN duplicate_of TEXT')
   }
 }
 
@@ -183,6 +187,7 @@ interface TaskRow {
   suggested_action: string
   evidence: string
   notes: string
+  duplicate_of: string | null
   status: string
   feedback: string | null
   created_at: string
@@ -206,6 +211,7 @@ function rowToTask(r: TaskRow): TaskRecord {
     suggestedAction: r.suggested_action as TaskRecord['suggestedAction'],
     evidence: JSON.parse(r.evidence) as string[],
     notes: JSON.parse(r.notes || '[]') as string[],
+    duplicateOf: r.duplicate_of,
     status: r.status as TaskStatus,
     feedback: r.feedback,
     createdAt: r.created_at,
@@ -222,13 +228,13 @@ export function createTask(
     INSERT INTO tasks (
       id, source_id, title, item_type, belongs_to_user, belonging_reason, user_role,
       start_time, due_time, location, priority, confidence, suggested_action,
-      evidence, notes, status, feedback, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      evidence, notes, duplicate_of, status, feedback, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     rec.id, rec.sourceId, rec.title, rec.itemType, rec.belongsToUser, rec.belongingReason,
     rec.userRole, rec.startTime, rec.dueTime, rec.location, rec.priority, rec.confidence,
-    rec.suggestedAction, JSON.stringify(rec.evidence), JSON.stringify(rec.notes), rec.status,
-    rec.feedback, rec.createdAt, rec.updatedAt
+    rec.suggestedAction, JSON.stringify(rec.evidence), JSON.stringify(rec.notes), rec.duplicateOf,
+    rec.status, rec.feedback, rec.createdAt, rec.updatedAt
   )
   return rec
 }

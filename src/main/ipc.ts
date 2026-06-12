@@ -117,8 +117,9 @@ export function registerIpc(): void {
     (_e, payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
       assistantChat(payload)
   )
-  ipcMain.handle('assistant:add', (_e, payload: { sourceText: string; item: ParsedItem }) =>
-    assistantAdd(payload)
+  ipcMain.handle(
+    'assistant:add',
+    (_e, payload: { sourceText: string; item: ParsedItem; force?: boolean }) => assistantAdd(payload)
   )
 
   ipcMain.handle('app:focus-main', (_e, route?: string) => {

@@ -20,7 +20,7 @@ function excerptOf(text: string): string {
 /** 聊天里确认过的事项直接进日程：确认动作已经在对话中发生，不再过待确认 */
 function addCandidates(
   sourceText: string,
-  picks: { item: ParsedItem; candidate: number }[]
+  picks: { item: ParsedItem; candidate: number; force: boolean }[]
 ): AddedInfo[] {
   const source = createSource({
     type: 'text_input',
@@ -29,10 +29,11 @@ function addCandidates(
     filePath: null
   })
   let created = 0
-  const added = picks.map(({ item, candidate }) => {
+  const added = picks.map(({ item, candidate, force }) => {
     const time = item.due_time ?? item.start_time
-    if (taskExists(item.title, item.due_time)) {
-      return { candidate, title: item.title, time, duplicate: true }
+    // 完全相同的任务默认拦下，回传事项本体供用户选择「仍要加入」
+    if (!force && taskExists(item.title, item.due_time)) {
+      return { candidate, title: item.title, time, duplicate: true, item }
     }
     const status: TaskStatus = item.due_time || item.start_time ? 'scheduled' : 'not_started'
     createTask({
@@ -50,6 +51,7 @@ function addCandidates(
       suggestedAction: item.suggested_action,
       evidence: item.evidence,
       notes: item.notes,
+      duplicateOf: item.duplicate_of,
       status,
       feedback: null
     })
@@ -61,9 +63,15 @@ function addCandidates(
   return added
 }
 
-/** 气泡卡上的「加入」按钮：不经过模型，直接入库 */
-export function assistantAdd(payload: { sourceText: string; item: ParsedItem }): AddedInfo {
-  return addCandidates(payload.sourceText, [{ item: payload.item, candidate: 0 }])[0]
+/** 气泡卡上的「加入/仍要加入」按钮：不经过模型，直接入库 */
+export function assistantAdd(payload: {
+  sourceText: string
+  item: ParsedItem
+  force?: boolean
+}): AddedInfo {
+  return addCandidates(payload.sourceText, [
+    { item: payload.item, candidate: 0, force: !!payload.force }
+  ])[0]
 }
 
 export async function assistantChat(payload: {
@@ -104,9 +112,13 @@ export async function assistantChat(payload: {
         .map((a) => {
           const item = items[a.candidate - 1]
           if (!item) return null
-          return { item: a.patch ? applyCandidatePatch(item, a.patch) : item, candidate: a.candidate }
+          return {
+            item: a.patch ? applyCandidatePatch(item, a.patch) : item,
+            candidate: a.candidate,
+            force: a.force
+          }
         })
-        .filter((p): p is { item: ParsedItem; candidate: number } => p !== null)
+        .filter((p): p is { item: ParsedItem; candidate: number; force: boolean } => p !== null)
       if (picks.length) added = addCandidates(payload.candidates.sourceText, picks)
     }
 

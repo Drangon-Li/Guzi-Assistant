@@ -99,5 +99,17 @@ check('提到今天的组会', t3.reply.includes('组会'))
 check('给出了行动建议', t3.reply.length > 20)
 check('问答场景无候选无 add', t3.candidates.length === 0 && t3.add.length === 0)
 
+// ---- 场景 4：语义查重 ----
+console.log('\n场景 4：发送与已有任务重复的通知，期望候选带 duplicate_of…')
+const dupNotice = `【课程群】再次提醒：数据挖掘课程的期末论文务必于 6 月 20 日 23:59 前提交到学习通，逾期不候！`
+const t4 = await turn([{ role: 'user', content: dupNotice }], tasks, null)
+console.log(JSON.stringify({ reply: t4.reply, candidates: t4.candidates.map((c) => ({ title: c.title, duplicate_of: c.duplicate_of })) }, null, 1))
+check('生成了候选', t4.candidates.length >= 1)
+check(
+  '候选标记了 duplicate_of 指向已有论文任务',
+  t4.candidates.some((c) => c.duplicate_of?.includes('论文'))
+)
+check('reply 提到了重复', /重复|已有|已经/.test(t4.reply))
+
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)
