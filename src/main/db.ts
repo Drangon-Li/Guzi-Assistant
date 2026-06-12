@@ -97,7 +97,9 @@ export function getSettings(): AppSettings {
     // ?? 而不是 ||：用户显式清空后不能从 .env 静默复活
     apiBase: map.apiBase ?? env.AL1_API_BASE ?? '',
     apiKey: map.apiKey ?? env.AL1_API_KEY ?? '',
-    model: map.model || env.AL1_MODEL || 'gpt-5.5'
+    model: map.model || env.AL1_MODEL || 'gpt-5.5',
+    feishuAppId: map.feishuAppId ?? env.AL1_FEISHU_APP_ID ?? '',
+    feishuAppSecret: map.feishuAppSecret ?? env.AL1_FEISHU_APP_SECRET ?? ''
   }
 }
 

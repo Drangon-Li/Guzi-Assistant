@@ -151,7 +151,8 @@ const HINTS: Record<string, string> = {
   clipboard_file: '以下是用户提交的文件内容，请提取其中的行动项。',
   screenshot: '用户提交了一张屏幕截图（通常是聊天、群通知、网页或课程平台），请识别图中文字并提取行动项。',
   file: '以下是用户拖拽提交的文件内容，请提取其中的行动项。',
-  text_input: '以下是用户粘贴/输入的文本，请提取其中的行动项。'
+  text_input: '以下是用户粘贴/输入的文本，请提取其中的行动项。',
+  feishu: '以下是用户从飞书转发给 al1 机器人的消息（通常是群通知、聊天记录或截图），请提取其中的行动项。'
 }
 
 function createTasksFromItems(
@@ -254,6 +255,14 @@ export async function submitPending(captureId: string): Promise<ParseSummary> {
 
 export async function submitScreenshot(dataUrl: string): Promise<ParseSummary> {
   return parseAndStore({ type: 'screenshot', imageDataUrl: dataUrl })
+}
+
+/** 飞书机器人收到的私聊消息 */
+export async function submitFeishu(input: {
+  text?: string
+  imageDataUrl?: string
+}): Promise<ParseSummary> {
+  return parseAndStore({ type: 'feishu', ...input })
 }
 
 /** 托盘拖拽 / 右键快速操作的入口：用预览卡反馈进度和结果 */

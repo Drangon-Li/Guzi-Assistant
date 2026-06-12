@@ -3,6 +3,7 @@ import { initDb, getSettings } from './db'
 import { registerIpc, triggerClipboardCapture } from './ipc'
 import { initHotkey, stopHotkey } from './hotkey'
 import { initDropbox } from './dropbox'
+import { ensureFeishu } from './feishu'
 import { submitExternalFiles } from './capture'
 import { appState, createMainWindow, focusMain } from './windows'
 
@@ -44,6 +45,7 @@ if (!app.requestSingleInstanceLock()) {
     createTray()
     initHotkey(getSettings().hotkey, triggerClipboardCapture)
     initDropbox()
+    ensureFeishu()
   })
 
   app.on('activate', () => focusMain())

@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  FeishuStatus,
   ParseSummary,
   PendingCapture,
   PermissionStatus,
@@ -47,6 +48,7 @@ export const api = {
   permissions: () => inv<PermissionStatus>('permissions:get'),
   quickActionStatus: () => inv<boolean>('quickaction:status'),
   installQuickAction: () => inv<boolean>('quickaction:install'),
+  feishuStatus: () => inv<FeishuStatus>('feishu:status'),
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),

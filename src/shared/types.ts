@@ -5,6 +5,7 @@ export type SourceType =
   | 'screenshot'
   | 'file'
   | 'text_input'
+  | 'feishu'
 
 export type ItemType = 'deadline' | 'meeting' | 'reminder' | 'preparation' | 'follow_up' | 'other'
 export type Belongs = 'yes' | 'no' | 'uncertain'
@@ -103,4 +104,11 @@ export interface AppSettings {
   apiBase: string
   apiKey: string
   model: string
+  feishuAppId: string
+  feishuAppSecret: string
+}
+
+export interface FeishuStatus {
+  status: 'disabled' | 'connecting' | 'connected' | 'error' | 'restart_required'
+  detail: string
 }

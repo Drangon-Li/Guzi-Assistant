@@ -47,7 +47,8 @@ export const SOURCE_LABELS: Record<SourceType, string> = {
   clipboard_file: '剪切板文件',
   screenshot: '截图',
   file: '文件',
-  text_input: '手动输入'
+  text_input: '手动输入',
+  feishu: '飞书消息'
 }
 
 export function fmtTime(t: string | null | undefined): string {

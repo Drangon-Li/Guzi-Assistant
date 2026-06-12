@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AppSettings, Identity, PermissionStatus, Profile } from '@shared/types'
+import type { AppSettings, FeishuStatus, Identity, PermissionStatus, Profile } from '@shared/types'
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey, IDENTITIES } from '../labels'
 
@@ -77,6 +77,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [note, setNote] = useState('')
   const [recording, setRecording] = useState(false)
   const [qaInstalled, setQaInstalled] = useState(false)
+  const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
 
   const loadPerms = (): void => {
     void api.permissions().then(setPerms)
@@ -92,6 +93,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     })
     void api.getSettings().then(setSettings)
     void api.quickActionStatus().then(setQaInstalled)
+    void api.feishuStatus().then(setFeishu)
     loadPerms()
   }, [])
 
@@ -326,6 +328,74 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               把文件直接拖到菜单栏的 al1 图标上即可提交解析，无需安装。
             </div>
           </div>
+        </div>
+      </Section>
+
+      <Section title="飞书机器人">
+        <p className="mb-3 text-xs leading-5 text-slate-400">
+          在飞书里把通知/截图直接转发给机器人，自动进入待确认列表。配置步骤：飞书开放平台（open.feishu.cn）创建企业自建应用
+          → 添加「机器人」能力 → 权限开通 im:message（接收与发送单聊消息）→ 事件订阅选择「使用长连接接收事件」并添加
+          im.message.receive_v1 → 创建版本发布。无需公网服务器。
+        </p>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <label className="flex flex-col gap-1">
+            <span className="text-slate-500">App ID</span>
+            <input
+              className={input}
+              value={settings.feishuAppId}
+              onChange={(e) => setSettings({ ...settings, feishuAppId: e.target.value })}
+              placeholder="cli_xxx"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-slate-500">App Secret</span>
+            <input
+              type="password"
+              className={input}
+              value={settings.feishuAppSecret}
+              onChange={(e) => setSettings({ ...settings, feishuAppSecret: e.target.value })}
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs text-white hover:bg-indigo-700"
+            onClick={async () => {
+              await api.saveSettings({
+                feishuAppId: settings.feishuAppId.trim(),
+                feishuAppSecret: settings.feishuAppSecret.trim()
+              })
+              flash('已保存，正在连接…')
+              window.setTimeout(() => void api.feishuStatus().then(setFeishu), 2000)
+            }}
+          >
+            保存并连接
+          </button>
+          <button
+            className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
+            onClick={() => void api.feishuStatus().then(setFeishu)}
+          >
+            刷新状态
+          </button>
+          {feishu && (
+            <span
+              className={`text-xs ${
+                feishu.status === 'connected'
+                  ? 'text-emerald-600'
+                  : feishu.status === 'error'
+                    ? 'text-red-500'
+                    : feishu.status === 'disabled'
+                      ? 'text-slate-400'
+                      : 'text-amber-600'
+              }`}
+            >
+              {feishu.status === 'connected' && '已连接'}
+              {feishu.status === 'connecting' && '连接中…'}
+              {feishu.status === 'disabled' && '未配置'}
+              {feishu.status === 'error' && `连接失败：${feishu.detail}`}
+              {feishu.status === 'restart_required' && feishu.detail}
+            </span>
+          )}
         </div>
       </Section>
 

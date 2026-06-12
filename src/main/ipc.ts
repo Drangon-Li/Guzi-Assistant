@@ -24,6 +24,7 @@ import { assistantAdd, assistantChat } from './assistant'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
 import { setHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
+import { ensureFeishu, feishuStatus } from './feishu'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
@@ -55,6 +56,7 @@ export function registerIpc(): void {
       if (!ok) delete patch.hotkey
     }
     saveSettings(patch)
+    if (patch.feishuAppId !== undefined || patch.feishuAppSecret !== undefined) ensureFeishu()
     broadcast('al1:settings-updated')
     return ok
   })
@@ -111,6 +113,7 @@ export function registerIpc(): void {
 
   ipcMain.handle('quickaction:status', () => quickActionInstalled())
   ipcMain.handle('quickaction:install', () => installQuickAction())
+  ipcMain.handle('feishu:status', () => feishuStatus())
 
   ipcMain.handle(
     'assistant:chat',
