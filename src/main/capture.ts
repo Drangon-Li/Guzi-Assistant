@@ -24,7 +24,7 @@ const pendings = new Map<string, PendingPayload>()
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']
 const TEXT_EXTS = ['.txt', '.md', '.eml', '.csv', '.log']
 
-function excerptOf(text: string): string {
+export function excerptOf(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 80)
 }
 

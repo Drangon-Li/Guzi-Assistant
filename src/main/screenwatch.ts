@@ -1,5 +1,5 @@
 import { unlink } from 'fs/promises'
-import { captureScreenSilently, HINTS } from './capture'
+import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImage } from './ocr'
 import { parseToItems } from './parser'
 import { createSource, createTask, deleteSourceRow, getSettings, taskExists } from './db'
@@ -9,10 +9,6 @@ import { matchKeywords } from '@shared/keywords'
 import { pickBest } from '@shared/suggest'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
 import type { ParseSummary, ScanResult, TaskStatus } from '@shared/types'
-
-function excerptOf(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().slice(0, 80)
-}
 
 function emptySummary(error: string | null): ParseSummary {
   return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
@@ -105,7 +101,3 @@ export function applyScreenSenseSettings(): void {
   if (screenSenseEnabled) initScanHotkey(screenSenseHotkey, () => void scanOnce())
   else unregisterScanHotkey()
 }
-
-// ---- Phase 2 预留：后台常驻监控 ----
-export function startWatch(): void {}
-export function stopWatch(): void {}

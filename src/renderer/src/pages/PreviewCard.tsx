@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ParseSummary, PendingCapture } from '@shared/types'
 import type { ParsedItem } from '@shared/parsing'
 import { api } from '../api'
-import { SOURCE_LABELS } from '../labels'
+import { fmtTime, SOURCE_LABELS } from '../labels'
 
 type State =
   | { phase: 'idle' }
@@ -279,9 +279,9 @@ export default function PreviewCard(): React.JSX.Element | null {
               <span className="min-w-0 flex-1 text-sm leading-5 font-medium">{state.item.title}</span>
             </div>
             <div className="flex flex-wrap gap-x-3 text-xs text-slate-500">
-              {state.item.start_time && <span>开始：{state.item.start_time.replace('T', ' ')}</span>}
+              {state.item.start_time && <span>开始：{fmtTime(state.item.start_time)}</span>}
               {state.item.due_time && (
-                <span className="text-red-500">截止：{state.item.due_time.replace('T', ' ')}</span>
+                <span className="text-red-500">截止：{fmtTime(state.item.due_time)}</span>
               )}
               {state.item.location && <span>地点：{state.item.location}</span>}
             </div>
