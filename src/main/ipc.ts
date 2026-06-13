@@ -25,6 +25,7 @@ import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/pars
 import { setHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
+import { acceptSuggestion, applyScreenSenseSettings, scanOnce } from './screenwatch'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
@@ -57,6 +58,8 @@ export function registerIpc(): void {
     }
     saveSettings(patch)
     if (patch.feishuAppId !== undefined || patch.feishuAppSecret !== undefined) ensureFeishu()
+    if (patch.screenSenseEnabled !== undefined || patch.screenSenseHotkey !== undefined)
+      applyScreenSenseSettings()
     broadcast('al1:settings-updated')
     return ok
   })
@@ -114,6 +117,10 @@ export function registerIpc(): void {
   ipcMain.handle('quickaction:status', () => quickActionInstalled())
   ipcMain.handle('quickaction:install', () => installQuickAction())
   ipcMain.handle('feishu:status', () => feishuStatus())
+  ipcMain.handle('screen:scan', () => scanOnce())
+  ipcMain.handle('suggestion:accept', (_e, payload: { item: ParsedItem; sourceText: string }) =>
+    acceptSuggestion(payload)
+  )
 
   ipcMain.handle(
     'assistant:chat',

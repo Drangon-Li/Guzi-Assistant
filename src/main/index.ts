@@ -4,6 +4,7 @@ import { registerIpc, triggerClipboardCapture } from './ipc'
 import { initHotkey, stopHotkey } from './hotkey'
 import { initDropbox } from './dropbox'
 import { ensureFeishu } from './feishu'
+import { applyScreenSenseSettings } from './screenwatch'
 import { submitExternalFiles } from './capture'
 import { appState, createMainWindow, focusMain } from './windows'
 
@@ -46,6 +47,7 @@ if (!app.requestSingleInstanceLock()) {
     initHotkey(getSettings().hotkey, triggerClipboardCapture)
     initDropbox()
     ensureFeishu()
+    applyScreenSenseSettings()
   })
 
   app.on('activate', () => focusMain())
