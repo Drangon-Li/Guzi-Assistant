@@ -53,6 +53,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
   const [busy, setBusy] = useState(false)
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
+  const [screenSense, setScreenSense] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -66,6 +67,14 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs.length, busy, pending.length])
+
+  useEffect(() => {
+    const load = (): void => {
+      void api.getSettings().then((s) => setScreenSense(s.screenSenseEnabled))
+    }
+    load()
+    return api.on('al1:settings-updated', load)
+  }, [])
 
   /** 最近一条仍有未处理候选的消息，作为下一轮对话的上下文 */
   const activeCandidates = (): CandidateContext | null => {
@@ -183,6 +192,19 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
       showToast(summary ? summaryToast(summary) : '已取消截图')
     } catch (e) {
       showToast(`截图失败：${e instanceof Error ? e.message : String(e)}（请检查屏幕录制权限）`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const scanScreen = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const r = await api.screenScan()
+      showToast(r.message)
+    } catch (e) {
+      showToast(`扫描失败：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setBusy(false)
     }
@@ -412,6 +434,16 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
 
       <div className="border-t border-slate-200 bg-white px-6 py-3">
         <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
+          {screenSense && (
+            <button
+              title="扫描当前屏幕，自动提取待办"
+              disabled={busy}
+              onClick={() => void scanScreen()}
+              className="rounded-lg border border-indigo-300 px-2.5 py-2 text-xs text-indigo-600 hover:bg-indigo-50 disabled:opacity-40"
+            >
+              扫描屏幕
+            </button>
+          )}
           <button
             title="截图捕获"
             disabled={busy}
