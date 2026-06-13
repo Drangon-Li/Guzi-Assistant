@@ -4,6 +4,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
 import { localNow } from '@shared/parsing'
+import { DEFAULT_SCREEN_KEYWORDS } from '@shared/keywords'
 import type {
   AppSettings,
   Profile,
@@ -99,8 +100,20 @@ export function getSettings(): AppSettings {
     apiKey: map.apiKey ?? env.AL1_API_KEY ?? '',
     model: map.model || env.AL1_MODEL || 'gpt-5.5',
     feishuAppId: map.feishuAppId ?? env.AL1_FEISHU_APP_ID ?? '',
-    feishuAppSecret: map.feishuAppSecret ?? env.AL1_FEISHU_APP_SECRET ?? ''
+    feishuAppSecret: map.feishuAppSecret ?? env.AL1_FEISHU_APP_SECRET ?? '',
+    screenSenseEnabled: map.screenSenseEnabled === 'true',
+    screenSenseKeywords: parseKeywords(map.screenSenseKeywords),
+    screenSenseHotkey: map.screenSenseHotkey || 'Alt+S'
   }
+}
+
+/** 逗号存储的关键词字符串 → 数组；空则用默认词表 */
+function parseKeywords(raw: string | undefined): string[] {
+  const list = (raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return list.length ? list : DEFAULT_SCREEN_KEYWORDS
 }
 
 export function saveSettings(patch: Partial<AppSettings>): void {

@@ -6,6 +6,7 @@ export type SourceType =
   | 'file'
   | 'text_input'
   | 'feishu'
+  | 'screen_scan'
 
 export type ItemType = 'deadline' | 'meeting' | 'reminder' | 'preparation' | 'follow_up' | 'other'
 export type Belongs = 'yes' | 'no' | 'uncertain'
@@ -106,9 +107,20 @@ export interface AppSettings {
   model: string
   feishuAppId: string
   feishuAppSecret: string
+  /** 屏幕感知建议：opt-in 开关，默认 false */
+  screenSenseEnabled: boolean
+  /** 触发解析的关键词 */
+  screenSenseKeywords: string[]
+  /** 扫描屏幕的全局快捷键 accelerator */
+  screenSenseHotkey: string
 }
 
 export interface FeishuStatus {
   status: 'disabled' | 'connecting' | 'connected' | 'error' | 'restart_required'
   detail: string
+}
+
+export interface ScanResult {
+  status: 'suggested' | 'empty' | 'error'
+  message: string
 }
