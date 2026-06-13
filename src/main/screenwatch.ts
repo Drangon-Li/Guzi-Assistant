@@ -20,9 +20,15 @@ function emptySummary(error: string | null): ParseSummary {
 
 /** 扫描一次当前屏幕：截图 → 本地 OCR → 解析 → 选最优 → 右下角弹建议卡 */
 export async function scanOnce(): Promise<ScanResult> {
+  // 触发后立刻弹"正在扫描"加载卡，否则截图/OCR/解析这几秒里用户不知道 al1 在工作
+  showPreview({ busy: '正在扫描屏幕…' })
   try {
     const png = await captureScreenSilently()
-    if (!png) return { status: 'error', message: '截图失败，请检查屏幕录制权限' }
+    if (!png) {
+      const message = '截图失败，请检查屏幕录制权限'
+      showPreview({ summary: emptySummary(message) }) // 红色错误卡，手动关闭
+      return { status: 'error', message }
+    }
 
     let text: string
     try {
@@ -30,16 +36,19 @@ export async function scanOnce(): Promise<ScanResult> {
     } finally {
       void unlink(png).catch(() => {}) // 截图用完即弃
     }
-    if (!text) return { status: 'empty', message: '屏幕上没有识别到文字' }
+    if (!text) {
+      showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
+      return { status: 'empty', message: '屏幕上没有识别到文字' }
+    }
 
+    showPreview({ busy: '正在分析屏幕内容…' })
     const { screenSenseKeywords } = getSettings()
     const hits = matchKeywords(text, screenSenseKeywords)
 
     const items = await parseToItems({ text, hint: HINTS.screen_scan })
     const best = pickBest(items)
     if (!best) {
-      // 复用 PreviewCard 的"未发现相关事项"形态，3s 自动消失
-      showPreview({ summary: emptySummary(null) })
+      showPreview({ error: '未发现明确的待办事项' })
       return { status: 'empty', message: '未发现明确的待办事项' }
     }
 
