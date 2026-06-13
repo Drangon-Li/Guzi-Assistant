@@ -76,6 +76,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
   const [note, setNote] = useState('')
   const [recording, setRecording] = useState(false)
+  const [scanRecording, setScanRecording] = useState(false)
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
 
@@ -112,6 +113,12 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     }
   }
 
+  const applyScanHotkey = async (acc: string): Promise<void> => {
+    await api.saveSettings({ screenSenseHotkey: acc })
+    setSettings((s) => (s ? { ...s, screenSenseHotkey: acc } : s))
+    flash(`扫描快捷键已设为 ${formatHotkey(acc)}`)
+  }
+
   useEffect(() => {
     if (!recording) return
     const onKey = (e: KeyboardEvent): void => {
@@ -129,6 +136,24 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [recording])
+
+  useEffect(() => {
+    if (!scanRecording) return
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') {
+        setScanRecording(false)
+        return
+      }
+      const acc = eventToAccelerator(e)
+      if (!acc) return
+      setScanRecording(false)
+      void applyScanHotkey(acc)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [scanRecording])
 
   if (!profile || !settings) return <div className="p-8 text-sm text-slate-400">加载中…</div>
 
@@ -397,6 +422,67 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             </span>
           )}
         </div>
+      </Section>
+
+      <Section title="屏幕感知建议（隐私功能）">
+        <p className="mb-3 text-xs leading-5 text-slate-400">
+          开启后可手动「扫描当前屏幕」：al1 在本机识别屏幕上的文字，命中关键词时把文字（非截图）送解析，
+          给出一条待办建议供你确认。截图用完即弃、不保存、不上传。注意：macOS
+          会在你扫描时显示系统录制指示器，这是系统强制行为、无法关闭。首次使用会自动编译本地 OCR 组件（需 Xcode
+          命令行工具）。
+        </p>
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <span>启用屏幕感知建议</span>
+          <input
+            type="checkbox"
+            checked={settings.screenSenseEnabled}
+            onChange={async (e) => {
+              const next = e.target.checked
+              setSettings({ ...settings, screenSenseEnabled: next })
+              await api.saveSettings({ screenSenseEnabled: next })
+              flash(next ? '已开启屏幕感知建议' : '已关闭屏幕感知建议')
+            }}
+          />
+        </label>
+
+        {settings.screenSenseEnabled && (
+          <div className="mt-4 flex flex-col gap-4">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-slate-500">触发关键词（逗号或顿号分隔）</span>
+              <input
+                className={input}
+                defaultValue={settings.screenSenseKeywords.join('、')}
+                onBlur={async (e) => {
+                  const list = splitList(e.target.value)
+                  setSettings({ ...settings, screenSenseKeywords: list })
+                  await api.saveSettings({ screenSenseKeywords: list })
+                  flash('关键词已保存')
+                }}
+              />
+            </label>
+
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-slate-500">扫描快捷键</span>
+              <button
+                onClick={() => setScanRecording(!scanRecording)}
+                className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
+                  scanRecording
+                    ? 'animate-pulse border-indigo-400 bg-indigo-50 text-indigo-600'
+                    : 'border-slate-300 hover:border-slate-400'
+                }`}
+              >
+                {scanRecording ? '按下新组合键…' : formatHotkey(settings.screenSenseHotkey)}
+              </button>
+              {scanRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
+            </div>
+
+            {perms && perms.screen !== 'granted' && (
+              <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+                屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 al1。
+              </div>
+            )}
+          </div>
+        )}
       </Section>
 
       <Section title="权限状态">
