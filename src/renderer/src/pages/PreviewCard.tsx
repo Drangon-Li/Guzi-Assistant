@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ParseSummary, PendingCapture } from '@shared/types'
+import type { ParsedItem } from '@shared/parsing'
 import { api } from '../api'
 import { SOURCE_LABELS } from '../labels'
 
@@ -10,6 +11,8 @@ type State =
   | { phase: 'result'; summary: ParseSummary }
   | { phase: 'error'; message: string }
   | { phase: 'empty'; message: string }
+  | { phase: 'suggestion'; item: ParsedItem; sourceText: string; hits: string[] }
+  | { phase: 'done'; message: string }
 
 const AUTO_SECONDS = 3
 
@@ -44,15 +47,42 @@ export default function PreviewCard(): React.JSX.Element | null {
     setState({ phase: 'idle' })
   }
 
+  const acceptSuggestion = async (modify: boolean): Promise<void> => {
+    if (state.phase !== 'suggestion') return
+    const { item, sourceText } = state
+    setState({ phase: 'loading', message: '正在加入…' })
+    try {
+      const info = await api.suggestionAccept({ item, sourceText })
+      if (modify) {
+        void api.focusMain('schedule')
+        setState({ phase: 'idle' })
+      } else if (info.duplicate) {
+        setState({ phase: 'done', message: `「${info.title}」与已有任务相同，未重复添加` })
+      } else {
+        setState({ phase: 'done', message: `✓ 已加入「${info.title}」` })
+      }
+    } catch (e) {
+      setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
   useEffect(() => {
     return api.on('al1:preview', (payload) => {
       const p = payload as
-        | (PendingCapture & { error?: undefined; busy?: undefined; summary?: undefined })
-        | { error: string; busy?: undefined; summary?: undefined }
-        | { busy: string; error?: undefined; summary?: undefined }
-        | { summary: ParseSummary; error?: undefined; busy?: undefined }
+        | (PendingCapture & { error?: undefined; busy?: undefined; summary?: undefined; suggestion?: undefined })
+        | { error: string; busy?: undefined; summary?: undefined; suggestion?: undefined }
+        | { busy: string; error?: undefined; summary?: undefined; suggestion?: undefined }
+        | { summary: ParseSummary; error?: undefined; busy?: undefined; suggestion?: undefined }
+        | {
+            suggestion: { item: ParsedItem; sourceText: string; hits: string[] }
+            error?: undefined
+            busy?: undefined
+            summary?: undefined
+          }
       submitIdRef.current = ''
-      if (p.busy) {
+      if ('suggestion' in p && p.suggestion) {
+        setState({ phase: 'suggestion', ...p.suggestion })
+      } else if (p.busy) {
         // 托盘拖拽 / 右键快速操作：主进程直接驱动进度与结果
         setState({ phase: 'loading', message: p.busy })
       } else if (p.summary) {
@@ -84,8 +114,12 @@ export default function PreviewCard(): React.JSX.Element | null {
       )
       return () => window.clearTimeout(t)
     }
-    if (state.phase === 'empty' || (state.phase === 'result' && state.summary.related === 0)) {
-      const t = window.setTimeout(close, 3000)
+    if (
+      state.phase === 'empty' ||
+      state.phase === 'done' ||
+      (state.phase === 'result' && state.summary.related === 0)
+    ) {
+      const t = window.setTimeout(close, state.phase === 'done' ? 1800 : 3000)
       return () => window.clearTimeout(t)
     }
     return undefined
@@ -235,6 +269,57 @@ export default function PreviewCard(): React.JSX.Element | null {
         )}
 
         {state.phase === 'empty' && <div className="py-1 text-xs text-slate-500">{state.message}</div>}
+
+        {state.phase === 'suggestion' && (
+          <>
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+                屏幕识别
+              </span>
+              <span className="min-w-0 flex-1 text-sm leading-5 font-medium">{state.item.title}</span>
+            </div>
+            <div className="flex flex-wrap gap-x-3 text-xs text-slate-500">
+              {state.item.start_time && <span>开始：{state.item.start_time.replace('T', ' ')}</span>}
+              {state.item.due_time && (
+                <span className="text-red-500">截止：{state.item.due_time.replace('T', ' ')}</span>
+              )}
+              {state.item.location && <span>地点：{state.item.location}</span>}
+            </div>
+            {state.item.belonging_reason && (
+              <div className="text-xs text-slate-400">{state.item.belonging_reason}</div>
+            )}
+            {state.hits.length > 0 && (
+              <div className="text-[11px] text-slate-400">命中：{state.hits.join('、')}</div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                onClick={() => {
+                  void api.previewHide()
+                  setState({ phase: 'idle' })
+                }}
+              >
+                拒绝
+              </button>
+              <button
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+                onClick={() => void acceptSuggestion(true)}
+              >
+                修改
+              </button>
+              <button
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700"
+                onClick={() => void acceptSuggestion(false)}
+              >
+                同意
+              </button>
+            </div>
+          </>
+        )}
+
+        {state.phase === 'done' && (
+          <div className="py-1 text-xs text-emerald-600">{state.message}</div>
+        )}
       </div>
     </div>
   )

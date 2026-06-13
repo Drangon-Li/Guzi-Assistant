@@ -5,6 +5,7 @@ import type {
   PendingCapture,
   PermissionStatus,
   Profile,
+  ScanResult,
   SourceRecord,
   TaskRecord,
   TaskStatus
@@ -49,6 +50,10 @@ export const api = {
   quickActionStatus: () => inv<boolean>('quickaction:status'),
   installQuickAction: () => inv<boolean>('quickaction:install'),
   feishuStatus: () => inv<FeishuStatus>('feishu:status'),
+
+  screenScan: () => inv<ScanResult>('screen:scan'),
+  suggestionAccept: (payload: { item: ParsedItem; sourceText: string }) =>
+    inv<AddedInfo>('suggestion:accept', payload),
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),
