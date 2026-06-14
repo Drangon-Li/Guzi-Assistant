@@ -27,7 +27,8 @@ export const INVOKE_CHANNELS = [
   'suggestion:accept',
   'assistant:chat',
   'assistant:add',
-  'app:focus-main'
+  'app:focus-main',
+  'task:export-ics'
 ] as const
 
 /** 主进程 → 渲染层的事件通道（对应 broadcast / webContents.send 与渲染层 on） */
