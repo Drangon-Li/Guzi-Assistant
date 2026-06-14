@@ -116,9 +116,12 @@ export async function takeScreenshot(): Promise<string | null> {
     execFile('screencapture', ['-i', '-x', file], (err) => (err ? reject(err) : resolve()))
   })
   if (!existsSync(file)) return null // 用户按 Esc 取消了框选
-  const dataUrl = toJpegDataUrl(nativeImage.createFromPath(file), 1600)
-  unlinkSync(file)
-  return dataUrl
+  try {
+    return toJpegDataUrl(nativeImage.createFromPath(file), 1600)
+  } finally {
+    // 即使 JPEG 编码抛错也要删掉临时 PNG，避免残留 temp 目录
+    if (existsSync(file)) unlinkSync(file)
+  }
 }
 
 /** 静默全屏截图（无交互、无快门声），返回临时 png 路径；失败返回 null。调用方 OCR 后须自行删除 */

@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, watch } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 import { submitExternalFiles } from './capture'
 
 let debounce: NodeJS.Timeout | null = null
+let watcher: FSWatcher | null = null
 
 export function dropboxDir(): string {
   return join(app.getPath('userData'), 'dropbox')
@@ -42,8 +43,13 @@ export function initDropbox(): void {
   mkdirSync(dir, { recursive: true })
   // 应用没开时通过右键发送的文件，启动时补处理
   processManifests()
-  watch(dir, () => {
+  watcher = watch(dir, () => {
     if (debounce) clearTimeout(debounce)
     debounce = setTimeout(processManifests, 300)
+  })
+  // 退出时关闭 watcher 句柄，避免常驻 libuv handle 拖延退出
+  app.on('before-quit', () => {
+    watcher?.close()
+    watcher = null
   })
 }
