@@ -21,6 +21,7 @@ import {
   takeScreenshot
 } from './capture'
 import { assistantAdd, assistantChat } from './assistant'
+import { exportTaskIcs } from './export'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
 import { setHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
@@ -136,4 +137,6 @@ export function registerIpc(): void {
     hidePreview()
     focusMain(route)
   })
+
+  ipcMain.handle('task:export-ics', (_e, task: TaskRecord) => exportTaskIcs(task))
 }

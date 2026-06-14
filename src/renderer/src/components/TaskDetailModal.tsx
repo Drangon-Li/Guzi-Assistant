@@ -252,6 +252,18 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   </button>
                 )}
                 <button
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  disabled={!current.startTime && !current.dueTime}
+                  title={
+                    current.startTime || current.dueTime
+                      ? '导出 .ics 并用系统日历打开'
+                      : '该任务没有时间，无法加入日历'
+                  }
+                  onClick={() => void api.exportTaskIcs(current)}
+                >
+                  加入日历
+                </button>
+                <button
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
                   onClick={startEdit}
                 >

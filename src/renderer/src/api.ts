@@ -61,6 +61,9 @@ export const api = {
     inv<AddedInfo>('assistant:add', payload),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
 
+  exportTaskIcs: (task: TaskRecord) =>
+    inv<{ ok: boolean; canceled?: boolean; error?: string }>('task:export-ics', task),
+
   on: (channel: string, cb: (payload: unknown) => void) => window.eshell.on(channel, cb)
 }
 
