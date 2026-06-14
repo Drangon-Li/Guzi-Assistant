@@ -14,7 +14,8 @@
     "test:parser": "node test/parser-smoke.mjs",
     "test:screen": "node test/screen-smoke.mjs",
     "test:logic": "node test/logic-smoke.mjs",
-    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs"
+    "test:ics": "node test/ics-smoke.mjs",
+    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs && node test/ics-smoke.mjs"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.66.1",
