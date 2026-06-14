@@ -38,5 +38,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Unit tests (pure functions, no API)
+        run: npm run test:unit
+
       - name: Build
         run: npm run build

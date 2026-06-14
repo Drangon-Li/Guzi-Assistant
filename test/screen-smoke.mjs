@@ -66,4 +66,5 @@ check(
 )
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
+process.exit(failed ? 1 : 0)
 if (failed) process.exit(1)
