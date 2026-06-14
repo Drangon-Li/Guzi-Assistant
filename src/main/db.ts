@@ -256,11 +256,13 @@ export function createTask(
 
 /** 已确认但超过截止时间的任务自动标记为已延期（文档 5.2）；进行中是用户显式选择，不覆盖 */
 function markOverdue(): void {
+  // 写入时间与判定阈值共用同一快照，避免两次 localNow() 跨分钟边界不一致
+  const now = localNow()
   db.prepare(`
     UPDATE tasks SET status = 'overdue', updated_at = ?
     WHERE status IN ('not_started', 'scheduled')
       AND due_time IS NOT NULL AND due_time < ?
-  `).run(localNow(), localNow())
+  `).run(now, now)
 }
 
 /** 是否已存在同名同截止时间的有效任务（重复提交去重） */
