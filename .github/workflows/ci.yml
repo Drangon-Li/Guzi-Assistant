@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# 同一分支/PR 的旧任务自动取消，省额度
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Typecheck & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # better-sqlite3 原生模块在 postinstall 走 electron-rebuild，
+      # Linux 下需要这些库（puppeteer/electron 依赖）
+      - name: Install system deps for native build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 make g++ libgtk-3-0 libnss3 libasound2t64 || \
+          sudo apt-get install -y python3 make g++ libgtk-3-0 libnss3 libasound2
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
