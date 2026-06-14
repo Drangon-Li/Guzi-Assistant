@@ -15,6 +15,13 @@ export interface DailyBrief {
   message: string
 }
 
+/** 距下一次每天 hh:mm 的毫秒数（今天该点已过则取明天）。纯函数，便于测试调度。 */
+export function msUntilDailyTime(now: Date, hh: number, mm: number): number {
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0)
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1)
+  return next.getTime() - now.getTime()
+}
+
 const pad = (n: number): string => String(n).padStart(2, '0')
 const dayKeyOf = (iso: string): string => iso.slice(0, 10)
 const hhmmOf = (iso: string): string => (iso.length >= 16 ? iso.slice(11, 16) : '')

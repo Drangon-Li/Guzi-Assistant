@@ -7,6 +7,7 @@ import { ensureFeishu } from './feishu'
 import { applyScreenSenseSettings } from './screenwatch'
 import { submitExternalFiles } from './capture'
 import { appState, createMainWindow, focusMain } from './windows'
+import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 
 let tray: Tray | null = null
 
@@ -48,13 +49,17 @@ if (!app.requestSingleInstanceLock()) {
     initDropbox()
     ensureFeishu()
     applyScreenSenseSettings()
+    startDailyBrief()
   })
 
   app.on('activate', () => focusMain())
   app.on('before-quit', () => {
     appState.quitting = true
   })
-  app.on('will-quit', () => stopHotkey())
+  app.on('will-quit', () => {
+    stopHotkey()
+    stopDailyBrief()
+  })
   // 常驻托盘：所有窗口关闭后不退出
   app.on('window-all-closed', () => {})
 }

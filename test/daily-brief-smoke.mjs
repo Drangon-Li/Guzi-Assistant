@@ -1,5 +1,5 @@
 // 纯函数单测：每日简报 buildDailyBrief。运行：npm run test:brief
-import { buildDailyBrief } from '../src/shared/daily-brief.ts'
+import { buildDailyBrief, msUntilDailyTime } from '../src/shared/daily-brief.ts'
 
 let failed = 0
 function check(name, ok) {
@@ -73,6 +73,12 @@ check('同时间 → 高优先级在前', r4.topTaskId === 'hi')
 
 // 用 startTime 兜底（无 dueTime）
 check('仅 startTime 也计入', buildDailyBrief([mk({ id: 's', startTime: '2026-06-14T11:00' })], NOW).count === 1)
+
+// ---- msUntilDailyTime ----
+check('今天稍晚的时刻 → 当天剩余毫秒', msUntilDailyTime(NOW, 14, 0) === 5 * 3600000)
+check('已过的时刻 → 取明天', msUntilDailyTime(NOW, 8, 30) === (23 * 3600 + 30 * 60) * 1000)
+check('与当前同刻 → 取明天(24h)', msUntilDailyTime(NOW, 9, 0) === 24 * 3600000)
+check('返回值恒为正', msUntilDailyTime(NOW, 0, 0) > 0)
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)
