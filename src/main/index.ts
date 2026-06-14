@@ -12,15 +12,15 @@ let tray: Tray | null = null
 
 function createTray(): void {
   tray = new Tray(nativeImage.createEmpty())
-  tray.setTitle('al1')
-  tray.setToolTip('al1 个人事项捕获助手（可把文件拖到这里提交解析）')
+  tray.setTitle('EShell')
+  tray.setToolTip('纸壳助手（可把文件拖到这里提交解析）')
   // macOS：文件拖到菜单栏图标上直接提交解析
   tray.on('drop-files', (_e, files) => {
     if (files.length) void submitExternalFiles(files)
   })
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: '打开 al1', click: () => focusMain() },
+      { label: '打开 纸壳助手', click: () => focusMain() },
       { label: '提交剪切板内容', click: () => triggerClipboardCapture() },
       { type: 'separator' },
       {

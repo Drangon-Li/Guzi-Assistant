@@ -11,6 +11,6 @@ const api = {
   pathForFile: (file: File): string => webUtils.getPathForFile(file)
 }
 
-contextBridge.exposeInMainWorld('al1', api)
+contextBridge.exposeInMainWorld('eshell', api)
 
-export type Al1Api = typeof api
+export type EShellApi = typeof api

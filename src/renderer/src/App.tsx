@@ -50,9 +50,9 @@ function MainApp(): React.JSX.Element | null {
       void api.getSettings().then((s) => setHotkeyLabel(formatHotkey(s.hotkey)))
     }
     loadHotkey()
-    const offTasks = api.on('al1:tasks-updated', refresh)
-    const offSettings = api.on('al1:settings-updated', loadHotkey)
-    const offNav = api.on('al1:navigate', (route) => {
+    const offTasks = api.on('eshell:tasks-updated', refresh)
+    const offSettings = api.on('eshell:settings-updated', loadHotkey)
+    const offNav = api.on('eshell:navigate', (route) => {
       if (route === 'inbox' || route === 'assistant') setPage('assistant')
       else if (route === 'timeline' || route === 'schedule' || route === 'settings') setPage(route)
     })
@@ -67,7 +67,7 @@ function MainApp(): React.JSX.Element | null {
     e.preventDefault()
     dragDepth.current = 0
     setDragging(false)
-    const paths = Array.from(e.dataTransfer.files).map((f) => window.al1.pathForFile(f))
+    const paths = Array.from(e.dataTransfer.files).map((f) => window.eshell.pathForFile(f))
     if (!paths.length) return
     showToast(`正在解析 ${paths.length} 个文件…`)
     const results = await api.captureFiles(paths)
@@ -103,7 +103,7 @@ function MainApp(): React.JSX.Element | null {
     >
       <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="px-5 pt-6 pb-4">
-          <div className="text-xl font-bold tracking-tight">al1</div>
+          <div className="text-xl font-bold tracking-tight">EShell</div>
           <div className="mt-0.5 text-xs text-slate-400">个人事项捕获助手</div>
         </div>
         <nav className="flex flex-col gap-1 px-3">

@@ -3,11 +3,11 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 
-const WORKFLOW_NAME = '发送到 al1.workflow'
+const WORKFLOW_NAME = '发送到 纸壳助手.workflow'
 
-// 快速操作的 shell：把选中文件的路径写进 al1 监听的 dropbox 目录
+// 快速操作的 shell：把选中文件的路径写进 纸壳助手 监听的 dropbox 目录
 // 注意：内容会嵌进 XML，不能出现 & 和 <
-const SCRIPT = `DROP_DIR="$HOME/Library/Application Support/al1/dropbox"
+const SCRIPT = `DROP_DIR="$HOME/Library/Application Support/EShell/dropbox"
 mkdir -p "$DROP_DIR"
 MANIFEST="$DROP_DIR/send-$(date +%s)-$$.txt"
 for f in "$@"
@@ -29,7 +29,7 @@ const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>发送到 al1</string>
+				<string>发送到 纸壳助手</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>runWorkflowAsService</string>

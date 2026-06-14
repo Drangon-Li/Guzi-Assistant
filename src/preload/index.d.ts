@@ -1,4 +1,4 @@
-export interface Al1Api {
+export interface EShellApi {
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, cb: (payload: unknown) => void) => () => void
   pathForFile: (file: File) => string
@@ -6,7 +6,7 @@ export interface Al1Api {
 
 declare global {
   interface Window {
-    al1: Al1Api
+    eshell: EShellApi
   }
 }
 

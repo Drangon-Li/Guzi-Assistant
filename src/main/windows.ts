@@ -21,7 +21,7 @@ export function createMainWindow(): BrowserWindow {
     height: 740,
     minWidth: 880,
     minHeight: 600,
-    title: 'al1',
+    title: 'EShell',
     show: false,
     webPreferences: { preload }
   })
@@ -41,7 +41,7 @@ export function focusMain(route?: string): void {
   const win = createMainWindow()
   win.show()
   win.focus()
-  if (route) win.webContents.send('al1:navigate', route)
+  if (route) win.webContents.send('eshell:navigate', route)
 }
 
 export function getPreviewWindow(): BrowserWindow {
@@ -70,7 +70,7 @@ export function showPreview(payload: unknown): void {
   const { workArea } = screen.getPrimaryDisplay()
   win.setPosition(workArea.x + workArea.width - 396, workArea.y + workArea.height - 276)
   const send = (): void => {
-    win.webContents.send('al1:preview', payload)
+    win.webContents.send('eshell:preview', payload)
     win.showInactive()
   }
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)

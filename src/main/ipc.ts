@@ -60,7 +60,7 @@ export function registerIpc(): void {
     if (patch.feishuAppId !== undefined || patch.feishuAppSecret !== undefined) ensureFeishu()
     if (patch.screenSenseEnabled !== undefined || patch.screenSenseHotkey !== undefined)
       applyScreenSenseSettings()
-    broadcast('al1:settings-updated')
+    broadcast('eshell:settings-updated')
     return ok
   })
 
@@ -86,23 +86,23 @@ export function registerIpc(): void {
   ipcMain.handle('tasks:update', (_e, id: string, patch: Partial<TaskRecord>) => {
     if (patch.status && !STATUSES.includes(patch.status)) return
     updateTask(id, patch)
-    broadcast('al1:tasks-updated')
+    broadcast('eshell:tasks-updated')
   })
   ipcMain.handle('tasks:bulk', (_e, ids: string[], status: TaskStatus) => {
     if (!STATUSES.includes(status)) return
     bulkUpdateStatus(ids, status)
-    broadcast('al1:tasks-updated')
+    broadcast('eshell:tasks-updated')
   })
 
   ipcMain.handle('source:get', (_e, id: string) => getSource(id))
   ipcMain.handle('source:delete', (_e, id: string) => {
     deleteSourceContent(id)
-    broadcast('al1:tasks-updated')
+    broadcast('eshell:tasks-updated')
   })
 
   ipcMain.handle('data:wipe', () => {
     wipeAll()
-    broadcast('al1:tasks-updated')
+    broadcast('eshell:tasks-updated')
   })
 
   ipcMain.handle('permissions:get', (): PermissionStatus => {

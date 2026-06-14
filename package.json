@@ -1,7 +1,8 @@
 {
-  "name": "al1",
+  "name": "eshell",
+  "productName": "EShell",
   "version": "0.1.0",
-  "description": "al1 个人事项捕获助手 MVP 原型",
+  "description": "EShell（纸壳助手）个人事项捕获助手 MVP 原型",
   "main": "out/main/index.js",
   "private": true,
   "scripts": {

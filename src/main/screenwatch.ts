@@ -16,7 +16,7 @@ function emptySummary(error: string | null): ParseSummary {
 
 /** 扫描一次当前屏幕：截图 → 本地 OCR → 解析 → 选最优 → 右下角弹建议卡 */
 export async function scanOnce(): Promise<ScanResult> {
-  // 触发后立刻弹"正在扫描"加载卡，否则截图/OCR/解析这几秒里用户不知道 al1 在工作
+  // 触发后立刻弹"正在扫描"加载卡，否则截图/OCR/解析这几秒里用户不知道 纸壳助手 在工作
   showPreview({ busy: '正在扫描屏幕…' })
   try {
     const png = await captureScreenSilently()
@@ -91,7 +91,7 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
     status,
     feedback: null
   })
-  broadcast('al1:tasks-updated')
+  broadcast('eshell:tasks-updated')
   return { candidate: 0, title: item.title, time, duplicate: false }
 }
 

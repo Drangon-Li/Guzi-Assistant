@@ -59,7 +59,7 @@ function addCandidates(
     return { candidate, title: item.title, time, duplicate: false }
   })
   if (!created) deleteSourceRow(source.id)
-  broadcast('al1:tasks-updated')
+  broadcast('eshell:tasks-updated')
   return added
 }
 

@@ -111,7 +111,7 @@ export function clearPendings(): void {
 // ---------- 截图（macOS screencapture 框选） ----------
 
 export async function takeScreenshot(): Promise<string | null> {
-  const file = join(app.getPath('temp'), `al1-shot-${Date.now()}.png`)
+  const file = join(app.getPath('temp'), `eshell-shot-${Date.now()}.png`)
   await new Promise<void>((resolve, reject) => {
     execFile('screencapture', ['-i', '-x', file], (err) => (err ? reject(err) : resolve()))
   })
@@ -123,7 +123,7 @@ export async function takeScreenshot(): Promise<string | null> {
 
 /** 静默全屏截图（无交互、无快门声），返回临时 png 路径；失败返回 null。调用方 OCR 后须自行删除 */
 export async function captureScreenSilently(): Promise<string | null> {
-  const file = join(app.getPath('temp'), `al1-screen-${Date.now()}.png`)
+  const file = join(app.getPath('temp'), `eshell-screen-${Date.now()}.png`)
   try {
     await new Promise<void>((resolve, reject) => {
       execFile('screencapture', ['-x', file], (err) => (err ? reject(err) : resolve()))
@@ -165,7 +165,7 @@ export const HINTS: Record<string, string> = {
   screenshot: '用户提交了一张屏幕截图（通常是聊天、群通知、网页或课程平台），请识别图中文字并提取行动项。',
   file: '以下是用户拖拽提交的文件内容，请提取其中的行动项。',
   text_input: '以下是用户粘贴/输入的文本，请提取其中的行动项。',
-  feishu: '以下是用户从飞书转发给 al1 机器人的消息（通常是群通知、聊天记录或截图），请提取其中的行动项。',
+  feishu: '以下是用户从飞书转发给 纸壳助手 机器人的消息（通常是群通知、聊天记录或截图），请提取其中的行动项。',
   screen_scan:
     '以下是从用户屏幕上 OCR 识别出的文字，可能混有菜单、按钮、侧边栏等无关界面文字。请只提取明确的、与用户本人相关的行动项；信息不足或无法确认时不要硬凑，宁可一个都不提取。'
 }
@@ -237,7 +237,7 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
     const { related, autoAdded, duplicates } = createTasksFromItems(source.id, items)
     // 没有任何任务引用的来源在 UI 上不可见也删不掉，不留库
     if (related === 0) deleteSourceRow(source.id)
-    broadcast('al1:tasks-updated')
+    broadcast('eshell:tasks-updated')
     return { sourceId: related ? source.id : '', total: items.length, related, autoAdded, duplicates, error: null }
   } catch (e) {
     // 解析失败的来源没有任何任务引用，UI 上不可见也删不掉，必须当场清理

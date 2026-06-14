@@ -67,7 +67,7 @@ export default function PreviewCard(): React.JSX.Element | null {
   }
 
   useEffect(() => {
-    return api.on('al1:preview', (payload) => {
+    return api.on('eshell:preview', (payload) => {
       const p = payload as
         | (PendingCapture & { error?: undefined; busy?: undefined; summary?: undefined; suggestion?: undefined })
         | { error: string; busy?: undefined; summary?: undefined; suggestion?: undefined }
@@ -134,7 +134,7 @@ export default function PreviewCard(): React.JSX.Element | null {
         className="animate-card-in flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-2xl"
       >
         <div className="flex items-center gap-2">
-          <span className="font-semibold">al1</span>
+          <span className="font-semibold">EShell</span>
           {state.phase === 'preview' && (
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
               {SOURCE_LABELS[state.capture.type]}
@@ -200,7 +200,7 @@ export default function PreviewCard(): React.JSX.Element | null {
         {state.phase === 'loading' && (
           <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
             <span className="size-3 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-            {state.message ?? 'al1 正在解析…'}
+            {state.message ?? '纸壳助手正在解析…'}
           </div>
         )}
 

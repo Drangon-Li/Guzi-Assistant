@@ -17,7 +17,7 @@ import type {
 let db: Database.Database
 
 export function initDb(): void {
-  db = new Database(join(app.getPath('userData'), 'al1.db'))
+  db = new Database(join(app.getPath('userData'), 'eshell.db'))
   db.pragma('journal_mode = WAL')
   db.exec(`
     CREATE TABLE IF NOT EXISTS profile (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL);
@@ -96,11 +96,11 @@ export function getSettings(): AppSettings {
   return {
     hotkey: map.hotkey || legacy[map.hotkeyMode] || 'Alt+C',
     // ?? 而不是 ||：用户显式清空后不能从 .env 静默复活
-    apiBase: map.apiBase ?? env.AL1_API_BASE ?? '',
-    apiKey: map.apiKey ?? env.AL1_API_KEY ?? '',
-    model: map.model || env.AL1_MODEL || 'gpt-5.5',
-    feishuAppId: map.feishuAppId ?? env.AL1_FEISHU_APP_ID ?? '',
-    feishuAppSecret: map.feishuAppSecret ?? env.AL1_FEISHU_APP_SECRET ?? '',
+    apiBase: map.apiBase ?? env.ESHELL_API_BASE ?? '',
+    apiKey: map.apiKey ?? env.ESHELL_API_KEY ?? '',
+    model: map.model || env.ESHELL_MODEL || 'gpt-5.5',
+    feishuAppId: map.feishuAppId ?? env.ESHELL_FEISHU_APP_ID ?? '',
+    feishuAppSecret: map.feishuAppSecret ?? env.ESHELL_FEISHU_APP_SECRET ?? '',
     screenSenseEnabled: map.screenSenseEnabled === 'true',
     screenSenseKeywords: parseKeywords(map.screenSenseKeywords),
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S'

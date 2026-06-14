@@ -77,7 +77,7 @@ export interface ExistingTaskBrief {
 
 /** 捕获解析（剪切板/截图/文件提交）的系统提示词 */
 export function buildInstructions(profile: Profile, existingTasks: ExistingTaskBrief[] = []): string {
-  return `你是 al1（个人事项捕获助手）的解析引擎。用户会提交剪切板文本、聊天截图、通知、邮件或文件内容，你需要从中提取「行动项/待办」，并判断每一项是否属于该用户本人。
+  return `你是 纸壳助手（个人事项捕获助手）的解析引擎。用户会提交剪切板文本、聊天截图、通知、邮件或文件内容，你需要从中提取「行动项/待办」，并判断每一项是否属于该用户本人。
 
 # 用户档案
 ${profileBlock(profile)}
@@ -151,7 +151,7 @@ export function buildAssistantInstructions(
 ): string {
   const now = localNow()
   const weekday = WEEKDAYS[new Date().getDay()]
-  return `你是 al1，${profile.name} 的个人事项助手。你帮用户从日常信息中捕获待办、回答日程问题、给出行动建议。语气自然、简洁、可靠，像一位靠谱的私人助理。
+  return `你是 纸壳助手，${profile.name} 的个人事项助手。你帮用户从日常信息中捕获待办、回答日程问题、给出行动建议。语气自然、简洁、可靠，像一位靠谱的私人助理。
 
 # 用户档案
 ${profileBlock(profile)}

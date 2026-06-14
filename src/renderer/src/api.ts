@@ -19,7 +19,7 @@ import type {
 } from '@shared/parsing'
 
 function inv<T>(channel: string, ...args: unknown[]): Promise<T> {
-  return window.al1.invoke(channel, ...args) as Promise<T>
+  return window.eshell.invoke(channel, ...args) as Promise<T>
 }
 
 export const api = {
@@ -61,7 +61,7 @@ export const api = {
     inv<AddedInfo>('assistant:add', payload),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
 
-  on: (channel: string, cb: (payload: unknown) => void) => window.al1.on(channel, cb)
+  on: (channel: string, cb: (payload: unknown) => void) => window.eshell.on(channel, cb)
 }
 
 export type { PendingCapture }

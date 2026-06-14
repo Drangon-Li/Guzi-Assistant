@@ -329,7 +329,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             <div>
               <div>访达右键快速操作</div>
               <div className="mt-0.5 text-xs leading-5 text-slate-400">
-                安装后在访达中选中文件 → 右键 → 快速操作 → 「发送到 al1」，文件会直接进入解析流程（应用未运行时会在下次启动时补处理）。
+                安装后在访达中选中文件 → 右键 → 快速操作 → 「发送到 纸壳助手」，文件会直接进入解析流程（应用未运行时会在下次启动时补处理）。
               </div>
             </div>
             <button
@@ -350,7 +350,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           <div>
             <div>托盘拖拽</div>
             <div className="mt-0.5 text-xs leading-5 text-slate-400">
-              把文件直接拖到菜单栏的 al1 图标上即可提交解析，无需安装。
+              把文件直接拖到菜单栏的 纸壳助手 图标上即可提交解析，无需安装。
             </div>
           </div>
         </div>
@@ -426,7 +426,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
       <Section title="屏幕感知建议（隐私功能）">
         <p className="mb-3 text-xs leading-5 text-slate-400">
-          开启后可手动「扫描当前屏幕」：al1 在本机识别屏幕上的文字，命中关键词时把文字（非截图）送解析，
+          开启后可手动「扫描当前屏幕」：纸壳助手 在本机识别屏幕上的文字，命中关键词时把文字（非截图）送解析，
           给出一条待办建议供你确认。截图用完即弃、不保存、不上传。注意：macOS
           会在你扫描时显示系统录制指示器，这是系统强制行为、无法关闭。首次使用会自动编译本地 OCR 组件（需 Xcode
           命令行工具）。
@@ -478,7 +478,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
             {perms && perms.screen !== 'granted' && (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
-                屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 al1。
+                屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 EShell。
               </div>
             )}
           </div>
