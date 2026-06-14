@@ -21,7 +21,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 项目要求 Node ≥ 22.6（README）；22.18+ 原生 strip-types 才能直接 node 跑 .ts 测试
+          node-version: 22
           cache: npm
 
       # better-sqlite3 原生模块在 postinstall 走 electron-rebuild，
