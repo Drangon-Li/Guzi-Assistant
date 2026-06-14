@@ -61,9 +61,20 @@ ESHELL_FEISHU_APP_SECRET=
 npm run dev          # 开发模式
 npm run build        # 构建
 npm run typecheck    # 类型检查（main + renderer）
+npm run test:unit    # 纯函数单测合集（无需 API，CI 必跑）
 npm run test:parser  # 解析归属判断冒烟测试（需 .env 配好 API）
-npm run test:screen  # 关键词匹配 / 选最优纯函数单测
 ```
+
+`test:unit` 聚合了四组纯函数单测（也可单独跑）：
+
+| 命令 | 覆盖 |
+|---|---|
+| `test:logic` | 时间规整 normalizeTime、敏感检测 detectSensitive |
+| `test:parse` | 模型输出解析 parseModelOutput / parseAssistantOutput / applyCandidatePatch |
+| `test:ics`   | 任务 → .ics 导出 buildIcs |
+| `test:screen`| 关键词匹配 / 选最优 |
+
+> CI（`.github/workflows/ci.yml`）在 PR 与 push 到 main 时跑 `typecheck → test:unit → build`。纯函数单测直接用 `node` 跑 `.ts`，依赖 Node ≥ 22.18 的原生 strip-types（项目要求 Node ≥ 22.6）。
 
 ## 目录结构
 
