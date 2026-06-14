@@ -1,6 +1,7 @@
 import * as Lark from '@larksuiteoapi/node-sdk'
+import { nativeImage } from 'electron'
 import { getSettings } from './db'
-import { submitFeishu } from './capture'
+import { submitFeishu, toJpegDataUrl } from './capture'
 import type { FeishuStatus, ParseSummary } from '@shared/types'
 
 let state: FeishuStatus = { status: 'disabled', detail: '' }
@@ -81,7 +82,10 @@ async function start(appId: string, appSecret: string): Promise<void> {
 async function handleMessage(msg: FeishuMessage | undefined): Promise<void> {
   if (!msg || seenMessages.has(msg.message_id)) return
   seenMessages.add(msg.message_id)
-  if (seenMessages.size > 300) seenMessages.clear()
+  // LRU 淘汰：超限只删最旧的一批，保留近 200 条去重窗口（整批 clear 会让重投消息漏去重）
+  if (seenMessages.size > 300) {
+    for (const id of [...seenMessages].slice(0, seenMessages.size - 200)) seenMessages.delete(id)
+  }
   if (msg.chat_type !== 'p2p') return // 原型只处理私聊，群聊不打扰
 
   let text: string | undefined
@@ -125,7 +129,8 @@ async function downloadImage(messageId: string, fileKey: string): Promise<string
   const stream = await resp.getReadableStream()
   const chunks: Buffer[] = []
   for await (const chunk of stream) chunks.push(Buffer.from(chunk as Uint8Array))
-  return `data:image/png;base64,${Buffer.concat(chunks).toString('base64')}`
+  // 与剪切板/截图路径一致压成 JPEG，避免 PNG base64 让 DB 膨胀一个量级
+  return toJpegDataUrl(nativeImage.createFromBuffer(Buffer.concat(chunks)), 1600)
 }
 
 function summaryText(s: ParseSummary): string {

@@ -61,6 +61,8 @@ async function ensureOcrBinary(): Promise<string> {
 
 /** 对 png 做本地 Apple Vision OCR，返回逐行拼接的文字 */
 export async function ocrImage(pngPath: string): Promise<string> {
+  // 已缓存的二进制若被删除（升级覆盖 userData / 清理工具），重置缓存触发重新编译
+  if (ensured && !existsSync(await ensured.catch(() => ''))) ensured = null
   // 编译失败时重置，下次重试；成功后缓存 Promise 避免重复编译
   if (!ensured)
     ensured = ensureOcrBinary().catch((e) => {
