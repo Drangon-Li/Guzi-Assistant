@@ -33,7 +33,7 @@ function shrink(img: NativeImage, maxWidth: number): NativeImage {
 }
 
 /** JPEG 比 PNG dataURL 小一个量级，截图入库/上传都用它 */
-function toJpegDataUrl(img: NativeImage, maxWidth: number): string {
+export function toJpegDataUrl(img: NativeImage, maxWidth: number): string {
   return `data:image/jpeg;base64,${shrink(img, maxWidth).toJPEG(80).toString('base64')}`
 }
 
