@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { TaskRecord, TaskStatus } from '@shared/types'
+import { isFinishedEvent } from '@shared/task-filters'
 import {
   countdownLabel,
   daysUntil,
@@ -79,17 +80,24 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
   const [mode, setMode] = useState<ViewMode>('day')
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
+  const [showFinished, setShowFinished] = useState(false)
 
+  const now = new Date()
   const active = tasks.filter((t) => ACTIVE_STATUSES.includes(t.status))
-  const overdue = active
+  // 已结束的纯开始时间任务（开过的会等）：收进底部折叠区，不混在主时间轴/倒计时里（#9）
+  const finished = active
+    .filter((t) => isFinishedEvent(t, now))
+    .sort((a, b) => timeOf(b)!.localeCompare(timeOf(a)!)) // 最近结束的在前
+  const live = active.filter((t) => !isFinishedEvent(t, now))
+  const overdue = live
     .filter((t) => t.status === 'overdue')
     .sort((a, b) => (timeOf(a) ?? '').localeCompare(timeOf(b) ?? ''))
-  const timed = active
+  const timed = live
     .filter((t) => timeOf(t) && t.status !== 'overdue')
     .sort((a, b) => timeOf(a)!.localeCompare(timeOf(b)!))
-  const unscheduled = active.filter((t) => !timeOf(t) && t.status !== 'overdue')
+  const unscheduled = live.filter((t) => !timeOf(t) && t.status !== 'overdue')
 
-  const upcoming = active
+  const upcoming = live
     .filter((t) => timeOf(t))
     .sort((a, b) => timeOf(a)!.localeCompare(timeOf(b)!))
     .slice(0, 3)
@@ -183,6 +191,22 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
       {unscheduled.length > 0 && (
         <div className="mt-6 text-xs text-slate-400">
           另有 {unscheduled.length} 个任务未排期，可在「日程」页中设置时间。
+        </div>
+      )}
+
+      {finished.length > 0 && (
+        <div className="mt-6">
+          <button
+            onClick={() => setShowFinished((v) => !v)}
+            className="text-xs text-slate-400 hover:text-slate-600"
+          >
+            {showFinished ? '▾' : '▸'} 已结束 {finished.length} 项（仅开始时间、已过去）
+          </button>
+          {showFinished && (
+            <div className="mt-2 opacity-70">
+              <TimelineSection label="已结束" sub={`${finished.length} 项`} tasks={finished} onOpen={setDetail} />
+            </div>
+          )}
         </div>
       )}
 
