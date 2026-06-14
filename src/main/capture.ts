@@ -299,9 +299,13 @@ export async function submitExternalFiles(paths: string[]): Promise<void> {
   showPreview({ summary: merged })
 }
 
+/** 单次提交文件数上限：每个文件一次解析调用（最长 120s），无上限会耗尽 API 配额并长时间占连接 */
+const MAX_FILES_PER_SUBMIT = 20
+
 export async function submitFiles(paths: string[]): Promise<ParseSummary[]> {
   const results: ParseSummary[] = []
-  for (const p of paths) {
+  const capped = paths.slice(0, MAX_FILES_PER_SUBMIT)
+  for (const p of capped) {
     try {
       results.push(await parseAndStore({ type: 'file', filePath: p }))
     } catch (e) {
@@ -314,6 +318,16 @@ export async function submitFiles(paths: string[]): Promise<ParseSummary[]> {
         error: `${basename(p)}：${e instanceof Error ? e.message : String(e)}`
       })
     }
+  }
+  if (paths.length > MAX_FILES_PER_SUBMIT) {
+    results.push({
+      sourceId: '',
+      total: 0,
+      related: 0,
+      autoAdded: 0,
+      duplicates: 0,
+      error: `一次最多处理 ${MAX_FILES_PER_SUBMIT} 个文件，已跳过其余 ${paths.length - MAX_FILES_PER_SUBMIT} 个`
+    })
   }
   return results
 }
