@@ -77,6 +77,12 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
     setEditing(false)
   }
 
+  // #15：改判「不是我的事」→ 归属置 no（触发主进程个性化学习）+ 移出列表（ignored）
+  const markNotMine = async (): Promise<void> => {
+    await api.updateTask(current.id, { belongsToUser: 'no', status: 'ignored' })
+    setCurrent({ ...current, belongsToUser: 'no', status: 'ignored' })
+  }
+
   const due = current.dueTime ?? current.startTime
 
   return (
@@ -184,11 +190,27 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   className={`mt-4 rounded-lg px-3 py-2 text-xs leading-5 ${
                     current.belongsToUser === 'yes'
                       ? 'bg-emerald-50 text-emerald-800'
-                      : 'bg-amber-50 text-amber-800'
+                      : current.belongsToUser === 'no'
+                        ? 'bg-slate-100 text-slate-600'
+                        : 'bg-amber-50 text-amber-800'
                   }`}
                 >
-                  {current.belongsToUser === 'yes' ? '判断属于你：' : '不确定是否属于你：'}
-                  {current.belongingReason || '无说明'}
+                  <div>
+                    {current.belongsToUser === 'yes'
+                      ? '判断属于你：'
+                      : current.belongsToUser === 'no'
+                        ? '已标记：不是你的事。'
+                        : '不确定是否属于你：'}
+                    {current.belongingReason || '无说明'}
+                  </div>
+                  {current.belongsToUser !== 'no' && (
+                    <button
+                      onClick={() => void markNotMine()}
+                      className="mt-2 rounded-md border border-slate-300 px-2.5 py-1 text-[11px] text-slate-600 hover:border-slate-400 hover:bg-white"
+                    >
+                      不是我的事
+                    </button>
+                  )}
                 </div>
 
                 {current.duplicateOf && (
