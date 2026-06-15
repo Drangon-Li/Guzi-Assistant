@@ -1,15 +1,50 @@
-import { app, Menu, nativeImage, Tray } from 'electron'
+import { app, Menu, nativeImage, Tray, type MenuItemConstructorOptions } from 'electron'
 import { initDb, getSettings } from './db'
 import { registerIpc, triggerClipboardCapture } from './ipc'
 import { initHotkey, stopHotkey } from './hotkey'
 import { initDropbox } from './dropbox'
 import { ensureFeishu } from './feishu'
-import { applyScreenSenseSettings } from './screenwatch'
+import {
+  applyScreenSenseSettings,
+  setTrayRefresh,
+  setWatchPaused,
+  isWatchActive,
+  isWatchPaused
+} from './screenwatch'
 import { submitExternalFiles } from './capture'
 import { appState, createMainWindow, focusMain } from './windows'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 
 let tray: Tray | null = null
+
+/** 重建托盘菜单：持续监控开启时多一个「暂停/恢复屏幕监控」项（由 setTrayRefresh 在状态变化时回调） */
+function buildTrayMenu(): void {
+  if (!tray) return
+  const items: MenuItemConstructorOptions[] = [
+    { label: '打开 纸壳助手', click: () => focusMain() },
+    { label: '提交剪切板内容', click: () => triggerClipboardCapture() }
+  ]
+  if (isWatchActive()) {
+    items.push(
+      { type: 'separator' },
+      {
+        label: isWatchPaused() ? '恢复屏幕监控' : '暂停屏幕监控',
+        click: () => setWatchPaused(!isWatchPaused())
+      }
+    )
+  }
+  items.push(
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        appState.quitting = true
+        app.quit()
+      }
+    }
+  )
+  tray.setContextMenu(Menu.buildFromTemplate(items))
+}
 
 function createTray(): void {
   tray = new Tray(nativeImage.createEmpty())
@@ -19,20 +54,7 @@ function createTray(): void {
   tray.on('drop-files', (_e, files) => {
     if (files.length) void submitExternalFiles(files)
   })
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: '打开 纸壳助手', click: () => focusMain() },
-      { label: '提交剪切板内容', click: () => triggerClipboardCapture() },
-      { type: 'separator' },
-      {
-        label: '退出',
-        click: () => {
-          appState.quitting = true
-          app.quit()
-        }
-      }
-    ])
-  )
+  buildTrayMenu()
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -45,6 +67,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc()
     createMainWindow()
     createTray()
+    setTrayRefresh(buildTrayMenu) // 监控启停/暂停时刷新托盘菜单
     initHotkey(getSettings().hotkey, triggerClipboardCapture)
     initDropbox()
     ensureFeishu()

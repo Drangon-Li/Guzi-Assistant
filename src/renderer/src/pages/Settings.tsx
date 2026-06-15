@@ -472,6 +472,53 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               {scanRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
             </div>
 
+            <div className="border-t border-slate-100 pt-4">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
+                  持续监控（自动）
+                  <span className="ml-2 text-xs text-slate-400">屏幕变化时自动识别，无需手动扫描</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSenseContinuous}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    setSettings({ ...settings, screenSenseContinuous: next })
+                    await api.saveSettings({ screenSenseContinuous: next })
+                    flash(next ? '已开启持续监控' : '已关闭持续监控')
+                  }}
+                />
+              </label>
+              {settings.screenSenseContinuous && (
+                <div className="mt-3 flex flex-col gap-2">
+                  <label className="flex items-center gap-3 text-sm">
+                    <span className="text-slate-500">检查间隔</span>
+                    <input
+                      type="number"
+                      min={2}
+                      max={60}
+                      className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                      value={settings.screenSenseIntervalSec}
+                      onChange={(e) =>
+                        setSettings({ ...settings, screenSenseIntervalSec: Number(e.target.value) })
+                      }
+                      onBlur={async (e) => {
+                        const v = Math.min(60, Math.max(2, Number(e.target.value) || 5))
+                        setSettings({ ...settings, screenSenseIntervalSec: v })
+                        await api.saveSettings({ screenSenseIntervalSec: v })
+                        flash('已保存监控间隔')
+                      }}
+                    />
+                    <span className="text-xs text-slate-400">秒</span>
+                  </label>
+                  <p className="text-xs leading-5 text-slate-400">
+                    屏幕静止时不触发识别与上云；可在菜单栏 纸壳助手 图标随时「暂停屏幕监控」。macOS
+                    会持续显示系统录制指示器（无法关闭）。
+                  </p>
+                </div>
+              )}
+            </div>
+
             {perms && perms.screen !== 'granted' && (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
                 屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 EShell。

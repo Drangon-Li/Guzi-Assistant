@@ -103,7 +103,9 @@ export function getSettings(): AppSettings {
     feishuAppSecret: map.feishuAppSecret ?? env.ESHELL_FEISHU_APP_SECRET ?? '',
     screenSenseEnabled: map.screenSenseEnabled === 'true',
     screenSenseKeywords: parseKeywords(map.screenSenseKeywords),
-    screenSenseHotkey: map.screenSenseHotkey || 'Alt+S'
+    screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',
+    screenSenseContinuous: map.screenSenseContinuous === 'true',
+    screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5
   }
 }
 
