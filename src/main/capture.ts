@@ -8,7 +8,7 @@ import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import { detectSensitive } from './sensitive'
 import { createSource, createTask, deleteSourceRow, getProfile, taskExists } from './db'
-import { parseToItems, type ParsedItem } from './parser'
+import { parseToItems, ParseError, type ParsedItem } from './parser'
 import { broadcast, showPreview } from './windows'
 import type { ParseSummary, PendingCapture, SourceType, TaskStatus } from '@shared/types'
 
@@ -251,7 +251,8 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
       related: 0,
       autoAdded: 0,
       duplicates: 0,
-      error: e instanceof Error ? e.message : String(e)
+      error: e instanceof Error ? e.message : String(e),
+      errorCode: e instanceof ParseError ? e.code : null
     }
   }
 }

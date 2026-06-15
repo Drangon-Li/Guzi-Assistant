@@ -101,6 +101,8 @@ export interface ParseSummary {
   /** 与已有任务重复而被跳过的数量 */
   duplicates: number
   error: string | null
+  /** 解析失败时的可操作错误码：401=未登录、402=积分不足、502=模型错误（驱动「去登录/去充值」CTA） */
+  errorCode?: '401' | '402' | '502' | null
 }
 
 export interface PermissionStatus {

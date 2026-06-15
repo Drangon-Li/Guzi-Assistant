@@ -103,7 +103,15 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
     setBusy(false)
 
     if (res.error) {
-      update([...store.msgs, { id: store.nextId++, role: 'assistant', text: `出错了：${res.error}`, error: true }])
+      const hint = /积分|额度/.test(res.error)
+        ? '（到「账户」页充值后再试）'
+        : /登录/.test(res.error)
+          ? '（到「账户」页登录后再试）'
+          : ''
+      update([
+        ...store.msgs,
+        { id: store.nextId++, role: 'assistant', text: `出错了：${res.error}${hint}`, error: true }
+      ])
       return
     }
     // 对话指令加入的候选 → 标记对应卡片

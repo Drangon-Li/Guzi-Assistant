@@ -41,7 +41,8 @@ export const EVENT_CHANNELS = [
   'eshell:navigate',
   'eshell:preview',
   'eshell:settings-updated',
-  'eshell:tasks-updated'
+  'eshell:tasks-updated',
+  'eshell:balance-updated'
 ] as const
 
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]

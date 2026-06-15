@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase, hasBackend } from '../supabase'
+import { api } from '../api'
 import RechargePanel from './RechargePanel'
 
 const input =
@@ -40,6 +41,13 @@ export default function AccountSection(): React.JSX.Element {
     void loadBalance()
   }, [loadBalance])
 
+  // 解析扣费后主进程广播最新余额 → 即时刷新（#71 心安：用户看得到扣了多少）
+  useEffect(() => {
+    return api.on('eshell:balance-updated', (b) => {
+      if (typeof b === 'number') setBalance(b)
+    })
+  }, [])
+
   if (!hasBackend || !supabase) {
     return <p className="text-xs leading-5 text-slate-400">托管服务未接入（本版本未配置后端）。</p>
   }
@@ -56,7 +64,7 @@ export default function AccountSection(): React.JSX.Element {
           : sb.auth.signUp({ email: email.trim(), password })
       const { error } = await fn
       if (error) setMsg(error.message)
-      else if (mode === 'register') setMsg('注册成功，请查收验证邮件后登录')
+      else if (mode === 'register') setMsg('注册成功，已自动登录')
     } finally {
       setBusy(false)
     }

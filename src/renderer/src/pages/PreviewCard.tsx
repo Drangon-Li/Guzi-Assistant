@@ -9,7 +9,7 @@ type State =
   | { phase: 'preview'; capture: PendingCapture; left: number }
   | { phase: 'loading'; message?: string }
   | { phase: 'result'; summary: ParseSummary }
-  | { phase: 'error'; message: string }
+  | { phase: 'error'; message: string; errorCode?: '401' | '402' | '502' | null }
   | { phase: 'empty'; message: string }
   | { phase: 'suggestion'; item: ParsedItem; sourceText: string; hits: string[] }
   | { phase: 'done'; message: string }
@@ -38,7 +38,8 @@ export default function PreviewCard(): React.JSX.Element | null {
       }
     }
     if (submitIdRef.current !== capture.captureId) return
-    if (summary.error) setState({ phase: 'error', message: summary.error })
+    if (summary.error)
+      setState({ phase: 'error', message: summary.error, errorCode: summary.errorCode })
     else setState({ phase: 'result', summary })
   }
 
@@ -86,7 +87,8 @@ export default function PreviewCard(): React.JSX.Element | null {
         // 托盘拖拽 / 右键快速操作：主进程直接驱动进度与结果
         setState({ phase: 'loading', message: p.busy })
       } else if (p.summary) {
-        if (p.summary.error) setState({ phase: 'error', message: p.summary.error })
+        if (p.summary.error)
+          setState({ phase: 'error', message: p.summary.error, errorCode: p.summary.errorCode })
         else setState({ phase: 'result', summary: p.summary })
       } else if ('error' in p && p.error) {
         setState({ phase: 'empty', message: p.error })
@@ -257,13 +259,24 @@ export default function PreviewCard(): React.JSX.Element | null {
             <div className="rounded-lg bg-red-50 px-3 py-2 text-xs leading-5 text-red-600">
               {state.message}
             </div>
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
               <button
                 className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
                 onClick={close}
               >
                 关闭
               </button>
+              {(state.errorCode === '401' || state.errorCode === '402') && (
+                <button
+                  className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                  onClick={() => {
+                    void api.focusMain('account')
+                    close()
+                  }}
+                >
+                  {state.errorCode === '402' ? '去充值' : '去登录'}
+                </button>
+              )}
             </div>
           </>
         )}

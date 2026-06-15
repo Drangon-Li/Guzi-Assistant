@@ -9,15 +9,18 @@ import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
 import Memory from './pages/Memory'
 import Settings from './pages/Settings'
+import Account from './pages/Account'
 import PreviewCard from './pages/PreviewCard'
+import { hasBackend } from './supabase'
 
-type Page = 'assistant' | 'timeline' | 'schedule' | 'memory' | 'settings'
+type Page = 'assistant' | 'timeline' | 'schedule' | 'memory' | 'account' | 'settings'
 
 const NAV: { key: Page; label: string }[] = [
   { key: 'assistant', label: '助手' },
   { key: 'timeline', label: '时间轴' },
   { key: 'schedule', label: '日程' },
   { key: 'memory', label: '记忆' },
+  { key: 'account', label: '账户' },
   { key: 'settings', label: '设置' }
 ]
 
@@ -33,6 +36,7 @@ function MainApp(): React.JSX.Element | null {
   const [toast, setToast] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [hotkeyLabel, setHotkeyLabel] = useState('⌥ C')
+  const [signedIn, setSignedIn] = useState(false)
   const toastTimer = useRef<number | undefined>(undefined)
   const dragDepth = useRef(0)
 
@@ -49,7 +53,10 @@ function MainApp(): React.JSX.Element | null {
   // #70：把 Supabase 登录态(functionsBase + token)推给主进程，供 parser 调 parse 网关
   useEffect(() => {
     if (!supabase) return
-    const push = (token: string | null): void => void api.setSession(functionsBase(), token)
+    const push = (token: string | null): void => {
+      void api.setSession(functionsBase(), token)
+      setSignedIn(!!token)
+    }
     void supabase.auth.getSession().then(({ data }) => push(data.session?.access_token ?? null))
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => push(s?.access_token ?? null))
     return () => sub.subscription.unsubscribe()
@@ -70,6 +77,7 @@ function MainApp(): React.JSX.Element | null {
         route === 'timeline' ||
         route === 'schedule' ||
         route === 'memory' ||
+        route === 'account' ||
         route === 'settings'
       )
         setPage(route)
@@ -139,6 +147,12 @@ function MainApp(): React.JSX.Element | null {
                   {pendingCount}
                 </span>
               )}
+              {item.key === 'account' && hasBackend && !signedIn && (
+                <span
+                  className="size-1.5 rounded-full bg-[#c0584e]"
+                  title="未登录 —— 登录后即可用云端 AI 解析"
+                />
+              )}
             </button>
           ))}
         </nav>
@@ -160,6 +174,7 @@ function MainApp(): React.JSX.Element | null {
           {page === 'timeline' && <Timeline tasks={tasks} />}
           {page === 'schedule' && <Schedule tasks={tasks} />}
           {page === 'memory' && <Memory />}
+          {page === 'account' && <Account />}
           {page === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>
       </main>
