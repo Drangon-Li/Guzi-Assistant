@@ -1,0 +1,19 @@
+{
+  "_doc": "交互捕获决策验证：回车时『当前内容』是否值得记进记忆。expect=应记录(true)/应跳过(false)。dup 场景由 run.mjs 单独测（同内容二次应跳过）。",
+  "cases": [
+    { "id": "task-cn", "content": "明天下午三点在 A301 开组会，记得带笔记本", "expect": true },
+    { "id": "deadline", "content": "周五前把方案发给李总", "expect": true },
+    { "id": "note-en", "content": "remember to submit the report by friday", "expect": true },
+    { "id": "chatter-ok", "content": "ok", "expect": false },
+    { "id": "chatter-haha", "content": "哈哈哈", "expect": false },
+    { "id": "chatter-shoudao", "content": "收到，谢谢", "expect": false },
+    { "id": "punct", "content": "。。。。。。", "expect": false },
+    { "id": "too-short", "content": "我 要", "expect": false },
+    { "id": "digits", "content": "123456", "expect": false },
+    { "id": "credential", "content": "Xk9#mP2$vL8q", "expect": false },
+    { "id": "token", "content": "ghp_AbCd1234EfGh5678IjKl", "expect": false },
+    { "id": "mixed-with-text", "content": "把这个链接发我 https://example.com/a/b", "expect": true },
+    { "id": "meeting-en", "content": "standup at 10am tomorrow in room 305", "expect": true },
+    { "id": "single-emoji", "content": "👍", "expect": false }
+  ]
+}
