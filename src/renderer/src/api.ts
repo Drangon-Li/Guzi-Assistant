@@ -1,6 +1,7 @@
 import type {
   AppSettings,
   FeishuStatus,
+  MemoryHit,
   ParseSummary,
   PendingCapture,
   PermissionStatus,
@@ -44,6 +45,7 @@ export const api = {
 
   getSource: (id: string) => inv<SourceRecord | null>('source:get', id),
   deleteSource: (id: string) => inv<void>('source:delete', id),
+  searchMemory: (query: string) => inv<MemoryHit[]>('memory:search', query),
 
   wipeData: () => inv<void>('data:wipe'),
   permissions: () => inv<PermissionStatus>('permissions:get'),

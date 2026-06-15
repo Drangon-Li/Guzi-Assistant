@@ -5,8 +5,10 @@ import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
 import { localNow } from '@shared/parsing'
 import { DEFAULT_SCREEN_KEYWORDS } from '@shared/keywords'
+import { buildFtsQuery } from '@shared/fts-query'
 import type {
   AppSettings,
+  MemoryHit,
   Profile,
   SourceRecord,
   SourceType,
@@ -15,6 +17,7 @@ import type {
 } from '@shared/types'
 
 let db: Database.Database
+let ftsReady = false // #52 FTS5 是否可用；不可用则记忆检索退化为 LIKE
 
 export function initDb(): void {
   db = new Database(join(app.getPath('userData'), 'eshell.db'))
@@ -64,6 +67,42 @@ export function initDb(): void {
   if (!taskCols.includes('duplicate_of')) {
     db.exec('ALTER TABLE tasks ADD COLUMN duplicate_of TEXT')
   }
+
+  // #52 可搜索记忆底座：FTS5(trigram 支持中文子串) 索引来源文本。standalone 表 + 手动同步。
+  // 隐私中立——只索引 sources 里**已持久化**的文本，不新增任何落盘（截图持久化/加密见 #52 后续 + #53）。
+  // 防御：trigram/FTS5 万一不可用，不能让 initDb 抛错把整个 app 卡死启动 → 退化为 LIKE 检索。
+  try {
+    db.exec(
+      "CREATE VIRTUAL TABLE IF NOT EXISTS sources_fts USING fts5(source_id UNINDEXED, body, tokenize='trigram')"
+    )
+    // 首次/老库：回填已有未删除来源
+    const ftsN = (db.prepare('SELECT count(*) AS n FROM sources_fts').get() as { n: number }).n
+    if (ftsN === 0) {
+      const rows = db
+        .prepare('SELECT id, excerpt, content FROM sources WHERE deleted = 0')
+        .all() as { id: string; excerpt: string; content: string | null }[]
+      const ins = db.prepare('INSERT INTO sources_fts (source_id, body) VALUES (?, ?)')
+      db.transaction((list: typeof rows) => {
+        for (const r of list) ins.run(r.id, `${r.excerpt}\n${r.content ?? ''}`)
+      })(rows)
+    }
+    ftsReady = true
+  } catch (e) {
+    ftsReady = false // FTS5/trigram 不可用：searchSources 走 LIKE，索引调用变 no-op
+    console.error('[memory] FTS5 初始化失败，退化为 LIKE 检索：', e)
+  }
+}
+
+function indexSourceFts(id: string, excerpt: string, content: string | null): void {
+  if (!ftsReady) return
+  db.prepare('INSERT INTO sources_fts (source_id, body) VALUES (?, ?)').run(
+    id,
+    `${excerpt}\n${content ?? ''}`
+  )
+}
+function unindexSourceFts(id: string): void {
+  if (!ftsReady) return
+  db.prepare('DELETE FROM sources_fts WHERE source_id = ?').run(id)
 }
 
 export { localNow }
@@ -166,6 +205,7 @@ export function createSource(input: {
   db.prepare(
     'INSERT INTO sources (id, type, excerpt, content, file_path, created_at) VALUES (?, ?, ?, ?, ?, ?)'
   ).run(rec.id, rec.type, rec.excerpt, rec.content, rec.filePath, rec.createdAt)
+  indexSourceFts(rec.id, rec.excerpt, rec.content) // #52 入记忆检索索引
   return rec
 }
 
@@ -179,11 +219,59 @@ export function deleteSourceContent(id: string): void {
   db.prepare(
     "UPDATE sources SET content = NULL, file_path = NULL, excerpt = '[来源已删除]', deleted = 1 WHERE id = ?"
   ).run(id)
+  unindexSourceFts(id) // 原文删了就不该再被搜到
 }
 
 /** 整行删除：解析失败时清理孤儿来源，避免无任务引用的原文滞留 */
 export function deleteSourceRow(id: string): void {
   db.prepare('DELETE FROM sources WHERE id = ?').run(id)
+  unindexSourceFts(id)
+}
+
+/**
+ * #52 记忆检索：按关键词搜已索引的来源文本，定位回来源与其派生任务。
+ * trigram 对中文子串有效（≥3 字）；过短查询或 FTS 异常 → LIKE 兜底。只返回未删除来源。
+ */
+export function searchSources(query: string, limit = 50): MemoryHit[] {
+  const trimmed = (query ?? '').trim()
+  if (!trimmed) return []
+  let rows: { id: string; snippet: string }[] = []
+  const match = buildFtsQuery(trimmed)
+  const compact = trimmed.replace(/\s+/g, '')
+  if (ftsReady && match && compact.length >= 3) {
+    try {
+      rows = db
+        .prepare(
+          `SELECT source_id AS id, snippet(sources_fts, 1, '〖', '〗', '…', 16) AS snippet
+           FROM sources_fts WHERE sources_fts MATCH ? ORDER BY rank LIMIT ?`
+        )
+        .all(match, limit) as { id: string; snippet: string }[]
+    } catch {
+      rows = []
+    }
+  }
+  if (!rows.length) {
+    const like = `%${trimmed.replace(/[%_\\]/g, '')}%`
+    rows = db
+      .prepare(
+        `SELECT id, substr(IFNULL(content, excerpt), 1, 80) AS snippet FROM sources
+         WHERE deleted = 0 AND (content LIKE ? OR excerpt LIKE ?) ORDER BY created_at DESC LIMIT ?`
+      )
+      .all(like, like, limit) as { id: string; snippet: string }[]
+  }
+  const getOne = db.prepare('SELECT * FROM sources WHERE id = ? AND deleted = 0')
+  const countTasks = db.prepare('SELECT count(*) AS n FROM tasks WHERE source_id = ?')
+  const out: MemoryHit[] = []
+  for (const r of rows) {
+    const srow = getOne.get(r.id) as SourceRow | undefined
+    if (!srow) continue
+    out.push({
+      source: rowToSource(srow),
+      snippet: r.snippet,
+      taskCount: (countTasks.get(r.id) as { n: number }).n
+    })
+  }
+  return out
 }
 
 // ---------- tasks ----------
