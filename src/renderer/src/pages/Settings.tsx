@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AppSettings, FeishuStatus, Identity, PermissionStatus, Profile } from '@shared/types'
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey, IDENTITIES } from '../labels'
+import AccountSection from '../components/AccountSection'
 
 interface Props {
   onProfileChange: (p: Profile) => void
@@ -190,11 +191,12 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 pb-16">
       <h1 className="text-lg font-semibold">设置</h1>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-xs leading-5 text-slate-500">
-          解析能力由 EShell 云端提供，开箱即用，无需配置模型或密钥。
+      <Section title="账户">
+        <p className="mb-3 text-xs leading-5 text-slate-400">
+          解析能力由 EShell 云端提供，登录即用，无需配置模型或密钥。
         </p>
-      </section>
+        <AccountSection />
+      </Section>
 
       <Section title="用户档案">
         <div className="grid grid-cols-2 gap-3 text-sm">
