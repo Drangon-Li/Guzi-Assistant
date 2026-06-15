@@ -18,6 +18,7 @@ export const INVOKE_CHANNELS = [
   'tasks:bulk',
   'source:get',
   'source:delete',
+  'memory:search',
   'data:wipe',
   'permissions:get',
   'quickaction:status',
