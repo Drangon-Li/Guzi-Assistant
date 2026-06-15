@@ -155,6 +155,7 @@ async function watchTick(): Promise<void> {
     if (!hits.length) return // 相关性门：不含关键词不上云
 
     const now = Date.now()
+    for (const [k, exp] of cooldown) if (exp <= now) cooldown.delete(k) // 清理过期，避免 Map 无界增长
     const until = cooldown.get(th)
     if (until && until > now) return // 同内容冷却中
 
