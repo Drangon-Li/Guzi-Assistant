@@ -9,6 +9,7 @@ import { buildFtsQuery } from '@shared/fts-query'
 import type {
   AppSettings,
   MemoryHit,
+  MemoryRecord,
   Profile,
   SourceRecord,
   SourceType,
@@ -56,6 +57,19 @@ export function initDb(): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS memories (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      entities TEXT NOT NULL DEFAULT '[]',
+      time_range TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS memory_sources (
+      memory_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      PRIMARY KEY (memory_id, source_id)
+    );
   `)
   // 老库迁移：早期版本没有 notes 列
   const taskCols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(
@@ -66,6 +80,13 @@ export function initDb(): void {
   }
   if (!taskCols.includes('duplicate_of')) {
     db.exec('ALTER TABLE tasks ADD COLUMN duplicate_of TEXT')
+  }
+  // #路线图 3a：sources.consolidated 标记是否已被整理进记忆，避免重复归纳
+  const srcCols = (db.prepare('PRAGMA table_info(sources)').all() as { name: string }[]).map(
+    (c) => c.name
+  )
+  if (!srcCols.includes('consolidated')) {
+    db.exec('ALTER TABLE sources ADD COLUMN consolidated INTEGER NOT NULL DEFAULT 0')
   }
 
   // #52 可搜索记忆底座：FTS5(trigram 支持中文子串) 索引来源文本。standalone 表 + 手动同步。
@@ -240,6 +261,93 @@ export function deleteSourceRow(id: string): void {
   unindexSourceFts(id)
 }
 
+// ---------- 记忆整理归纳（#路线图 3a：归档为记忆，全部本地） ----------
+
+/** 取尚未整理进记忆的有效来源（按时间正序，便于按事件线归纳） */
+export function listUnconsolidatedSources(limit = 200): SourceRecord[] {
+  const rows = db
+    .prepare(
+      'SELECT * FROM sources WHERE consolidated = 0 AND deleted = 0 ORDER BY created_at ASC LIMIT ?'
+    )
+    .all(limit) as SourceRow[]
+  return rows.map(rowToSource)
+}
+
+/** 标记来源已整理（含被判为噪声的来源，避免下次重复处理） */
+export function markSourcesConsolidated(ids: string[]): void {
+  if (!ids.length) return
+  const stmt = db.prepare('UPDATE sources SET consolidated = 1 WHERE id = ?')
+  const tx = db.transaction((list: string[]) => list.forEach((id) => stmt.run(id)))
+  tx(ids)
+}
+
+/** 落库一条记忆 + 关联来源（本地）。返回记忆 id。 */
+export function createMemory(m: {
+  title: string
+  summary: string
+  entities: string[]
+  timeRange: string | null
+  sourceIds: string[]
+}): string {
+  const id = randomUUID()
+  const createdAt = localNow()
+  db.prepare(
+    'INSERT INTO memories (id, title, summary, entities, time_range, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, m.title, m.summary, JSON.stringify(m.entities), m.timeRange, createdAt)
+  const link = db.prepare(
+    'INSERT OR IGNORE INTO memory_sources (memory_id, source_id) VALUES (?, ?)'
+  )
+  const tx = db.transaction((ids: string[]) => ids.forEach((sid) => link.run(id, sid)))
+  tx(m.sourceIds)
+  return id
+}
+
+interface MemoryRow {
+  id: string
+  title: string
+  summary: string
+  entities: string
+  time_range: string | null
+  created_at: string
+}
+
+export function listMemories(limit = 100): MemoryRecord[] {
+  const rows = db
+    .prepare('SELECT * FROM memories ORDER BY created_at DESC LIMIT ?')
+    .all(limit) as MemoryRow[]
+  return rows.map((r) => {
+    const sourceIds = (
+      db.prepare('SELECT source_id FROM memory_sources WHERE memory_id = ?').all(r.id) as {
+        source_id: string
+      }[]
+    ).map((x) => x.source_id)
+    const todoCount = (
+      db
+        .prepare(
+          `SELECT count(*) AS n FROM tasks WHERE source_id IN (${sourceIds.map(() => '?').join(',') || 'NULL'})`
+        )
+        .get(...sourceIds) as { n: number } | undefined
+    )?.n ?? 0
+    let entities: string[] = []
+    try {
+      const parsed = JSON.parse(r.entities)
+      if (Array.isArray(parsed)) entities = parsed.filter((e): e is string => typeof e === 'string')
+    } catch {
+      /* 容错：entities 损坏按空处理 */
+    }
+    return {
+      id: r.id,
+      title: r.title,
+      summary: r.summary,
+      entities,
+      timeRange: r.time_range,
+      sourceIds,
+      todoCount,
+      createdAt: r.created_at
+    }
+  })
+}
+
 /**
  * #52 记忆检索：按关键词搜已索引的来源文本，定位回来源与其派生任务。
  * trigram 对中文子串有效（≥3 字）；过短查询或 FTS 异常 → LIKE 兜底。只返回未删除来源。
@@ -287,6 +395,15 @@ export function searchSources(query: string, limit = 50): MemoryHit[] {
 }
 
 // ---------- tasks ----------
+
+/** 这些来源中是否已有派生任务（用于整理归纳时避免对已处理来源重复造待办） */
+export function sourcesHaveTasks(sourceIds: string[]): boolean {
+  if (!sourceIds.length) return false
+  const placeholders = sourceIds.map(() => '?').join(',')
+  return !!db
+    .prepare(`SELECT 1 FROM tasks WHERE source_id IN (${placeholders}) LIMIT 1`)
+    .get(...sourceIds)
+}
 
 interface TaskRow {
   id: string

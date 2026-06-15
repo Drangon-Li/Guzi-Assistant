@@ -1,7 +1,9 @@
 import type {
   AppSettings,
+  ConsolidateResult,
   FeishuStatus,
   MemoryHit,
+  MemoryRecord,
   ParseSummary,
   PendingCapture,
   PermissionStatus,
@@ -50,6 +52,8 @@ export const api = {
   deleteSource: (id: string) => inv<void>('source:delete', id),
   searchMemory: (query: string) => inv<MemoryHit[]>('memory:search', query),
   readShot: (id: string) => inv<string | null>('memory:read-shot', id),
+  consolidateMemories: () => inv<ConsolidateResult>('memory:consolidate'),
+  listMemories: () => inv<MemoryRecord[]>('memory:list'),
 
   wipeData: () => inv<void>('data:wipe'),
   permissions: () => inv<PermissionStatus>('permissions:get'),

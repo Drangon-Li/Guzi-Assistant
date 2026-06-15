@@ -6,6 +6,7 @@ import {
   getSettings,
   getSource,
   getTask,
+  listMemories,
   listTasks,
   saveProfile,
   saveSettings,
@@ -13,6 +14,7 @@ import {
   updateTask,
   wipeAll
 } from './db'
+import { consolidateMemories } from './memory'
 import { learnNotMine } from '@shared/belonging-learn'
 import {
   cancelPending,
@@ -124,6 +126,8 @@ export function registerIpc(): void {
   ipcMain.handle('source:get', (_e, id: string) => getSource(id))
   ipcMain.handle('memory:search', (_e, query: string) => searchSources(query))
   ipcMain.handle('memory:read-shot', (_e, id: string) => readShotDataUrl(id))
+  ipcMain.handle('memory:consolidate', () => consolidateMemories())
+  ipcMain.handle('memory:list', () => listMemories())
   ipcMain.handle('source:delete', (_e, id: string) => {
     deleteSourceContent(id)
     deleteShot(id) // 删来源原文时一并删其加密截图

@@ -56,6 +56,25 @@ export interface MemoryHit {
   taskCount: number
 }
 
+/** 整理归纳后的「记忆」（#路线图 3a）：把零散来源归并成的结构化条目，全部留在本地 */
+export interface MemoryRecord {
+  id: string
+  title: string
+  summary: string
+  entities: string[]
+  timeRange: string | null
+  sourceIds: string[]
+  todoCount: number
+  createdAt: string
+}
+
+/** memory:consolidate 的结果摘要 */
+export interface ConsolidateResult {
+  memories: number
+  todos: number
+  sourcesProcessed: number
+}
+
 export interface TaskRecord {
   id: string
   sourceId: string | null
