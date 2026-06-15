@@ -42,12 +42,15 @@ Deno.serve(async (req) => {
     if (order.status === 'paid') return ok() // 幂等：已处理
     if (!amountMatchesYuan(order.amount_cents, params.money ?? '')) return fail(400) // 金额不符
 
-    const { error: updErr } = await admin
+    const { data: flipped, error: updErr } = await admin
       .from('orders')
       .update({ status: 'paid', trade_no: params.trade_no ?? null, paid_at: new Date().toISOString() })
       .eq('out_trade_no', order.out_trade_no)
-      .eq('status', 'pending') // 乐观锁：只从 pending→paid，防并发重复入账
+      .eq('status', 'pending') // 乐观锁：只从 pending→paid
+      .select('out_trade_no')
     if (updErr) return fail(500)
+    // 0 行=并发的另一个回调已抢先 pending→paid → 幂等返回，绝不重复加积分
+    if (!flipped || flipped.length === 0) return ok()
 
     // 到账：读积分 → 按 kind 加 → 写流水
     const { data: c } = await admin
