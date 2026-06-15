@@ -12,6 +12,7 @@ export default function AccountSection(): React.JSX.Element {
   const [password, setPassword] = useState('')
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [balance, setBalance] = useState<number | null>(null)
+  const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showRecharge, setShowRecharge] = useState(false)
@@ -21,6 +22,15 @@ export default function AccountSection(): React.JSX.Element {
     void supabase.auth.getSession().then(({ data }) => setSession(data.session))
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
     return () => sub.subscription.unsubscribe()
+  }, [])
+
+  // 档案里的真实姓名 → 账户卡用户名（设计稿 .who .n）；档案更新时主进程会广播
+  useEffect(() => {
+    const load = (): void => {
+      void api.getProfile().then((p) => setName(p?.name?.trim() ?? ''))
+    }
+    load()
+    return api.on('eshell:tasks-updated', load) // 保存档案后无专用事件，沿用刷新触发轻量重读
   }, [])
 
   const loadBalance = useCallback(async (): Promise<void> => {
@@ -48,7 +58,11 @@ export default function AccountSection(): React.JSX.Element {
   }, [])
 
   if (!hasBackend || !supabase) {
-    return <p className="text-xs leading-5 text-slate-400">托管服务未接入（本版本未配置后端）。</p>
+    return (
+      <p className="text-[11.5px] leading-5" style={{ color: 'var(--t3)' }}>
+        托管服务未接入（本版本未配置后端）。
+      </p>
+    )
   }
   const sb = supabase // 守卫后捕获非空，供下方闭包用（避免 TS 跨闭包丢失收窄）
 
@@ -71,30 +85,31 @@ export default function AccountSection(): React.JSX.Element {
 
   if (session) {
     const em = session.user.email ?? ''
+    const displayName = name || em.split('@')[0] || '我'
+    const avatarChar = (name || em || 'U').trim()[0]?.toUpperCase() ?? 'U'
     const approxRuns = balance == null ? null : balance // 1 积分≈1 次文本解析
     return (
       <>
         <div className="acct">
-          <div className="av">{(em[0] ?? 'U').toUpperCase()}</div>
+          <div className="av">{avatarChar}</div>
           <div className="who">
-            <div className="n">{em}</div>
+            <div className="n">{displayName}</div>
+            <div className="e">{em}</div>
             <div className="balance">
               <span className="v">{balance == null ? '—' : balance}</span>
-              <span className="u">
-                积分{approxRuns != null && ` · 约 ${approxRuns} 次解析`}
-              </span>
+              <span className="u">积分{approxRuns != null && ` · 约 ${approxRuns} 次解析`}</span>
             </div>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowRecharge(true)}>
+          <button className="btn primary sm" onClick={() => setShowRecharge(true)}>
             充值
           </button>
         </div>
-        <div className="mt-3 flex items-center justify-between">
-          <p className="desc" style={{ margin: 0 }}>
-            解析能力由 EShell 云端提供，开箱即用，按量计积分、失败不扣、用尽自动停。
-          </p>
+        <p className="desc" style={{ margin: '12px 0 0' }}>
+          解析能力由 EShell 云端提供，开箱即用，按量计积分、失败不扣、用尽自动停。
+        </p>
+        <div className="mt-3 flex justify-end">
           <button
-            className="shrink-0 text-[11.5px] hover:underline"
+            className="text-[11.5px] hover:underline"
             style={{ color: 'var(--t3)' }}
             onClick={() => void sb.auth.signOut()}
           >
@@ -103,20 +118,21 @@ export default function AccountSection(): React.JSX.Element {
         </div>
         {showRecharge && (
           <Modal
-            panelClass="w-[420px] rounded-[14px] bg-white p-5"
+            panelClass="w-[420px] rounded-[14px] bg-white p-5 shadow-[0_24px_70px_-10px_#0f172a55]"
             onClose={() => setShowRecharge(false)}
           >
             {(close) => (
               <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-baseline justify-between">
                   <h3 className="text-[15px] font-semibold" style={{ color: 'var(--t1)' }}>
                     充值
                   </h3>
-                  <button className="btn btn-ghost btn-sm" onClick={close}>
-                    关闭
-                  </button>
+                  <span className="muted-s">积分用于解析，失败不扣</span>
                 </div>
                 <RechargePanel onRecharged={() => void loadBalance()} />
+                <button className="btn ghost sm self-center" onClick={close}>
+                  关闭
+                </button>
               </div>
             )}
           </Modal>

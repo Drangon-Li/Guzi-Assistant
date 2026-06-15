@@ -14,9 +14,6 @@ const SOURCE_LABELS: Record<SourceType, string> = {
   screen_scan: '屏幕'
 }
 
-const input =
-  'w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
-
 /** #52 可搜索记忆底座：按关键词搜历史屏幕/剪贴板内容，定位回来源与其派生任务。 */
 export default function Memory(): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -42,44 +39,53 @@ export default function Memory(): React.JSX.Element {
     <div className="page animate-page flex flex-col" style={{ gap: 14 }}>
       <div>
         <h1 className="page-title">记忆</h1>
-        <p className="mt-0.5 text-xs text-slate-400">
+        <p style={{ marginTop: 2, fontSize: 11.5, color: 'var(--t3)', lineHeight: 1.6 }}>
           搜索捕获过的历史内容（屏幕 / 剪贴板 / 文件），定位回来源。全部本地，不上传。
         </p>
       </div>
 
-      <input
-        className={input}
-        autoFocus
-        placeholder="搜关键词，回车检索…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') void run()
-        }}
-      />
+      <label className="field">
+        <input
+          autoFocus
+          placeholder="搜关键词，回车检索…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void run()
+          }}
+        />
+      </label>
 
-      {busy && <div className="text-sm text-slate-400">检索中…</div>}
+      {busy && (
+        <div style={{ fontSize: 13, color: 'var(--t3)' }}>检索中…</div>
+      )}
 
       {!busy && hits !== null && hits.length === 0 && (
-        <div className="text-sm text-slate-400">没有匹配的历史内容。</div>
+        <div style={{ fontSize: 13, color: 'var(--t3)' }}>没有匹配的历史内容。</div>
       )}
 
       {!busy && hits && hits.length > 0 && (
-        <ul className="stagger flex flex-col gap-2">
+        <ul className="stagger flex flex-col gap-2" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {hits.map((h) => (
             <li key={h.source.id}>
               <button
                 onClick={() => setSourceId(h.source.id)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-slate-300"
+                className="row"
+                style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 5 }}
               >
-                <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">
-                    {SOURCE_LABELS[h.source.type] ?? h.source.type}
+                <div className="flex items-center gap-2">
+                  <span className="tag">{SOURCE_LABELS[h.source.type] ?? h.source.type}</span>
+                  <span style={{ fontSize: 11, color: 'var(--t3)', fontVariantNumeric: 'tabular-nums' }}>
+                    {h.source.createdAt.slice(0, 16).replace('T', ' ')}
                   </span>
-                  <span>{h.source.createdAt.slice(0, 16).replace('T', ' ')}</span>
-                  {h.taskCount > 0 && <span>· 派生 {h.taskCount} 条待办</span>}
+                  {h.taskCount > 0 && (
+                    <span style={{ fontSize: 11, color: 'var(--t3)' }}>· 派生 {h.taskCount} 条待办</span>
+                  )}
                 </div>
-                <div className="mt-1.5 line-clamp-2 text-sm leading-6 text-slate-700">
+                <div
+                  className="title"
+                  style={{ whiteSpace: 'normal', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+                >
                   {h.snippet || h.source.excerpt}
                 </div>
               </button>

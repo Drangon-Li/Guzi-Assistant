@@ -76,9 +76,9 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
 
   return (
     <div className="page animate-page">
-      <div className="flex items-center justify-between">
-        <h1 className="page-title">日程</h1>
-        <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
+      <div className="page-head">
+        <div className="page-title">日程</div>
+        <div className="seg">
           {(
             [
               ['today', '今日'],
@@ -89,11 +89,7 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`rounded-md px-3 py-1 ${
-                tab === key
-                  ? 'bg-white text-slate-900 font-medium shadow-sm'
-                  : 'text-slate-400 hover:text-slate-700'
-              }`}
+              className={tab === key ? 'on' : ''}
             >
               {label}
             </button>
@@ -101,11 +97,11 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
         </div>
       </div>
 
-      <div className="mt-5 flex flex-col gap-6 pb-10">
+      <div style={{ marginTop: 22, display: 'flex', flexDirection: 'column', gap: 18 }}>
         {sections.map((sec) => (
-          <section key={sec.title}>
-            <h2 className="mb-2 text-xs font-medium text-slate-400">{sec.title}</h2>
-            <div className="flex flex-col gap-2">
+          <div key={sec.title}>
+            <h2 className="sec-head">{sec.title}</h2>
+            <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {sec.list.map((t) => (
                 <TaskRow
                   key={t.id}
@@ -116,61 +112,59 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
                 />
               ))}
               {!sec.list.length && sec.empty && (
-                <div className="rounded-xl border border-dashed border-slate-200 py-6 text-center text-xs text-slate-400">
-                  {sec.empty}
-                </div>
+                <div className="empty">{sec.empty}</div>
               )}
             </div>
-          </section>
+          </div>
         ))}
 
-        {ignored.length > 0 && (
-          <details>
-            <summary className="cursor-pointer text-xs text-slate-400 select-none">
-              已忽略（{ignored.length}）
-            </summary>
-            <div className="mt-2 flex flex-col gap-1.5">
-              {ignored.map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
-                >
-                  <span className="min-w-0 flex-1 truncate text-xs text-slate-500">{t.title}</span>
-                  {t.feedback === 'not_mine' && (
-                    <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">
-                      不是我的
-                    </span>
-                  )}
-                  <button
-                    className="shrink-0 rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                    onClick={() => void api.updateTask(t.id, { status: 'pending', feedback: null })}
-                  >
-                    恢复
-                  </button>
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-
-        {done.length > 0 && (
-          <details>
-            <summary className="cursor-pointer text-xs text-slate-400 select-none">
-              已完成（{done.length}）
-            </summary>
-            <div className="mt-2 flex flex-col gap-2">
-              {done.map((t) => (
-                <TaskRow
-                  key={t.id}
-                  task={t}
-                  onOpen={() => setDetail(t)}
-                  onEdit={() => setEditing(t)}
-                  onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
-                />
-              ))}
-            </div>
-          </details>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {done.length > 0 && (
+            <details>
+              <summary className="fold" style={{ cursor: 'pointer', listStyle: 'none' }}>
+                ▸ 已完成（{done.length}）
+              </summary>
+              <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8 }}>
+                {done.map((t) => (
+                  <TaskRow
+                    key={t.id}
+                    task={t}
+                    onOpen={() => setDetail(t)}
+                    onEdit={() => setEditing(t)}
+                    onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
+                  />
+                ))}
+              </div>
+            </details>
+          )}
+          {ignored.length > 0 && (
+            <details>
+              <summary className="fold" style={{ cursor: 'pointer', listStyle: 'none' }}>
+                ▸ 已忽略（{ignored.length}）
+              </summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8 }}>
+                {ignored.map((t) => (
+                  <div key={t.id} className="task-row">
+                    <div className="body">
+                      <div className="tt">{t.title}</div>
+                      {t.feedback === 'not_mine' && (
+                        <div className="sub">
+                          <span>不是我的</span>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      className="linkbtn"
+                      onClick={() => void api.updateTask(t.id, { status: 'pending', feedback: null })}
+                    >
+                      恢复
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
       </div>
 
       {editing && (
@@ -216,32 +210,32 @@ function TaskRow({
   const isOverdue = task.status === 'overdue'
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-      <input
-        type="checkbox"
-        checked={isDone}
-        onChange={() =>
+    <div className="task-row">
+      <div
+        className={isDone ? 'checkbox on' : 'checkbox'}
+        onClick={() =>
           void api.updateTask(task.id, {
             status: isDone ? (task.dueTime || task.startTime ? 'scheduled' : 'not_started') : 'done'
           })
         }
-        className="size-4 shrink-0 accent-slate-800"
-      />
-      <div className="min-w-0 flex-1">
-        <button
-          onClick={onOpen}
-          className={`block w-full truncate text-left text-sm hover:text-slate-900 ${
-            isDone ? 'text-slate-400 line-through' : ''
-          }`}
-        >
+        style={{ cursor: 'pointer' }}
+      >
+        {isDone && (
+          <svg viewBox="0 0 12 12" fill="none">
+            <polyline points="2,6 5,9 10,3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </div>
+      <div className="body">
+        <div className={isDone ? 'tt done' : 'tt'} onClick={onOpen} style={{ cursor: 'pointer' }}>
           {task.title}
-        </button>
-        <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-slate-400">
+        </div>
+        <div className="sub">
           <span>{TYPE_LABELS[task.itemType]}</span>
           {task.notes.length > 0 && <span>{task.notes.length} 条注意事项</span>}
           {task.startTime && <span>开始 {fmtTime(task.startTime)}</span>}
           {task.dueTime && (
-            <span className={isOverdue ? 'font-medium text-red-500' : ''}>
+            <span className={isOverdue ? 'is-danger' : ''}>
               截止 {fmtTime(task.dueTime)}
             </span>
           )}
@@ -250,15 +244,13 @@ function TaskRow({
         </div>
       </div>
       {isOverdue ? (
-        <span className="shrink-0 rounded-full border border-[#c0584e]/30 px-2 py-0.5 text-[11px] text-[#c0584e]">
-          已延期
-        </span>
+        <span className="pill danger">已延期</span>
       ) : (
         !isDone && (
           <select
+            className="mini-select"
             value={task.status}
             onChange={(e) => void api.updateTask(task.id, { status: e.target.value as TaskStatus })}
-            className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-500 focus:outline-none"
           >
             {(['not_started', 'scheduled', 'in_progress'] as TaskStatus[]).map((s) => (
               <option key={s} value={s}>
@@ -268,19 +260,9 @@ function TaskRow({
           </select>
         )
       )}
-      <button
-        className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-        onClick={onEdit}
-      >
-        编辑
-      </button>
+      <button className="linkbtn" onClick={onEdit}>编辑</button>
       {task.sourceId && (
-        <button
-          className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-          onClick={onShowSource}
-        >
-          来源
-        </button>
+        <button className="linkbtn" onClick={onShowSource}>来源</button>
       )}
     </div>
   )

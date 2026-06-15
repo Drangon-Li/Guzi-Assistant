@@ -131,19 +131,15 @@ export default function PreviewCard(): React.JSX.Element | null {
 
   return (
     <div className="flex h-screen items-end justify-end p-2">
-      <div
-        key={state.phase}
-        className="animate-card-in flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-2xl"
-      >
-        <div className="flex items-center gap-2">
-          <span className="font-semibold">EShell</span>
+      <div key={state.phase} className="animate-card-in preview-win">
+        {/* Header row */}
+        <div className="ph">
+          <span className="nm">EShell</span>
           {state.phase === 'preview' && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-              {SOURCE_LABELS[state.capture.type]}
-            </span>
+            <span className="tag">{SOURCE_LABELS[state.capture.type]}</span>
           )}
           <button
-            className="ml-auto -mr-1 px-1 text-slate-400 hover:text-slate-600"
+            className="x"
             onClick={() => {
               if (state.phase === 'preview') void api.previewCancel(state.capture.captureId)
               else void api.previewHide()
@@ -154,34 +150,33 @@ export default function PreviewCard(): React.JSX.Element | null {
           </button>
         </div>
 
+        {/* preview phase */}
         {state.phase === 'preview' && (
           <>
             {state.capture.thumbnailDataUrl ? (
               <img
                 src={state.capture.thumbnailDataUrl}
                 alt="剪切板图片预览"
-                className="max-h-24 self-start rounded-lg border border-slate-200 object-contain"
+                style={{ maxHeight: 96, alignSelf: 'flex-start', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)', objectFit: 'contain' }}
               />
             ) : (
-              <div className="line-clamp-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
-                {state.capture.excerpt}
-              </div>
+              <div className="excerpt">{state.capture.excerpt}</div>
             )}
-            <div className="text-[11px] text-slate-400">
+            <div className="time">
               {state.capture.kind === 'text' && `${state.capture.charCount} 字`}
               {state.capture.fileName && state.capture.fileName}
               {state.capture.kind !== 'text' && !state.capture.sensitiveHits.length && (
-                <span className="ml-1">图片/文件不会自动提交，请确认后发送</span>
+                <span style={{ marginLeft: 4 }}>图片/文件不会自动提交，请确认后发送</span>
               )}
             </div>
             {state.capture.sensitiveHits.length > 0 && (
-              <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+              <div className="note-amber">
                 内容疑似包含：{state.capture.sensitiveHits.join('、')}。请确认后再提交。
               </div>
             )}
-            <div className="flex justify-end gap-2">
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                className="btn ghost sm"
                 onClick={() => {
                   void api.previewCancel(state.capture.captureId)
                   setState({ phase: 'idle' })
@@ -190,7 +185,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                 取消
               </button>
               <button
-                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                className="btn primary sm"
                 onClick={() => void submit(state.capture)}
               >
                 {state.left >= 0 ? `提交解析（${state.left}s）` : '确认提交'}
@@ -199,49 +194,49 @@ export default function PreviewCard(): React.JSX.Element | null {
           </>
         )}
 
+        {/* loading phase */}
         {state.phase === 'loading' && (
-          <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
-            <span className="size-3 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
-            {state.message ?? '纸壳助手正在解析…'}
+          <div className="typing">
+            <i /><i /><i />
+            <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--t3)' }}>
+              {state.message ?? '纸壳助手正在解析…'}
+            </span>
           </div>
         )}
 
+        {/* result phase */}
         {state.phase === 'result' && (
           <>
-            <div className="text-sm leading-6">
+            <div style={{ fontSize: 13, lineHeight: 1.65, color: 'var(--t1)' }}>
               {state.summary.related > 0 ? (
                 <>
-                  发现 <span className="font-semibold text-slate-900">{state.summary.related}</span>{' '}
-                  个可能与你有关的事项
+                  发现 <strong>{state.summary.related}</strong> 个可能与你有关的事项
                   {state.summary.autoAdded > 0 && (
-                    <span className="text-xs text-slate-400">
+                    <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>
                       （{state.summary.autoAdded} 个已自动加入日程）
                     </span>
                   )}
                 </>
               ) : (
-                <span className="text-slate-500">
+                <span style={{ color: 'var(--t3)' }}>
                   {state.summary.duplicates
                     ? `内容与已有任务重复，已跳过 ${state.summary.duplicates} 个`
                     : '未发现与你相关的事项'}
                 </span>
               )}
               {state.summary.related > 0 && state.summary.duplicates > 0 && (
-                <span className="text-xs text-slate-400">
+                <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>
                   （另跳过 {state.summary.duplicates} 个重复任务）
                 </span>
               )}
             </div>
             {state.summary.related > 0 && (
-              <div className="flex justify-end gap-2">
-                <button
-                  className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
-                  onClick={close}
-                >
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button className="btn ghost sm" onClick={close}>
                   关闭
                 </button>
                 <button
-                  className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                  className="btn primary sm"
                   onClick={() => {
                     void api.focusMain('assistant')
                     setState({ phase: 'idle' })
@@ -254,21 +249,19 @@ export default function PreviewCard(): React.JSX.Element | null {
           </>
         )}
 
+        {/* error phase */}
         {state.phase === 'error' && (
           <>
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-xs leading-5 text-red-600">
+            <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--danger)', background: 'color-mix(in srgb, var(--danger) 8%, transparent)', borderRadius: 'var(--r-sm)', padding: '8px 11px' }}>
               {state.message}
             </div>
-            <div className="flex justify-end gap-2">
-              <button
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
-                onClick={close}
-              >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn ghost sm" onClick={close}>
                 关闭
               </button>
               {(state.errorCode === '401' || state.errorCode === '402') && (
                 <button
-                  className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                  className="btn primary sm"
                   onClick={() => {
                     void api.focusMain('settings')
                     close()
@@ -281,32 +274,40 @@ export default function PreviewCard(): React.JSX.Element | null {
           </>
         )}
 
-        {state.phase === 'empty' && <div className="py-1 text-xs text-slate-500">{state.message}</div>}
+        {/* empty phase */}
+        {state.phase === 'empty' && (
+          <div style={{ fontSize: 12, color: 'var(--t3)' }}>{state.message}</div>
+        )}
 
+        {/* suggestion phase */}
         {state.phase === 'suggestion' && (
-          <>
-            <div className="flex items-start gap-2">
-              <span className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                屏幕识别
-              </span>
-              <span className="min-w-0 flex-1 text-sm leading-5 font-medium">{state.item.title}</span>
+          <div className="cand">
+            <div className="top">
+              <span className="tag">屏幕识别</span>
+              <span className="ct">{state.item.title}</span>
             </div>
-            <div className="flex flex-wrap gap-x-3 text-xs text-slate-500">
-              {state.item.start_time && <span>开始：{fmtTime(state.item.start_time)}</span>}
-              {state.item.due_time && (
-                <span className="text-red-500">截止：{fmtTime(state.item.due_time)}</span>
-              )}
-              {state.item.location && <span>地点：{state.item.location}</span>}
-            </div>
+            {(state.item.start_time || state.item.due_time || state.item.location) && (
+              <div className="det">
+                {state.item.start_time && (
+                  <span className="time">开始：{fmtTime(state.item.start_time)}</span>
+                )}
+                {state.item.due_time && (
+                  <span className="time" style={{ color: 'var(--danger)' }}>截止：{fmtTime(state.item.due_time)}</span>
+                )}
+                {state.item.location && (
+                  <span className="time">地点：{state.item.location}</span>
+                )}
+              </div>
+            )}
             {state.item.belonging_reason && (
-              <div className="text-xs text-slate-400">{state.item.belonging_reason}</div>
+              <div className="reason">{state.item.belonging_reason}</div>
             )}
             {state.hits.length > 0 && (
-              <div className="text-[11px] text-slate-400">命中：{state.hits.join('、')}</div>
+              <div className="reason">命中：{state.hits.join('、')}</div>
             )}
-            <div className="flex justify-end gap-2">
+            <div className="act">
               <button
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                className="btn ghost sm"
                 onClick={() => {
                   void api.previewHide()
                   setState({ phase: 'idle' })
@@ -315,23 +316,24 @@ export default function PreviewCard(): React.JSX.Element | null {
                 拒绝
               </button>
               <button
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+                className="btn outline sm"
                 onClick={() => void acceptSuggestion(true)}
               >
                 修改
               </button>
               <button
-                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                className="btn primary sm"
                 onClick={() => void acceptSuggestion(false)}
               >
                 同意
               </button>
             </div>
-          </>
+          </div>
         )}
 
+        {/* done phase */}
         {state.phase === 'done' && (
-          <div className="py-1 text-xs text-emerald-600">{state.message}</div>
+          <div style={{ fontSize: 12, color: 'var(--ok)' }}>{state.message}</div>
         )}
       </div>
     </div>

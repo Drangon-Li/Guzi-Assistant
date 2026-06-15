@@ -19,18 +19,9 @@ interface Props {
 }
 
 const input =
-  'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/5'
+  'w-full rounded-[7px] border border-[color:var(--line-2)] bg-[var(--card)] px-[11px] py-[7px] text-[13px] text-[color:var(--t1)] outline-none transition-colors focus:border-[color:var(--line-3)]'
 
 const EDIT_STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'done']
-
-function Field({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div>
-      <div className="text-[11px] text-slate-400">{label}</div>
-      <div className="mt-0.5 text-sm">{children}</div>
-    </div>
-  )
-}
 
 export default function TaskDetailModal({ task, onShowSource, onClose }: Props): React.JSX.Element {
   const [current, setCurrent] = useState<TaskRecord>(task)
@@ -86,33 +77,27 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
   const due = current.dueTime ?? current.startTime
 
   return (
-    <Modal panelClass="flex max-h-[84vh] w-[580px] flex-col rounded-xl bg-white shadow-2xl" onClose={onClose}>
+    <Modal panelClass="modal w-[560px] flex flex-col max-h-[84vh]" onClose={onClose}>
       {(close) => (
         <>
-          <div className="flex items-start gap-2 border-b border-slate-100 p-5 pb-4">
-            <span className="mt-1 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
-              {TYPE_LABELS[editing ? itemType : current.itemType]}
-            </span>
+          {/* 头部 */}
+          <div className="modal-head">
+            <span className="tag">{TYPE_LABELS[editing ? itemType : current.itemType]}</span>
             {editing ? (
-              <input className={`${input} text-base font-semibold`} value={title} onChange={(e) => setTitle(e.target.value)} />
+              <input className={`${input} flex-1 text-base font-semibold`} value={title} onChange={(e) => setTitle(e.target.value)} />
             ) : (
-              <h3 className="min-w-0 flex-1 text-base leading-6 font-semibold">{current.title}</h3>
+              <h3>{current.title}</h3>
             )}
-            {!editing && (
-              <span className="mt-1 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
-                {STATUS_LABELS[current.status]}
-              </span>
-            )}
-            <button className="mt-0.5 px-1 text-slate-400 hover:text-slate-600" onClick={close}>
-              ✕
-            </button>
+            {!editing && <span className="pill">{STATUS_LABELS[current.status]}</span>}
+            <button className="x" onClick={close}>✕</button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {/* 正文 */}
+          <div className="modal-body min-h-0 flex-1">
             {editing ? (
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">类型</span>
+                  <span className="text-xs" style={{ color: 'var(--t3)' }}>类型</span>
                   <select className={input} value={itemType} onChange={(e) => setItemType(e.target.value as ItemType)}>
                     {Object.entries(TYPE_LABELS).map(([k, v]) => (
                       <option key={k} value={k}>
@@ -122,7 +107,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">状态</span>
+                  <span className="text-xs" style={{ color: 'var(--t3)' }}>状态</span>
                   <select className={input} value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
                     {EDIT_STATUSES.map((s) => (
                       <option key={s} value={s}>
@@ -132,19 +117,19 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">开始时间</span>
+                  <span className="text-xs" style={{ color: 'var(--t3)' }}>开始时间</span>
                   <input type="datetime-local" className={input} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">截止时间</span>
+                  <span className="text-xs" style={{ color: 'var(--t3)' }}>截止时间</span>
                   <input type="datetime-local" className={input} value={dueTime} onChange={(e) => setDueTime(e.target.value)} />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">地点</span>
+                  <span className="text-xs" style={{ color: 'var(--t3)' }}>地点</span>
                   <input className={input} value={location} onChange={(e) => setLocation(e.target.value)} />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">优先级</span>
+                  <span className="text-xs" style={{ color: 'var(--t3)' }}>优先级</span>
                   <select className={input} value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
                     <option value="high">高</option>
                     <option value="medium">中</option>
@@ -153,7 +138,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   </select>
                 </label>
                 <label className="col-span-2 flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">注意事项（每行一条）</span>
+                  <span className="text-xs" style={{ color: 'var(--t3)' }}>注意事项（每行一条）</span>
                   <textarea
                     className={`${input} min-h-32 resize-y leading-6`}
                     value={notesText}
@@ -164,99 +149,119 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-                  {current.startTime && <Field label="开始时间">{fmtTime(current.startTime)}</Field>}
+                <div className="detail-grid">
+                  {current.startTime && (
+                    <div className="kv">
+                      <div className="k">开始时间</div>
+                      <div className="v">{fmtTime(current.startTime)}</div>
+                    </div>
+                  )}
                   {current.dueTime && (
-                    <Field label="截止时间">
-                      <span className="text-red-500">{fmtTime(current.dueTime)}</span>
-                    </Field>
+                    <div className="kv">
+                      <div className="k">截止时间</div>
+                      <div className="v"><span className="is-danger">{fmtTime(current.dueTime)}</span></div>
+                    </div>
                   )}
                   {due && current.status !== 'done' && (
-                    <Field label="倒计时">
-                      <span className={current.status === 'overdue' ? 'text-[#c0584e]' : 'text-slate-700'}>
-                        {countdownLabel(due)}
-                      </span>
-                    </Field>
+                    <div className="kv">
+                      <div className="k">倒计时</div>
+                      <div className="v">
+                        <span className={current.status === 'overdue' ? 'is-danger' : ''}>
+                          {countdownLabel(due)}
+                        </span>
+                      </div>
+                    </div>
                   )}
-                  {current.location && <Field label="地点">{current.location}</Field>}
-                  <Field label="优先级">{PRIORITY_LABELS[current.priority]}</Field>
-                  <Field label="我的角色">{ROLE_LABELS[current.userRole]}</Field>
-                  <Field label="归属置信度">
-                    <ConfidenceBadge value={current.confidence} />
-                  </Field>
+                  {current.location && (
+                    <div className="kv">
+                      <div className="k">地点</div>
+                      <div className="v">{current.location}</div>
+                    </div>
+                  )}
+                  <div className="kv">
+                    <div className="k">优先级</div>
+                    <div className="v">{PRIORITY_LABELS[current.priority]}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">我的角色</div>
+                    <div className="v">{ROLE_LABELS[current.userRole]}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">归属置信度</div>
+                    <div className="v"><ConfidenceBadge value={current.confidence} /></div>
+                  </div>
                 </div>
 
                 <div
-                  className={`mt-4 rounded-lg px-3 py-2 text-xs leading-5 ${
+                  className={`note-box${
                     current.belongsToUser === 'yes'
-                      ? 'bg-emerald-50 text-emerald-800'
+                      ? ' yes'
                       : current.belongsToUser === 'no'
-                        ? 'bg-slate-100 text-slate-600'
-                        : 'bg-amber-50 text-amber-800'
+                        ? ''
+                        : ' maybe'
                   }`}
                 >
-                  <div>
-                    {current.belongsToUser === 'yes'
-                      ? '判断属于你：'
-                      : current.belongsToUser === 'no'
-                        ? '已标记：不是你的事。'
-                        : '不确定是否属于你：'}
-                    {current.belongingReason || '无说明'}
-                  </div>
+                  {current.belongsToUser === 'yes'
+                    ? '判断属于你：'
+                    : current.belongsToUser === 'no'
+                      ? '已标记：不是你的事。'
+                      : '不确定是否属于你：'}
+                  {current.belongingReason || '无说明'}
                   {current.belongsToUser !== 'no' && (
-                    <button
-                      onClick={() => void markNotMine()}
-                      className="mt-2 rounded-md border border-slate-300 px-2.5 py-1 text-[11px] text-slate-600 hover:border-slate-400 hover:bg-white"
-                    >
-                      不是我的事
-                    </button>
+                    <div style={{ marginTop: '8px' }}>
+                      <button
+                        onClick={() => void markNotMine()}
+                        className="btn outline sm"
+                      >
+                        不是我的事
+                      </button>
+                    </div>
                   )}
                 </div>
 
                 {current.duplicateOf && (
-                  <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  <div className="note-box maybe" style={{ marginTop: '8px' }}>
                     疑似重复：可能与已有任务「{current.duplicateOf}」是同一件事
                   </div>
                 )}
 
                 {current.notes.length > 0 && (
-                  <div className="mt-4">
-                    <h4 className="mb-2 text-xs font-medium text-slate-400">注意事项</h4>
-                    <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm leading-6 text-slate-700">
+                  <>
+                    <div className="subhead">注意事项</div>
+                    <ol className="notes-ol">
                       {current.notes.map((n, i) => (
                         <li key={i}>{n}</li>
                       ))}
                     </ol>
-                  </div>
+                  </>
                 )}
 
                 {current.evidence.length > 0 && (
-                  <div className="mt-4">
-                    <h4 className="mb-2 text-xs font-medium text-slate-400">原文证据</h4>
-                    <div className="flex flex-col gap-1.5">
-                      {current.evidence.map((ev, i) => (
-                        <blockquote key={i} className="border-l-2 border-slate-300 pl-2 text-xs leading-5 text-slate-600">
-                          {ev}
-                        </blockquote>
-                      ))}
-                    </div>
-                  </div>
+                  <>
+                    <div className="subhead">原文证据</div>
+                    {current.evidence.map((ev, i) => (
+                      <div key={i} className="evidence" style={i > 0 ? { marginTop: '8px' } : undefined}>
+                        {ev}
+                      </div>
+                    ))}
+                  </>
                 )}
               </>
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-2 border-t border-slate-100 p-4">
+          {/* 底部操作 */}
+          <div className="modal-foot">
             {editing ? (
               <>
                 <button
-                  className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                  className="btn ghost sm"
                   onClick={() => setEditing(false)}
                 >
                   取消
                 </button>
                 <button
-                  className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black disabled:opacity-40"
+                  className="btn primary sm"
                   disabled={!title.trim()}
                   onClick={() => void save()}
                 >
@@ -267,14 +272,14 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
               <>
                 {current.sourceId && (
                   <button
-                    className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                    className="btn ghost sm"
                     onClick={onShowSource}
                   >
                     查看来源原文
                   </button>
                 )}
                 <button
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  className="btn outline sm"
                   disabled={!current.startTime && !current.dueTime}
                   title={
                     current.startTime || current.dueTime
@@ -286,13 +291,13 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   加入日历
                 </button>
                 <button
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+                  className="btn outline sm"
                   onClick={startEdit}
                 >
                   编辑
                 </button>
                 <button
-                  className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
+                  className="btn primary sm"
                   onClick={close}
                 >
                   关闭

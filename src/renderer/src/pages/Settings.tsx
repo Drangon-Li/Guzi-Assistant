@@ -8,9 +8,6 @@ interface Props {
   onProfileChange: (p: Profile) => void
 }
 
-const input =
-  'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
-
 const PRESET_HOTKEYS = ['Alt+C', 'Alt+Space', 'CommandOrControl+Shift+C']
 
 const CODE_KEYS: Record<string, string> = {
@@ -62,10 +59,10 @@ function splitList(s: string): string[] {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <section className="section">
+    <div className="section">
       <h2>{title}</h2>
       {children}
-    </section>
+    </div>
   )
 }
 
@@ -158,7 +155,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     return () => window.removeEventListener('keydown', onKey, true)
   }, [scanRecording])
 
-  if (!profile || !settings) return <div className="p-8 text-sm text-slate-400">加载中…</div>
+  if (!profile || !settings) return <div className="p-8" style={{ fontSize: 13, color: 'var(--t3)' }}>加载中…</div>
 
   const saveProfile = async (next: Profile): Promise<void> => {
     setProfile(next)
@@ -188,7 +185,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   }
 
   return (
-    <div className="page flex flex-col" style={{ gap: 14, paddingBottom: 48 }}>
+    <div className="page animate-page" style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingBottom: 48 }}>
       <div className="page-title">设置</div>
 
       <Section title="账户与服务">
@@ -230,7 +227,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           </label>
         </div>
         <div style={{ marginTop: 14 }}>
-          <button className="btn btn-primary btn-sm" onClick={() => void saveProfileForm()}>
+          <button className="btn primary sm" onClick={() => void saveProfileForm()}>
             保存档案
           </button>
         </div>
@@ -245,49 +242,65 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                 void saveProfile({ ...profile, confirmMode: m.value })
                 flash('确认模式已更新')
               }}
-              className={`rounded-xl border px-4 py-2.5 text-left ${
-                profile.confirmMode === m.value
-                  ? 'border-slate-300 bg-slate-50'
-                  : 'border-slate-200 hover:border-slate-300'
-              }`}
+              style={{
+                borderRadius: 'var(--r-md)',
+                border: '1px solid',
+                borderColor: profile.confirmMode === m.value ? 'var(--line)' : 'var(--line-2)',
+                background: profile.confirmMode === m.value ? 'var(--hover)' : 'transparent',
+                padding: '10px 14px',
+                textAlign: 'left',
+                cursor: 'pointer'
+              }}
             >
-              <div className="text-sm font-medium">{m.label}</div>
-              <div className="text-xs text-slate-400">{m.desc}</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--t1)' }}>{m.label}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 2 }}>{m.desc}</div>
             </button>
           ))}
         </div>
       </Section>
 
       <Section title="快捷键">
-        <div className="flex items-center gap-3 text-sm">
-          <span className="text-slate-500">提交剪切板</span>
+        <div className="flex items-center gap-3" style={{ fontSize: 13 }}>
+          <span style={{ color: 'var(--t2)' }}>提交剪切板</span>
           <button
             onClick={() => setRecording(!recording)}
-            className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
-              recording
-                ? 'animate-pulse border-slate-400 bg-slate-50 text-slate-700'
-                : 'border-slate-300 hover:border-slate-400'
-            }`}
+            style={{
+              minWidth: 176,
+              borderRadius: 'var(--r-sm)',
+              border: '1px solid',
+              borderColor: recording ? 'var(--line)' : 'var(--line-2)',
+              background: recording ? 'var(--hover)' : 'transparent',
+              color: 'var(--t1)',
+              padding: '7px 14px',
+              fontWeight: 500,
+              cursor: 'pointer'
+            }}
+            className={recording ? 'animate-pulse' : ''}
           >
             {recording ? '按下新组合键…' : formatHotkey(settings.hotkey)}
           </button>
-          {recording && <span className="text-xs text-slate-400">Esc 取消</span>}
+          {recording && <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>Esc 取消</span>}
         </div>
-        <p className="mt-2 text-xs leading-5 text-slate-400">
+        <p className="desc" style={{ marginTop: 8 }}>
           点击按键框后直接按下想要的组合：需包含至少一个修饰键（⌘ ⌥ ⌃ ⇧），F1–F12
           可单独使用。注册失败说明该组合被系统或其他应用占用。
         </p>
-        <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+        <div className="flex items-center gap-2" style={{ marginTop: 10, fontSize: 11.5, color: 'var(--t3)' }}>
           常用：
           {PRESET_HOTKEYS.map((acc) => (
             <button
               key={acc}
               onClick={() => void applyHotkey(acc)}
-              className={`rounded-lg border px-2 py-1 ${
-                settings.hotkey === acc
-                  ? 'border-slate-300 bg-slate-50 text-slate-700'
-                  : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-              }`}
+              style={{
+                borderRadius: 'var(--r-sm)',
+                border: '1px solid',
+                borderColor: settings.hotkey === acc ? 'var(--line)' : 'var(--line-2)',
+                background: settings.hotkey === acc ? 'var(--hover)' : 'transparent',
+                color: settings.hotkey === acc ? 'var(--t1)' : 'var(--t2)',
+                padding: '3px 8px',
+                fontSize: 11.5,
+                cursor: 'pointer'
+              }}
             >
               {formatHotkey(acc)}
             </button>
@@ -296,20 +309,17 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
 
       <Section title="系统集成">
-        <div className="flex flex-col gap-3 text-sm">
+        <div className="flex flex-col gap-3" style={{ fontSize: 13 }}>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div>访达右键快速操作</div>
-              <div className="mt-0.5 text-xs leading-5 text-slate-400">
+              <div style={{ color: 'var(--t1)' }}>访达右键快速操作</div>
+              <div className="desc" style={{ marginTop: 2 }}>
                 安装后在访达中选中文件 → 右键 → 快速操作 → 「发送到 纸壳助手」，文件会直接进入解析流程（应用未运行时会在下次启动时补处理）。
               </div>
             </div>
             <button
-              className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs ${
-                qaInstalled
-                  ? 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                  : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-              }`}
+              className="btn outline sm"
+              style={{ flexShrink: 0 }}
               onClick={async () => {
                 const ok = await api.installQuickAction()
                 setQaInstalled(ok)
@@ -320,8 +330,8 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             </button>
           </div>
           <div>
-            <div>托盘拖拽</div>
-            <div className="mt-0.5 text-xs leading-5 text-slate-400">
+            <div style={{ color: 'var(--t1)' }}>托盘拖拽</div>
+            <div className="desc" style={{ marginTop: 2 }}>
               把文件直接拖到菜单栏的 纸壳助手 图标上即可提交解析，无需安装。
             </div>
           </div>
@@ -329,34 +339,32 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
 
       <Section title="飞书机器人">
-        <p className="mb-3 text-xs leading-5 text-slate-400">
+        <p className="desc">
           在飞书里把通知/截图直接转发给机器人，自动进入待确认列表。配置步骤：飞书开放平台（open.feishu.cn）创建企业自建应用
           → 添加「机器人」能力 → 权限开通 im:message（接收与发送单聊消息）→ 事件订阅选择「使用长连接接收事件」并添加
           im.message.receive_v1 → 创建版本发布。无需公网服务器。
         </p>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-500">App ID</span>
+        <div className="grid2" style={{ marginTop: 12 }}>
+          <label className="field">
+            <span>App ID</span>
             <input
-              className={input}
               value={settings.feishuAppId}
               onChange={(e) => setSettings({ ...settings, feishuAppId: e.target.value })}
               placeholder="cli_xxx"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-500">App Secret</span>
+          <label className="field">
+            <span>App Secret</span>
             <input
               type="password"
-              className={input}
               value={settings.feishuAppSecret}
               onChange={(e) => setSettings({ ...settings, feishuAppSecret: e.target.value })}
             />
           </label>
         </div>
-        <div className="mt-3 flex items-center gap-3">
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
-            className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
+            className="btn primary sm"
             onClick={async () => {
               await api.saveSettings({
                 feishuAppId: settings.feishuAppId.trim(),
@@ -369,24 +377,23 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             保存并连接
           </button>
           <button
-            className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
+            className="btn outline sm"
             onClick={() => void api.feishuStatus().then(setFeishu)}
           >
             刷新状态
           </button>
           {feishu && (
             <span
-              className={`text-xs ${
-                feishu.status === 'connected'
-                  ? 'text-emerald-600'
-                  : feishu.status === 'error'
-                    ? 'text-red-500'
-                    : feishu.status === 'disabled'
-                      ? 'text-slate-400'
-                      : 'text-amber-600'
-              }`}
+              className={feishu.status === 'connected' ? 'ok' : 'muted-s'}
+              style={
+                feishu.status === 'error'
+                  ? { color: 'var(--danger)' }
+                  : feishu.status === 'connecting'
+                    ? { color: 'var(--warn)', fontSize: 11.5 }
+                    : undefined
+              }
             >
-              {feishu.status === 'connected' && '已连接'}
+              {feishu.status === 'connected' && '● 已连接'}
               {feishu.status === 'connecting' && '连接中…'}
               {feishu.status === 'disabled' && '未配置'}
               {feishu.status === 'error' && `连接失败：${feishu.detail}`}
@@ -397,14 +404,14 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
 
       <Section title="屏幕感知建议（隐私功能）">
-        <p className="mb-3 text-xs leading-5 text-slate-400">
+        <p className="desc">
           开启后可手动「扫描当前屏幕」：纸壳助手 在本机识别屏幕上的文字，命中关键词时把文字（非截图）送解析，
           给出一条待办建议供你确认。截图用完即弃、不保存、不上传。注意：macOS
           会在你扫描时显示系统录制指示器，这是系统强制行为、无法关闭。首次使用会自动编译本地 OCR 组件（需 Xcode
           命令行工具）。
         </p>
-        <label className="flex items-center justify-between gap-4 text-sm">
-          <span>启用屏幕感知建议</span>
+        <label className="flex items-center justify-between gap-4" style={{ fontSize: 13, marginTop: 12 }}>
+          <span style={{ color: 'var(--t1)' }}>启用屏幕感知建议</span>
           <input
             type="checkbox"
             checked={settings.screenSenseEnabled}
@@ -418,11 +425,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         </label>
 
         {settings.screenSenseEnabled && (
-          <div className="mt-4 flex flex-col gap-4">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-slate-500">触发关键词（逗号或顿号分隔）</span>
+          <div className="flex flex-col gap-4" style={{ marginTop: 14 }}>
+            <label className="field">
+              <span>触发关键词（逗号或顿号分隔）</span>
               <input
-                className={input}
                 defaultValue={settings.screenSenseKeywords.join('、')}
                 onBlur={async (e) => {
                   const list = splitList(e.target.value)
@@ -433,26 +439,33 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               />
             </label>
 
-            <div className="flex items-center gap-3 text-sm">
-              <span className="text-slate-500">扫描快捷键</span>
+            <div className="flex items-center gap-3" style={{ fontSize: 13 }}>
+              <span style={{ color: 'var(--t2)' }}>扫描快捷键</span>
               <button
                 onClick={() => setScanRecording(!scanRecording)}
-                className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
-                  scanRecording
-                    ? 'animate-pulse border-slate-400 bg-slate-50 text-slate-700'
-                    : 'border-slate-300 hover:border-slate-400'
-                }`}
+                style={{
+                  minWidth: 176,
+                  borderRadius: 'var(--r-sm)',
+                  border: '1px solid',
+                  borderColor: scanRecording ? 'var(--line)' : 'var(--line-2)',
+                  background: scanRecording ? 'var(--hover)' : 'transparent',
+                  color: 'var(--t1)',
+                  padding: '7px 14px',
+                  fontWeight: 500,
+                  cursor: 'pointer'
+                }}
+                className={scanRecording ? 'animate-pulse' : ''}
               >
                 {scanRecording ? '按下新组合键…' : formatHotkey(settings.screenSenseHotkey)}
               </button>
-              {scanRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
+              {scanRecording && <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>Esc 取消</span>}
             </div>
 
-            <div className="border-t border-slate-100 pt-4">
-              <label className="flex items-center justify-between gap-4 text-sm">
-                <span>
+            <div style={{ borderTop: '1px solid var(--line-2)', paddingTop: 14 }}>
+              <label className="flex items-center justify-between gap-4" style={{ fontSize: 13 }}>
+                <span style={{ color: 'var(--t1)' }}>
                   持续监控（自动）
-                  <span className="ml-2 text-xs text-slate-400">屏幕变化时自动识别，无需手动扫描</span>
+                  <span style={{ marginLeft: 8, fontSize: 11.5, color: 'var(--t3)' }}>屏幕变化时自动识别，无需手动扫描</span>
                 </span>
                 <input
                   type="checkbox"
@@ -466,14 +479,14 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                 />
               </label>
               {settings.screenSenseContinuous && (
-                <div className="mt-3 flex flex-col gap-2">
-                  <label className="flex items-center gap-3 text-sm">
-                    <span className="text-slate-500">检查间隔</span>
+                <div className="flex flex-col gap-2" style={{ marginTop: 12 }}>
+                  <label className="flex items-center gap-3" style={{ fontSize: 13 }}>
+                    <span style={{ color: 'var(--t2)' }}>检查间隔</span>
                     <input
                       type="number"
                       min={2}
                       max={60}
-                      className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                      style={{ width: 72 }}
                       value={settings.screenSenseIntervalSec}
                       onChange={(e) =>
                         setSettings({ ...settings, screenSenseIntervalSec: Number(e.target.value) })
@@ -485,16 +498,15 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                         flash('已保存监控间隔')
                       }}
                     />
-                    <span className="text-xs text-slate-400">秒</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>秒</span>
                   </label>
-                  <p className="text-xs leading-5 text-slate-400">
+                  <p className="desc">
                     屏幕静止时不触发识别与上云；可在菜单栏 纸壳助手 图标随时「暂停屏幕监控」。macOS
                     会持续显示系统录制指示器（无法关闭）。
                   </p>
-                  <label className="mt-1 flex flex-col gap-1 text-sm">
-                    <span className="text-slate-500">不监控的应用（逗号或顿号分隔）</span>
+                  <label className="field" style={{ marginTop: 4 }}>
+                    <span>不监控的应用（逗号或顿号分隔）</span>
                     <input
-                      className={input}
                       placeholder="如：1Password、微信、网银"
                       defaultValue={settings.screenSenseExcludedApps.join('、')}
                       onBlur={async (e) => {
@@ -504,16 +516,14 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                         flash('已保存应用排除名单')
                       }}
                     />
-                    <span className="text-xs text-slate-400">
-                      这些应用在前台时连截图都不做。中英文名称可都填（如 微信 / WeChat）。
-                    </span>
+                    <span>这些应用在前台时连截图都不做。中英文名称可都填（如 微信 / WeChat）。</span>
                   </label>
 
-                  <div className="mt-2 border-t border-slate-100 pt-3">
-                    <label className="flex items-center justify-between gap-4 text-sm">
-                      <span>
+                  <div style={{ marginTop: 8, borderTop: '1px solid var(--line-2)', paddingTop: 12 }}>
+                    <label className="flex items-center justify-between gap-4" style={{ fontSize: 13 }}>
+                      <span style={{ color: 'var(--t1)' }}>
                         保存截图到可搜索记忆
-                        <span className="ml-2 text-xs text-slate-400">本地加密保存，可在「记忆」里回看</span>
+                        <span style={{ marginLeft: 8, fontSize: 11.5, color: 'var(--t3)' }}>本地加密保存，可在「记忆」里回看</span>
                       </span>
                       <input
                         type="checkbox"
@@ -527,13 +537,13 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                       />
                     </label>
                     {settings.screenSenseKeepShots && (
-                      <label className="mt-2 flex items-center gap-3 text-sm">
-                        <span className="text-slate-500">保留天数</span>
+                      <label className="flex items-center gap-3" style={{ fontSize: 13, marginTop: 8 }}>
+                        <span style={{ color: 'var(--t2)' }}>保留天数</span>
                         <input
                           type="number"
                           min={0}
                           max={365}
-                          className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                          style={{ width: 72 }}
                           value={settings.screenSenseRetentionDays}
                           onChange={(e) =>
                             setSettings({ ...settings, screenSenseRetentionDays: Number(e.target.value) })
@@ -545,10 +555,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                             flash('已保存截图保留期')
                           }}
                         />
-                        <span className="text-xs text-slate-400">天，到期自动清；0 = 永久</span>
+                        <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>天，到期自动清；0 = 永久</span>
                       </label>
                     )}
-                    <p className="mt-1.5 text-xs leading-5 text-slate-400">
+                    <p className="desc" style={{ marginTop: 6 }}>
                       默认关闭，保持「截图用完即弃」。开启后仅保存缩略图、用系统钥匙串加密；原图始终不留。
                     </p>
                   </div>
@@ -557,7 +567,15 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             </div>
 
             {perms && perms.screen !== 'granted' && (
-              <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+              <div style={{
+                borderRadius: 'var(--r-sm)',
+                background: '#fef9ec',
+                border: '1px solid var(--line-2)',
+                padding: '8px 12px',
+                fontSize: 11.5,
+                lineHeight: 1.6,
+                color: 'var(--warn)'
+              }}>
                 屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 EShell。
               </div>
             )}
@@ -567,17 +585,16 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
       <Section title="权限状态">
         {perms && (
-          <div className="flex flex-col gap-2 text-sm">
+          <div className="flex flex-col gap-2" style={{ fontSize: 13 }}>
             <div className="flex items-center justify-between">
-              <span>屏幕录制（截图捕获其他应用内容需要）</span>
-              <span
-                className={`text-xs ${perms.screen === 'granted' ? 'text-emerald-600' : 'text-amber-600'}`}
-              >
+              <span style={{ color: 'var(--t1)' }}>屏幕录制（截图捕获其他应用内容需要）</span>
+              <span className={perms.screen === 'granted' ? 'ok' : 'muted-s'}>
                 {perms.screen === 'granted' ? '已授权' : `未授权（${perms.screen}）`}
               </span>
             </div>
             <button
-              className="mt-1 self-start rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
+              className="btn outline sm"
+              style={{ alignSelf: 'flex-start', marginTop: 4 }}
               onClick={loadPerms}
             >
               刷新状态
@@ -587,11 +604,12 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
 
       <Section title="数据管理">
-        <p className="mb-3 text-xs leading-5 text-slate-400">
+        <p className="desc">
           所有数据仅保存在本机（用户目录下的 SQLite 数据库），不会自动上传。提交解析时，所选内容会发送至 EShell 云端解析服务。
         </p>
         <button
-          className="rounded-lg border border-red-200 px-4 py-1.5 text-xs text-red-600 hover:bg-red-50"
+          className="btn outline sm"
+          style={{ marginTop: 14, color: 'var(--danger)', borderColor: 'var(--danger-soft)' }}
           onClick={() => void wipe()}
         >
           清除全部数据
@@ -601,7 +619,20 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       {note && (
         <div
           key={note}
-          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg"
+          className="animate-toast"
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 50,
+            borderRadius: 'var(--r-sm)',
+            background: 'var(--ink)',
+            color: '#fff',
+            padding: '8px 16px',
+            fontSize: 13,
+            boxShadow: '0 4px 16px rgba(0,0,0,.18)'
+          }}
         >
           {note}
         </div>

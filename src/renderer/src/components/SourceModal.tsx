@@ -27,55 +27,62 @@ export default function SourceModal({ sourceId, onClose }: Props): React.JSX.Ele
 
   return (
     <Modal
-      panelClass="flex max-h-[80vh] w-[560px] flex-col rounded-xl bg-white p-5 shadow-2xl"
+      panelClass="modal"
       onClose={onClose}
     >
       {(close) => (
         <>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold">来源证据</h3>
-          <button className="text-slate-400 hover:text-slate-600" onClick={close}>
-            ✕
-          </button>
-        </div>
-        {source === undefined && <div className="py-8 text-center text-sm text-slate-400">加载中…</div>}
-        {source === null && <div className="py-8 text-center text-sm text-slate-400">来源不存在</div>}
-        {source && (
-          <>
-            <div className="mb-3 flex items-center gap-3 text-xs text-slate-500">
-              <span className="rounded bg-slate-100 px-2 py-0.5">{SOURCE_LABELS[source.type]}</span>
-              <span>提交于 {fmtTime(source.createdAt)}</span>
-              {source.filePath && <span className="truncate">{source.filePath}</span>}
-            </div>
-            {shot && !source.deleted && (
-              <div className="mb-3">
-                <div className="mb-1 text-[11px] text-slate-400">截图（本地加密保存）</div>
-                <img src={shot} alt="截图缩略图" className="max-h-48 rounded border border-slate-200" />
-              </div>
+          <div className="modal-head">
+            <h3>来源证据</h3>
+            <button className="x" onClick={close}>✕</button>
+          </div>
+          <div className="modal-body">
+            {source === undefined && (
+              <div className="py-8 text-center text-sm" style={{ color: 'var(--t3)' }}>加载中…</div>
             )}
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-              {source.deleted ? (
-                <div className="py-6 text-center text-sm text-slate-400">原文已删除</div>
-              ) : source.content?.startsWith('data:image') ? (
-                <img src={source.content} alt="来源截图" className="max-w-full rounded" />
-              ) : (
-                <pre className="text-xs leading-5 whitespace-pre-wrap text-slate-700">
-                  {source.content ?? source.excerpt}
-                </pre>
-              )}
-            </div>
-            {!source.deleted && (
-              <div className="mt-3 flex justify-end">
-                <button
-                  className="rounded-lg px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
-                  onClick={handleDelete}
-                >
-                  删除来源原文
-                </button>
-              </div>
+            {source === null && (
+              <div className="py-8 text-center text-sm" style={{ color: 'var(--t3)' }}>来源不存在</div>
             )}
-          </>
-        )}
+            {source && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <span className="tag">{SOURCE_LABELS[source.type]}</span>
+                  <span className="time">提交于 {fmtTime(source.createdAt)}</span>
+                  {source.filePath && (
+                    <span className="time" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.filePath}</span>
+                  )}
+                </div>
+                {shot && !source.deleted && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div className="subhead" style={{ margin: '0 0 6px' }}>截图（本地加密保存）</div>
+                    <img src={shot} alt="截图缩略图" style={{ maxHeight: 192, borderRadius: 'var(--r-sm)', border: '1px solid var(--line-2)' }} />
+                  </div>
+                )}
+                {source.deleted ? (
+                  <div className="excerpt" style={{ WebkitLineClamp: 'unset', display: 'block', textAlign: 'center', color: 'var(--t3)' }}>
+                    原文已删除
+                  </div>
+                ) : source.content?.startsWith('data:image') ? (
+                  <img src={source.content} alt="来源截图" style={{ maxWidth: '100%', borderRadius: 'var(--r-sm)' }} />
+                ) : (
+                  <pre className="excerpt" style={{ WebkitLineClamp: 'unset', display: 'block', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                    {source.content ?? source.excerpt}
+                  </pre>
+                )}
+              </>
+            )}
+          </div>
+          {source && !source.deleted && (
+            <div className="modal-foot">
+              <button
+                className="btn ghost sm"
+                style={{ color: 'var(--danger)' }}
+                onClick={handleDelete}
+              >
+                删除来源原文
+              </button>
+            </div>
+          )}
         </>
       )}
     </Modal>

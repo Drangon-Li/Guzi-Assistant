@@ -8,11 +8,11 @@ import { api } from '../api'
  * 价格按 #56 设计（单档会员 ¥19.9/月≈1000 分；积分包大额带少量赠送），数值后续可配。
  */
 
-type Pack = { id: string; label: string; amountCents: number; credits: number; tag?: string }
+type Pack = { id: string; label: string; amountCents: number; credits: number; sub: string }
 const PACKS: Pack[] = [
-  { id: 'c600', label: '600 积分', amountCents: 600, credits: 600 },
-  { id: 'c2000', label: '2000 积分', amountCents: 1800, credits: 2000, tag: '多送 200' },
-  { id: 'c3500', label: '3500 积分', amountCents: 3000, credits: 3500, tag: '多送 500' }
+  { id: 'c600', label: '600 积分', amountCents: 600, credits: 600, sub: '约 600 次解析' },
+  { id: 'c2000', label: '2000 积分', amountCents: 1800, credits: 2000, sub: '多送 200 · 约 2000 次' },
+  { id: 'c3500', label: '3500 积分', amountCents: 3000, credits: 3500, sub: '多送 500 · 约 3500 次' }
 ]
 const MEMBERSHIP = { amountCents: 1990, plan: 'monthly', label: '会员 · ¥19.9/月', grant: 1000 }
 
@@ -107,88 +107,60 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
 
   const amountCents = choice.kind === 'credits' ? choice.pack.amountCents : MEMBERSHIP.amountCents
 
-  const row = (
+  // 统一用设计稿 .opt 选项行：标题(.ol) + 副述(.od) + 右侧价格，行高一致、选中态走 .opt.on
+  const opt = (
     sel: boolean,
     title: string,
-    sub: string | undefined,
+    sub: string,
     price: string,
-    bonus: boolean,
     onClick: () => void,
-    key?: string
+    key: string
   ): React.JSX.Element => (
     <button
       key={key}
       onClick={onClick}
-      className="flex items-center gap-3 rounded-[10px] border px-3.5 py-2.5 text-left transition-colors"
-      style={{
-        borderColor: sel ? 'var(--t2)' : 'var(--line-2)',
-        background: sel ? 'var(--hover)' : 'var(--card)'
-      }}
+      className={sel ? 'opt on' : 'opt'}
+      style={{ display: 'flex', alignItems: 'center', gap: 12 }}
     >
-      <span
-        className="flex size-[15px] shrink-0 items-center justify-center rounded-full border"
-        style={{
-          borderColor: sel ? 'var(--primary)' : 'var(--line-3)',
-          background: sel ? 'var(--primary)' : 'transparent'
-        }}
-      >
-        {sel && <span className="size-1.5 rounded-full bg-white" />}
-      </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium" style={{ color: 'var(--t1)' }}>
-          {title}
-        </div>
-        {sub && (
-          <div className="mt-0.5 text-[11.5px]" style={{ color: bonus ? 'var(--okc)' : 'var(--t3)' }}>
-            {sub}
-          </div>
-        )}
+        <div className="ol">{title}</div>
+        <div className="od">{sub}</div>
       </div>
-      <div className="text-[13px] font-medium tabular-nums" style={{ color: 'var(--t1)' }}>
-        {price}
-      </div>
+      <div className="ol shrink-0 tabular-nums">{price}</div>
     </button>
   )
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2.5">
         {PACKS.map((p) =>
-          row(
+          opt(
             choice.kind === 'credits' && choice.pack.id === p.id,
             p.label,
-            p.tag,
+            p.sub,
             yuan(p.amountCents),
-            true,
             () => setChoice({ kind: 'credits', pack: p }),
             p.id
           )
         )}
-        {row(
+        {opt(
           choice.kind === 'membership',
           '会员',
           `每月赠 ${MEMBERSHIP.grant} 积分 · 跨设备通用`,
           `${yuan(MEMBERSHIP.amountCents)}/月`,
-          false,
           () => setChoice({ kind: 'membership' }),
           'membership'
         )}
       </div>
 
       <div className="flex items-center gap-3">
-        <span className="text-[11.5px]" style={{ color: 'var(--t3)' }}>
-          支付方式
-        </span>
-        <div className="flex gap-1">
+        <span className="muted-s">支付方式</span>
+        <div className="seg">
           {(['alipay', 'wxpay'] as const).map((pt) => (
             <button
               key={pt}
               onClick={() => setPayType(pt)}
-              className="rounded-[7px] border px-3 py-1 text-[12px] transition-colors"
-              style={{
-                borderColor: payType === pt ? 'var(--t2)' : 'var(--line-2)',
-                color: payType === pt ? 'var(--t1)' : 'var(--t3)'
-              }}
+              className={payType === pt ? 'on' : ''}
             >
               {pt === 'alipay' ? '支付宝' : '微信'}
             </button>
@@ -197,7 +169,7 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
       </div>
 
       <button
-        className="btn btn-primary w-full"
+        className="btn primary w-full"
         style={{ padding: '9px 14px' }}
         disabled={busy}
         onClick={() => void recharge()}
@@ -205,7 +177,7 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
         {busy ? '等待支付…' : `${payType === 'alipay' ? '支付宝' : '微信'}支付 ${yuan(amountCents)}`}
       </button>
       {busy && (
-        <button className="btn btn-ghost btn-sm self-center" onClick={cancel}>
+        <button className="btn ghost sm self-center" onClick={cancel}>
           取消
         </button>
       )}

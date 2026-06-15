@@ -7,9 +7,6 @@ interface Props {
   onDone: (p: Profile) => void
 }
 
-const input =
-  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
-
 function splitList(s: string): string[] {
   return s
     .split(/[,，、;；\s]+/)
@@ -44,147 +41,135 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-slate-100">
-      <div className="w-[520px] rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="text-xl font-semibold">欢迎使用 纸壳助手</div>
-        <p className="mt-1 text-xs leading-5 text-slate-400">
+    <div className="ob-wrap">
+      <div className="ob-card animate-page">
+        <div className="h">欢迎使用 纸壳助手</div>
+        <div className="p">
           纸壳助手 需要一份最小档案来判断「哪些事是你的事」。约 2 分钟完成，所有选填项都可以跳过。
-        </p>
+        </div>
 
-        <div className="mt-4 flex gap-1.5">
+        <div className="steps">
           {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-ink' : 'bg-slate-200'}`}
-            />
+            <i key={i} className={i <= step ? 'on' : ''} />
           ))}
         </div>
 
-        <div key={step} className="animate-page mt-6 flex min-h-[260px] flex-col gap-4">
+        <div key={step} className="ob-body animate-page">
           {step === 0 && (
             <>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-slate-600">
-                  真实姓名 <span className="text-red-500">*</span>
-                  <span className="ml-2 text-xs text-slate-400">用于识别通知中点名你的任务</span>
+              <div className="field">
+                <span>
+                  真实姓名 <span style={{ color: 'var(--danger)' }}>*</span>
+                  <span style={{ marginLeft: 6, color: 'var(--t4)' }}>用于识别通知中点名你的任务</span>
                 </span>
-                <input className={input} value={name} onChange={(e) => setName(e.target.value)} />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-slate-600">
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="如：李思" />
+              </div>
+              <div className="field">
+                <span>
                   常用昵称 / 英文名
-                  <span className="ml-2 text-xs text-slate-400">多个用逗号分隔，识别群聊里的别名</span>
+                  <span style={{ marginLeft: 6, color: 'var(--t4)' }}>多个用逗号分隔，识别群聊里的别名</span>
                 </span>
                 <input
-                  className={input}
+                  type="text"
                   value={nicknames}
                   onChange={(e) => setNicknames(e.target.value)}
                   placeholder="如：小李, Leo"
                 />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-slate-600">
+              </div>
+              <div className="field">
+                <span>
                   常用账号名
-                  <span className="ml-2 text-xs text-slate-400">社交软件用户名、邮箱前缀、GitHub 等</span>
+                  <span style={{ marginLeft: 6, color: 'var(--t4)' }}>社交软件用户名、邮箱前缀、GitHub 等</span>
                 </span>
                 <input
-                  className={input}
+                  type="text"
                   value={accounts}
                   onChange={(e) => setAccounts(e.target.value)}
                   placeholder="如：lisi2024"
                 />
-              </label>
+              </div>
             </>
           )}
 
           {step === 1 && (
             <>
-              <div className="flex flex-col gap-2">
-                <span className="text-sm text-slate-600">
-                  身份类型 <span className="text-red-500">*</span>
+              <div className="field">
+                <span>
+                  身份类型 <span style={{ color: 'var(--danger)' }}>*</span>
                 </span>
-                {IDENTITIES.map((it) => (
-                  <button
-                    key={it.value}
-                    onClick={() => setIdentity(it.value)}
-                    className={`rounded-xl border px-4 py-2.5 text-left ${
-                      identity === it.value
-                        ? 'border-slate-300 bg-slate-50'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="text-sm font-medium">{it.label}</div>
-                    <div className="text-xs text-slate-400">{it.desc}</div>
-                  </button>
-                ))}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-slate-600">组织 / 学校 / 公司</span>
-                  <input className={input} value={org} onChange={(e) => setOrg(e.target.value)} />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-slate-600">班级 / 课题组 / 岗位</span>
-                  <input className={input} value={group} onChange={(e) => setGroup(e.target.value)} />
-                </label>
+              {IDENTITIES.map((it) => (
+                <button
+                  key={it.value}
+                  className={identity === it.value ? 'opt on' : 'opt'}
+                  onClick={() => setIdentity(it.value)}
+                >
+                  <div className="ol">{it.label}</div>
+                  <div className="od">{it.desc}</div>
+                </button>
+              ))}
+              <div className="grid2">
+                <div className="field">
+                  <span>组织 / 学校 / 公司</span>
+                  <input type="text" value={org} onChange={(e) => setOrg(e.target.value)} />
+                </div>
+                <div className="field">
+                  <span>班级 / 课题组 / 岗位</span>
+                  <input type="text" value={group} onChange={(e) => setGroup(e.target.value)} />
+                </div>
               </div>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-slate-600">工作 / 学习时间偏好</span>
+              <div className="field">
+                <span>工作 / 学习时间偏好</span>
                 <input
-                  className={input}
+                  type="text"
                   value={workHours}
                   onChange={(e) => setWorkHours(e.target.value)}
                   placeholder="如：工作日 9:00 - 22:00"
                 />
-              </label>
+              </div>
             </>
           )}
 
           {step === 2 && (
-            <div className="flex flex-col gap-2">
-              <span className="text-sm text-slate-600">
-                确认模式 <span className="text-red-500">*</span>
-                <span className="ml-2 text-xs text-slate-400">决定 AI 发现的任务如何进入日程</span>
-              </span>
+            <>
+              <div className="field">
+                <span>
+                  确认模式 <span style={{ color: 'var(--danger)' }}>*</span>
+                  <span style={{ marginLeft: 6, color: 'var(--t4)' }}>决定 AI 发现的任务如何进入日程</span>
+                </span>
+              </div>
               {CONFIRM_MODES.map((m) => (
                 <button
                   key={m.value}
+                  className={confirmMode === m.value ? 'opt on' : 'opt'}
                   onClick={() => setConfirmMode(m.value)}
-                  className={`rounded-xl border px-4 py-3 text-left ${
-                    confirmMode === m.value
-                      ? 'border-slate-300 bg-slate-50'
-                      : 'border-slate-200 hover:border-slate-300'
-                  }`}
                 >
-                  <div className="text-sm font-medium">{m.label}</div>
-                  <div className="text-xs leading-5 text-slate-400">{m.desc}</div>
+                  <div className="ol">{m.label}</div>
+                  <div className="od">{m.desc}</div>
                 </button>
               ))}
-            </div>
+            </>
           )}
         </div>
 
-        <div className="mt-6 flex justify-between">
+        <div className="ob-foot">
           <button
-            className="rounded-lg px-4 py-2 text-sm text-slate-400 hover:bg-slate-100 disabled:invisible"
-            disabled={step === 0}
+            className="btn ghost"
+            style={step === 0 ? { visibility: 'hidden' } : undefined}
             onClick={() => setStep(step - 1)}
           >
             上一步
           </button>
           {step < 2 ? (
             <button
-              className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black disabled:opacity-40"
+              className="btn primary"
               disabled={step === 0 && !name.trim()}
               onClick={() => setStep(step + 1)}
             >
               下一步
             </button>
           ) : (
-            <button
-              className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black"
-              onClick={() => void finish()}
-            >
+            <button className="btn primary" onClick={() => void finish()}>
               开始使用
             </button>
           )}

@@ -134,8 +134,11 @@ function MainApp(): React.JSX.Element | null {
 
   if (profile === undefined || !authReady)
     return (
-      <div className="flex h-full items-center justify-center bg-white">
-        <div className="size-6 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
+      <div className="flex h-full items-center justify-center" style={{ background: 'var(--bg)' }}>
+        <div
+          className="size-6 animate-spin rounded-full border-2 border-t-transparent"
+          style={{ borderColor: 'var(--t3)', borderTopColor: 'transparent' }}
+        />
       </div>
     )
   // 「注册登录即用」：未登录必须先登录/注册（登录成功 onAuthStateChange→signedIn 切走）。
@@ -146,7 +149,7 @@ function MainApp(): React.JSX.Element | null {
 
   return (
     <div
-      className="flex h-full bg-[#fafafa] text-slate-800"
+      className="app"
       onDragEnter={(e) => {
         e.preventDefault()
         dragDepth.current++
@@ -161,69 +164,40 @@ function MainApp(): React.JSX.Element | null {
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      <aside
-        className="flex w-52 shrink-0 flex-col"
-        style={{ borderRight: '1px solid var(--line)', background: 'var(--surface)' }}
-      >
-        <div className="px-5 pt-10 pb-4 titlebar-pad">
-          <div className="text-base font-semibold tracking-tight" style={{ color: 'var(--t1)' }}>
-            EShell
-          </div>
-          <div className="mt-0.5 text-[11px]" style={{ color: 'var(--t3)' }}>
-            个人事项捕获助手
-          </div>
+      <aside className="sidebar">
+        <div className="brand titlebar-pad">
+          <div className="name">EShell</div>
+          <div className="sub">个人事项捕获助手</div>
         </div>
-        <nav className="stagger flex flex-col gap-px px-2.5">
+        <nav className="nav stagger">
           {NAV.map((item) => {
             const active = page === item.key
             return (
               <button
                 key={item.key}
                 onClick={() => setPage(item.key)}
-                className="flex items-center gap-2.5 rounded-[7px] px-2.5 py-[7px] text-left text-[13px] transition-colors"
-                style={{
-                  color: active ? 'var(--t1)' : 'var(--t2)',
-                  fontWeight: active ? 500 : 400,
-                  background: active ? 'var(--selected)' : 'transparent'
-                }}
-                onMouseEnter={(e) => {
-                  if (!active) e.currentTarget.style.background = 'var(--hover)'
-                }}
-                onMouseLeave={(e) => {
-                  if (!active) e.currentTarget.style.background = 'transparent'
-                }}
+                className={active ? 'nav-item active' : 'nav-item'}
               >
                 <svg
                   viewBox="0 0 24 24"
-                  className="size-[17px] shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
+                  className="ico"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  style={{ opacity: 0.85 }}
                 >
                   {ICON[item.key]}
                 </svg>
                 <span className="flex-1">{item.label}</span>
                 {item.key === 'assistant' && pendingCount > 0 && (
-                  <span
-                    className="flex h-[17px] min-w-[17px] items-center justify-center rounded-full px-1.5 text-[10px] leading-none text-white"
-                    style={{ background: 'var(--primary)' }}
-                  >
-                    {pendingCount}
-                  </span>
+                  <span className="count">{pendingCount}</span>
                 )}
               </button>
             )
           })}
         </nav>
-        <div className="mt-auto px-5 pb-5 text-[11px] leading-5 text-slate-400">
-          复制内容后按 {hotkeyLabel}，快速提交剪切板。
-        </div>
+        <div className="hint">复制内容后按 {hotkeyLabel}，快速提交剪切板。</div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto">
+      <main className="main">
         <div key={page} className={page === 'assistant' ? 'animate-page h-full' : 'animate-page'}>
           {page === 'assistant' && (
             <Assistant
@@ -241,8 +215,14 @@ function MainApp(): React.JSX.Element | null {
       </main>
 
       {dragging && (
-        <div className="animate-overlay-in pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-slate-900/5 backdrop-blur-[1px]">
-          <div className="animate-modal-in rounded-xl border-2 border-dashed border-slate-300 bg-white px-8 py-6 text-slate-600 shadow-lg">
+        <div
+          className="animate-overlay-in pointer-events-none fixed inset-0 z-40 flex items-center justify-center backdrop-blur-[1px]"
+          style={{ background: '#0000000a' }}
+        >
+          <div
+            className="animate-modal-in rounded-[14px] border-2 border-dashed bg-white px-8 py-6"
+            style={{ borderColor: 'var(--line-3)', color: 'var(--t2)', boxShadow: 'var(--sh-2)' }}
+          >
             松开以提交文件（图片 / PDF / docx / txt）
           </div>
         </div>
@@ -251,7 +231,8 @@ function MainApp(): React.JSX.Element | null {
       {toast && (
         <div
           key={toast}
-          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm text-white shadow-lg"
+          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-[10px] px-4 py-2.5 text-[13px] text-white"
+          style={{ background: 'var(--primary)', boxShadow: 'var(--sh-2)' }}
         >
           {toast}
         </div>

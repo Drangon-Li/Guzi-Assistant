@@ -104,9 +104,9 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
 
   return (
     <div className="page animate-page">
-      <div className="flex items-center justify-between">
-        <h1 className="page-title">时间轴</h1>
-        <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
+      <div className="page-head">
+        <div className="page-title">时间轴</div>
+        <div className="seg">
           {(
             [
               ['day', '天'],
@@ -117,11 +117,7 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
             <button
               key={key}
               onClick={() => setMode(key)}
-              className={`rounded-md px-3 py-1 ${
-                mode === key
-                  ? 'bg-white text-slate-900 font-medium shadow-sm'
-                  : 'text-slate-400 hover:text-slate-700'
-              }`}
+              className={mode === key ? 'on' : ''}
             >
               {label}
             </button>
@@ -130,7 +126,7 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
       </div>
 
       {upcoming.length > 0 && (
-        <div className="mt-5 flex flex-col gap-2">
+        <div className="up stagger">
           {upcoming.map((t) => {
             const time = timeOf(t)!
             const urgent = t.status === 'overdue' || daysUntil(time) <= 3
@@ -149,17 +145,11 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
               <button
                 key={t.id}
                 onClick={() => setDetail(t)}
-                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left shadow-sm"
+                className="up-row"
               >
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">「{t.title}」</span>
-                <span
-                  className={`shrink-0 text-sm font-semibold ${urgent ? 'text-[#c0584e]' : 'text-slate-700'}`}
-                >
-                  {label}
-                </span>
-                <span className="shrink-0 text-xs text-slate-400">
-                  优先级：{PRIORITY_LABELS[t.priority]}
-                </span>
+                <span className="t">「{t.title}」</span>
+                <span className={`cd${urgent ? ' urgent' : ''}`}>{label}</span>
+                <span className="time">优先级：{PRIORITY_LABELS[t.priority]}</span>
               </button>
             )
           })}
@@ -176,33 +166,33 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
         />
       )}
 
-      <div className="mt-6 flex flex-col">
+      <div className="flex flex-col" style={{ marginTop: '6px' }}>
         {groups.map((g) => (
           <TimelineSection key={g.key} label={g.label} sub={g.sub} tasks={g.tasks} onOpen={setDetail} />
         ))}
         {!groups.length && !overdue.length && (
-          <div className="mt-10 text-center text-sm text-slate-400">
+          <div className="empty" style={{ marginTop: '24px', textAlign: 'center' }}>
             还没有带时间的已确认任务。先去收件箱确认几条吧。
           </div>
         )}
       </div>
 
       {unscheduled.length > 0 && (
-        <div className="mt-6 text-xs text-slate-400">
+        <div style={{ marginTop: '20px', fontSize: '12px', color: 'var(--t3)' }}>
           另有 {unscheduled.length} 个任务未排期，可在「日程」页中设置时间。
         </div>
       )}
 
       {finished.length > 0 && (
-        <div className="mt-6">
+        <div style={{ marginTop: '10px' }}>
           <button
             onClick={() => setShowFinished((v) => !v)}
-            className="text-xs text-slate-400 hover:text-slate-600"
+            className="btn ghost sm"
           >
             {showFinished ? '▾' : '▸'} 已结束 {finished.length} 项（仅开始时间、已过去）
           </button>
           {showFinished && (
-            <div className="mt-2 opacity-70">
+            <div style={{ marginTop: '8px', opacity: 0.7 }}>
               <TimelineSection label="已结束" sub={`${finished.length} 项`} tasks={finished} onOpen={setDetail} />
             </div>
           )}
@@ -235,49 +225,33 @@ function TimelineSection({
   onOpen: (t: TaskRecord) => void
 }): React.JSX.Element {
   return (
-    <section className={`relative pb-6 pl-6 ${danger ? 'mt-6' : ''}`}>
-      <div className="absolute top-1.5 bottom-0 left-[5px] w-px bg-slate-200" />
-      <div
-        className={`absolute top-1.5 left-0 size-[11px] rounded-full border-2 bg-white ${
-          danger ? 'border-[#c0584e]' : 'border-slate-300'
-        }`}
-      />
-      <div className="flex items-baseline gap-2">
-        <h2 className={`text-sm font-semibold ${danger ? 'text-[#c0584e]' : ''}`}>{label}</h2>
-        {sub && <span className="text-xs text-slate-400">{sub}</span>}
+    <section className={`tl-section${danger ? ' danger' : ''}`} style={danger ? { marginTop: '26px' } : {}}>
+      <div className="axis"></div>
+      <div className="node"></div>
+      <div className="tl-head">
+        <h2 className={danger ? 'is-danger' : ''}>{label}</h2>
+        {sub && <span className="sub">{sub}</span>}
       </div>
-      <div className="mt-2 flex flex-col gap-2">
+      <div className="tl-list stagger">
         {tasks.map((t) => {
           const time = t.dueTime ?? t.startTime
+          const priorityDot =
+            t.priority === 'high' ? 'dot high' :
+            t.priority === 'medium' ? 'dot med' :
+            t.priority !== 'unknown' ? 'dot low' : null
           return (
             <button
               key={t.id}
               onClick={() => onOpen(t)}
-              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left shadow-sm hover:border-slate-300"
+              className="row"
             >
-              <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-500">
-                {TYPE_LABELS[t.itemType]}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
-              {t.location && (
-                <span className="hidden shrink-0 text-xs text-slate-400 sm:inline">{t.location}</span>
-              )}
+              <span className="tag">{TYPE_LABELS[t.itemType]}</span>
+              <span className="title">{t.title}</span>
+              {t.location && <span className="meta">{t.location}</span>}
               {time && (
-                <span className={`shrink-0 text-xs ${danger ? 'text-[#c0584e]' : 'text-slate-500'}`}>
-                  {fmtTime(time)}
-                </span>
+                <span className={`time${danger ? ' is-danger' : ''}`}>{fmtTime(time)}</span>
               )}
-              {t.priority !== 'unknown' && (
-                <span
-                  className={`shrink-0 size-1.5 rounded-full ${
-                    t.priority === 'high'
-                      ? 'bg-[#c0584e]'
-                      : t.priority === 'medium'
-                        ? 'bg-[#c8a24a]'
-                        : 'bg-slate-300'
-                  }`}
-                />
-              )}
+              {priorityDot && <span className={priorityDot}></span>}
             </button>
           )
         })}

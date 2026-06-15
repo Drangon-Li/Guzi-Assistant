@@ -36,12 +36,13 @@ function joinStatus(t: { startTime?: string | null; dueTime?: string | null }): 
   return t.dueTime || t.startTime ? 'scheduled' : 'not_started'
 }
 
-function Avatar({ role, initial }: { role: 'user' | 'assistant'; initial: string }): React.JSX.Element {
-  if (role === 'assistant') {
-    return <img src={agentAvatar} alt="纸壳助手" className="size-8 shrink-0 rounded-[9px]" />
-  }
+function AgentAvatar(): React.JSX.Element {
+  return <img className="avatar agent" src={agentAvatar} alt="纸壳助手" />
+}
+
+function UserAvatar({ initial }: { initial: string }): React.JSX.Element {
   return (
-    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#8a7aa0] text-xs font-semibold text-white">
+    <div className="avatar user" style={{ background: 'var(--c4)' }}>
       {initial}
     </div>
   )
@@ -226,27 +227,26 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
     showToast(`已加入 ${pending.length} 个任务`)
   }
 
+  const userInitial = userName.slice(0, 1) || '我'
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-6 py-6">
+    <div className="chat">
+      <div className="chat-scroll">
+        <div className="chat-inner">
+          {/* 助手问候（仅无消息时显示） */}
           {msgs.length === 0 && (
-            <div className="flex gap-3">
-              <Avatar role="assistant" initial="纸" />
-              <div className="flex max-w-[82%] flex-col gap-3">
-                <div className="rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-3 text-sm leading-6">
+            <div className="msg">
+              <AgentAvatar />
+              <div className="msg-col">
+                <div className="bubble agent">
                   你好，我是纸壳助手。我会自动留意你设备上的通知、消息和聊天记录，从中帮你拎出该办的事，主动提给你确认；你也可以直接问我日程安排。
-                  <span className="mt-1 block text-xs text-slate-400">
-                    （需要时也能手动把内容发我：复制后按 {hotkeyLabel}）
+                  <span className="muted">
+                    需要时也能手动把内容发我（复制后按 {hotkeyLabel}）
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="suggest">
                   {SUGGESTIONS.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => void send(s)}
-                      className="rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-                    >
+                    <button key={s} onClick={() => void send(s)}>
                       {s}
                     </button>
                   ))}
@@ -255,82 +255,69 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
             </div>
           )}
 
+          {/* 消息列表 */}
           {msgs.map((m) =>
             m.role === 'user' ? (
-              <div key={m.id} className="flex justify-end gap-3">
-                <div className="max-w-[82%] rounded-2xl rounded-tr-sm bg-[#eef3fa] px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-slate-800 shadow-sm">
-                  {m.text}
-                </div>
-                <Avatar role="user" initial={userName.slice(0, 1) || '我'} />
+              <div key={m.id} className="msg me">
+                <div className="bubble me">{m.text}</div>
+                <UserAvatar initial={userInitial} />
               </div>
             ) : (
-              <div key={m.id} className="flex gap-3">
-                <Avatar role="assistant" initial="纸" />
-                <div className="flex max-w-[82%] min-w-0 flex-col gap-2">
-                  <div
-                    className={`rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap ${
-                      m.error ? 'border border-red-200 bg-red-50 text-red-600' : 'bg-[#f5f4f3]'
-                    }`}
-                  >
+              <div key={m.id} className="msg">
+                <AgentAvatar />
+                <div className="msg-col">
+                  <div className={`bubble agent${m.error ? '' : ''}`} style={m.error ? { border: '1px solid var(--danger-line)', background: 'var(--danger-bg)', color: 'var(--danger)' } : {}}>
                     {m.text}
                   </div>
                   {m.forceAdd && !m.forceAdd.used && (
-                    <button
-                      className="self-start rounded-lg border border-amber-300 px-3 py-1 text-xs text-amber-700 hover:bg-amber-50"
-                      onClick={() => void forceAddNow(m)}
-                    >
-                      仍要加入
-                    </button>
+                    <div className="act">
+                      <button
+                        className="btn primary sm"
+                        onClick={() => void forceAddNow(m)}
+                      >
+                        仍要加入
+                      </button>
+                    </div>
                   )}
                   {m.candidates &&
                     m.candidates.ctx.items.map((item, idx) => {
                       const idx1 = idx + 1
                       const state = m.candidates!.added[idx1]
                       return (
-                        <div
-                          key={idx}
-                          className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
-                        >
-                          <div className="flex items-start gap-2">
-                            <span className="mt-0.5 shrink-0 rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
-                              {TYPE_LABELS[item.item_type]}
-                            </span>
-                            <span className="min-w-0 flex-1 text-sm leading-5 font-medium">{item.title}</span>
+                        <div key={idx} className="cand">
+                          <div className="top">
+                            <span className="tag">{TYPE_LABELS[item.item_type]}</span>
+                            <span className="ct">{item.title}</span>
                             <ConfidenceBadge value={item.confidence} />
                           </div>
-                          <div className="mt-1.5 flex flex-wrap gap-x-3 text-xs text-slate-500">
+                          <div className="det">
                             {item.start_time && <span>开始：{fmtTime(item.start_time)}</span>}
-                            {item.due_time && <span className="text-red-500">截止：{fmtTime(item.due_time)}</span>}
+                            {item.due_time && <span className="is-danger">截止：{fmtTime(item.due_time)}</span>}
                             {item.location && <span>地点：{item.location}</span>}
                           </div>
                           {item.belonging_reason && (
-                            <div className="mt-1 text-xs text-slate-400">{item.belonging_reason}</div>
+                            <div className="reason">{item.belonging_reason}</div>
                           )}
                           {item.duplicate_of && !state && (
-                            <div className="mt-1 text-xs text-amber-600">
+                            <div className="reason" style={{ color: 'var(--warn)' }}>
                               疑似重复：可能与已有任务「{item.duplicate_of}」是同一件事
                             </div>
                           )}
-                          <div className="mt-2 flex items-center gap-2">
+                          <div className="act">
                             {state ? (
-                              <span
-                                className={`text-xs ${state === 'added' ? 'text-emerald-600' : 'text-slate-400'}`}
-                              >
+                              <span style={{ fontSize: 12, color: state === 'added' ? 'var(--ok)' : 'var(--t3)' }}>
                                 {state === 'added' ? '✓ 已加入日程' : '已有相同任务，未重复添加'}
                               </span>
                             ) : (
                               <>
                                 <button
-                                  className={`rounded-lg px-3 py-1 text-xs text-white ${
-                                    item.duplicate_of
-                                      ? 'bg-amber-500 hover:bg-amber-600'
-                                      : 'bg-ink hover:bg-black'
-                                  }`}
+                                  className="btn primary sm"
+                                  style={item.duplicate_of ? { background: 'var(--warn)' } : {}}
                                   onClick={() => void addCandidate(m.id, idx1, m.candidates!.ctx, item)}
                                 >
                                   {item.duplicate_of ? '仍要加入' : '加入'}
                                 </button>
-                                <span className="text-[11px] text-slate-400">或直接告诉我怎么改</span>
+                                <span className="muted-s" style={{ fontSize: 11 }}>或直接告诉我怎么改</span>
                               </>
                             )}
                           </div>
@@ -342,49 +329,48 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
             )
           )}
 
+          {/* 待确认的 pending 任务 */}
           {pending.length > 0 && (
-            <div className="flex gap-3">
-              <Avatar role="assistant" initial="纸" />
-              <div className="flex max-w-[82%] min-w-0 flex-col gap-2">
-                <div className="rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-2.5 text-sm leading-6">
+            <div className="msg">
+              <AgentAvatar />
+              <div className="msg-col">
+                <div className="bubble agent">
                   我从你之前提交的内容里发现了 {pending.length} 个待确认事项：
                 </div>
                 {pending.map((t) => (
-                  <div key={t.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                    <div className="flex items-start gap-2">
-                      <span className="mt-0.5 shrink-0 rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
-                        {TYPE_LABELS[t.itemType]}
-                      </span>
+                  <div key={t.id} className="cand">
+                    <div className="top">
+                      <span className="tag">{TYPE_LABELS[t.itemType]}</span>
                       <button
-                        className="min-w-0 flex-1 text-left text-sm leading-5 font-medium hover:text-slate-900"
+                        className="ct"
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}
                         onClick={() => setDetail(t)}
                       >
                         {t.title}
                       </button>
                       <ConfidenceBadge value={t.confidence} />
                     </div>
-                    <div className="mt-1.5 flex flex-wrap gap-x-3 text-xs text-slate-500">
+                    <div className="det">
                       {t.startTime && <span>开始：{fmtTime(t.startTime)}</span>}
-                      {t.dueTime && <span className="text-red-500">截止：{fmtTime(t.dueTime)}</span>}
+                      {t.dueTime && <span className="is-danger">截止：{fmtTime(t.dueTime)}</span>}
                       {t.location && <span>地点：{t.location}</span>}
                     </div>
-                    {t.belongingReason && <div className="mt-1 text-xs text-slate-400">{t.belongingReason}</div>}
+                    {t.belongingReason && <div className="reason">{t.belongingReason}</div>}
                     {t.duplicateOf && (
-                      <div className="mt-1 text-xs text-amber-600">
+                      <div className="reason" style={{ color: 'var(--warn)' }}>
                         疑似重复：可能与已有任务「{t.duplicateOf}」是同一件事
                       </div>
                     )}
-                    <div className="mt-2 flex items-center gap-2">
+                    <div className="act">
                       <button
-                        className={`rounded-lg px-3 py-1 text-xs text-white ${
-                          t.duplicateOf ? 'bg-amber-500 hover:bg-amber-600' : 'bg-ink hover:bg-black'
-                        }`}
+                        className="btn primary sm"
+                        style={t.duplicateOf ? { background: 'var(--warn)' } : {}}
                         onClick={() => void api.updateTask(t.id, { status: joinStatus(t) })}
                       >
                         {t.duplicateOf ? '仍要加入' : '加入'}
                       </button>
                       <button
-                        className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+                        className="btn sm"
                         onClick={() => {
                           void api.updateTask(t.id, { status: 'ignored' })
                           showToast('已忽略，可在日程页底部「已忽略」区恢复')
@@ -393,7 +379,8 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                         忽略
                       </button>
                       <button
-                        className="ml-auto rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-slate-900"
+                        className="btn sm"
+                        style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--t3)' }}
                         onClick={() => setDetail(t)}
                       >
                         详情
@@ -402,36 +389,21 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                   </div>
                 ))}
                 {pending.length > 1 && (
-                  <div className="flex gap-2">
-                    <button
-                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
-                      onClick={() => void joinAllPending()}
-                    >
-                      全部加入
-                    </button>
-                    <button
-                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:bg-slate-50"
-                      onClick={() => void api.bulkTasks(pending.map((t) => t.id), 'ignored')}
-                    >
-                      全部忽略
-                    </button>
+                  <div className="suggest">
+                    <button onClick={() => void joinAllPending()}>全部加入</button>
+                    <button onClick={() => void api.bulkTasks(pending.map((t) => t.id), 'ignored')}>全部忽略</button>
                   </div>
                 )}
               </div>
             </div>
           )}
 
+          {/* 打字中动画 */}
           {busy && (
-            <div className="flex gap-3">
-              <Avatar role="assistant" initial="纸" />
-              <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-3">
-                {[0, 150, 300].map((delay) => (
-                  <span
-                    key={delay}
-                    className="size-1.5 animate-bounce rounded-full bg-slate-400"
-                    style={{ animationDelay: `${delay}ms` }}
-                  />
-                ))}
+            <div className="msg">
+              <AgentAvatar />
+              <div className="bubble agent" style={{ padding: 0 }}>
+                <div className="typing"><i /><i /><i /></div>
               </div>
             </div>
           )}
@@ -440,55 +412,67 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
         </div>
       </div>
 
-      <div className="border-t border-slate-200 bg-white px-6 py-3">
-        <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
+      {/* 输入栏 */}
+      <div className="composer">
+        <div className="composer-inner">
           {screenSense && (
             <button
+              className="icon-btn"
               title="扫描当前屏幕，自动提取待办"
               disabled={busy}
               onClick={() => void scanScreen()}
-              className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
             >
-              扫描屏幕
+              <svg className="ico" viewBox="0 0 24 24">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
             </button>
           )}
           <button
+            className="icon-btn"
             title="截图捕获"
             disabled={busy}
             onClick={() => void screenshot()}
-            className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-40"
           >
-            截图
+            <svg className="ico" viewBox="0 0 24 24">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+              <circle cx="12" cy="13" r="3.5" />
+            </svg>
           </button>
           <button
+            className="icon-btn"
             title="读取剪切板"
             disabled={busy}
             onClick={() => void api.captureClipboard()}
-            className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-40"
           >
-            剪贴板
+            <svg className="ico" viewBox="0 0 24 24">
+              <rect x="8" y="2" width="8" height="4" rx="1" />
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+            </svg>
           </button>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            rows={Math.min(5, Math.max(1, input.split('\n').length))}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                void send(input)
-              }
-            }}
-            placeholder="粘贴通知让我提取事项，或直接问我日程…（Shift+Enter 换行）"
-            className="max-h-36 min-w-0 flex-1 resize-none rounded-xl border border-slate-200 px-3.5 py-2 text-sm leading-6 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/5"
-          />
-          <button
-            disabled={busy || !input.trim()}
-            onClick={() => void send(input)}
-            className="rounded-xl bg-ink px-4 py-2 text-sm text-white hover:bg-black disabled:opacity-40"
-          >
-            发送
-          </button>
+          <div className="input-pill">
+            <input
+              ref={textareaRef as unknown as React.RefObject<HTMLInputElement>}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  void send(input)
+                }
+              }}
+              placeholder="粘贴通知让我提取事项，或直接问我日程…"
+            />
+            <button
+              className="send"
+              disabled={busy || !input.trim()}
+              onClick={() => void send(input)}
+            >
+              <svg className="ico" viewBox="0 0 24 24">
+                <path d="M22 2 11 13M22 2l-7 20-4-9-9-4z" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
