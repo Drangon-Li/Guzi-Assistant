@@ -27,4 +27,4 @@ node eval/memory-retrieval/run.mjs   # 自包含；直连 relay 的 LLM + embedd
 
 ## 接入状态
 
-算法已验证。落地待办：①`embed` Edge Function（代理 relay 嵌入 + 计费，客户端无 key）②main 记忆层改用本模块（抽取→嵌入→去重→存 memories 表 + embedding）③记忆页语义检索。届时替换批式 `memory-consolidate.ts`。
+算法已验证。落地待办：①`embed` Edge Function（代理 relay 嵌入 + 计费，客户端无 key）②main 记忆层改用本模块（抽取→嵌入→去重→存 memories 表 + embedding）③记忆页语义检索。已替换批式 memory-consolidate（已删除）。

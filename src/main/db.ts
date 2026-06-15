@@ -63,6 +63,7 @@ export function initDb(): void {
       summary TEXT NOT NULL,
       entities TEXT NOT NULL DEFAULT '[]',
       time_range TEXT,
+      embedding TEXT,
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS memory_sources (
@@ -87,6 +88,13 @@ export function initDb(): void {
   )
   if (!srcCols.includes('consolidated')) {
     db.exec('ALTER TABLE sources ADD COLUMN consolidated INTEGER NOT NULL DEFAULT 0')
+  }
+  // 记忆向量列（语义检索/去重）：老库补列
+  const memCols = (db.prepare('PRAGMA table_info(memories)').all() as { name: string }[]).map(
+    (c) => c.name
+  )
+  if (memCols.length && !memCols.includes('embedding')) {
+    db.exec('ALTER TABLE memories ADD COLUMN embedding TEXT')
   }
 
   // #52 可搜索记忆底座：FTS5(trigram 支持中文子串) 索引来源文本。standalone 表 + 手动同步。
@@ -281,19 +289,28 @@ export function markSourcesConsolidated(ids: string[]): void {
   tx(ids)
 }
 
-/** 落库一条记忆 + 关联来源（本地）。返回记忆 id。 */
+/** 落库一条记忆 + 关联来源（本地）。返回记忆 id。embedding 为本地语义向量（可选）。 */
 export function createMemory(m: {
   title: string
   summary: string
   entities: string[]
   timeRange: string | null
   sourceIds: string[]
+  embedding?: number[]
 }): string {
   const id = randomUUID()
   const createdAt = localNow()
   db.prepare(
-    'INSERT INTO memories (id, title, summary, entities, time_range, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, m.title, m.summary, JSON.stringify(m.entities), m.timeRange, createdAt)
+    'INSERT INTO memories (id, title, summary, entities, time_range, embedding, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    id,
+    m.title,
+    m.summary,
+    JSON.stringify(m.entities),
+    m.timeRange,
+    m.embedding ? JSON.stringify(m.embedding) : null,
+    createdAt
+  )
   const link = db.prepare(
     'INSERT OR IGNORE INTO memory_sources (memory_id, source_id) VALUES (?, ?)'
   )
@@ -390,6 +407,23 @@ export function searchSources(query: string, limit = 50): MemoryHit[] {
       snippet: r.snippet,
       taskCount: (countTasks.get(r.id) as { n: number }).n
     })
+  }
+  return out
+}
+
+/** 取所有带向量的记忆（id + 文本 + 解析后向量），供去重 + 语义检索的纯 TS 余弦使用 */
+export function allMemoryVectors(): { id: string; text: string; embedding: number[] }[] {
+  const rows = db
+    .prepare("SELECT id, summary, embedding FROM memories WHERE embedding IS NOT NULL AND embedding != ''")
+    .all() as { id: string; summary: string; embedding: string }[]
+  const out: { id: string; text: string; embedding: number[] }[] = []
+  for (const r of rows) {
+    try {
+      const v = JSON.parse(r.embedding)
+      if (Array.isArray(v) && v.length) out.push({ id: r.id, text: r.summary, embedding: v })
+    } catch {
+      /* 向量损坏跳过 */
+    }
   }
   return out
 }

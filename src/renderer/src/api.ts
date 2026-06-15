@@ -54,6 +54,7 @@ export const api = {
   readShot: (id: string) => inv<string | null>('memory:read-shot', id),
   consolidateMemories: () => inv<ConsolidateResult>('memory:consolidate'),
   listMemories: () => inv<MemoryRecord[]>('memory:list'),
+  searchMemorySemantic: (query: string) => inv<MemoryRecord[]>('memory:search-semantic', query),
 
   wipeData: () => inv<void>('data:wipe'),
   permissions: () => inv<PermissionStatus>('permissions:get'),

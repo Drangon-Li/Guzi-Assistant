@@ -21,7 +21,7 @@ const outfile = resolve(here, '.mx.bundle.mjs')
 await esbuild.build({ entryPoints: [resolve(repo, 'src/shared/memory-extract.ts')], bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent' })
 const { buildMemoryExtractionInstructions, parseMemoryExtractionOutput, topK, isDuplicate } = await import(outfile + `?t=${Date.now()}`)
 
-const ds = JSON.parse(readFileSync(resolve(repo, 'eval/memory/dataset.json'), 'utf8'))
+const ds = JSON.parse(readFileSync(resolve(here, 'dataset.json'), 'utf8'))
 
 // 检索金标：query → 命中记忆应含的关键词
 const RETRIEVAL = [
