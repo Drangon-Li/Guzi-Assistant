@@ -188,7 +188,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                 取消
               </button>
               <button
-                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700"
+                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
                 onClick={() => void submit(state.capture)}
               >
                 {state.left >= 0 ? `提交解析（${state.left}s）` : '确认提交'}
@@ -199,7 +199,7 @@ export default function PreviewCard(): React.JSX.Element | null {
 
         {state.phase === 'loading' && (
           <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
-            <span className="size-3 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+            <span className="size-3 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
             {state.message ?? '纸壳助手正在解析…'}
           </div>
         )}
@@ -209,7 +209,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             <div className="text-sm leading-6">
               {state.summary.related > 0 ? (
                 <>
-                  发现 <span className="font-semibold text-indigo-600">{state.summary.related}</span>{' '}
+                  发现 <span className="font-semibold text-slate-900">{state.summary.related}</span>{' '}
                   个可能与你有关的事项
                   {state.summary.autoAdded > 0 && (
                     <span className="text-xs text-slate-400">
@@ -239,7 +239,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                   关闭
                 </button>
                 <button
-                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700"
+                  className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
                   onClick={() => {
                     void api.focusMain('assistant')
                     setState({ phase: 'idle' })
@@ -308,7 +308,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                 修改
               </button>
               <button
-                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700"
+                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
                 onClick={() => void acceptSuggestion(false)}
               >
                 同意

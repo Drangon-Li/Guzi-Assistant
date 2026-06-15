@@ -76,8 +76,8 @@ function MainApp(): React.JSX.Element | null {
 
   if (profile === undefined)
     return (
-      <div className="flex h-full items-center justify-center bg-slate-100">
-        <div className="size-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+      <div className="flex h-full items-center justify-center bg-white">
+        <div className="size-6 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
       </div>
     )
   if (profile === null) return <Onboarding onDone={setProfile} />
@@ -86,7 +86,7 @@ function MainApp(): React.JSX.Element | null {
 
   return (
     <div
-      className="flex h-full bg-slate-100 text-slate-800"
+      className="flex h-full bg-[#fafafa] text-slate-800"
       onDragEnter={(e) => {
         e.preventDefault()
         dragDepth.current++
@@ -101,23 +101,23 @@ function MainApp(): React.JSX.Element | null {
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200 bg-white">
-        <div className="px-5 pt-6 pb-4">
-          <div className="text-xl font-bold tracking-tight">EShell</div>
+      <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200/60 bg-[#fafafa]">
+        <div className="px-5 pt-10 pb-4 titlebar-pad">
+          <div className="text-base font-semibold tracking-tight">EShell</div>
           <div className="mt-0.5 text-xs text-slate-400">个人事项捕获助手</div>
         </div>
-        <nav className="flex flex-col gap-1 px-3">
+        <nav className="stagger flex flex-col gap-1 px-3">
           {NAV.map((item) => (
             <button
               key={item.key}
               onClick={() => setPage(item.key)}
               className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                page === item.key ? 'bg-indigo-50 font-medium text-indigo-700' : 'hover:bg-slate-100'
+                page === item.key ? 'bg-slate-100 font-medium text-slate-900' : 'hover:bg-slate-50'
               }`}
             >
               <span>{item.label}</span>
               {item.key === 'assistant' && pendingCount > 0 && (
-                <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                <span className="rounded-full bg-ink px-1.5 py-0.5 text-[10px] leading-none text-white">
                   {pendingCount}
                 </span>
               )}
@@ -146,8 +146,8 @@ function MainApp(): React.JSX.Element | null {
       </main>
 
       {dragging && (
-        <div className="animate-overlay-in pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-indigo-600/10 backdrop-blur-[1px]">
-          <div className="animate-modal-in rounded-xl border-2 border-dashed border-indigo-400 bg-white px-8 py-6 text-indigo-600 shadow-lg">
+        <div className="animate-overlay-in pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-slate-900/5 backdrop-blur-[1px]">
+          <div className="animate-modal-in rounded-xl border-2 border-dashed border-slate-300 bg-white px-8 py-6 text-slate-600 shadow-lg">
             松开以提交文件（图片 / PDF / docx / txt）
           </div>
         </div>

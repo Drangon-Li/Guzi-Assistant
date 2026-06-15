@@ -1,14 +1,14 @@
 export default function ConfidenceBadge({ value }: { value: number }): React.JSX.Element {
   const pct = Math.round(value * 100)
-  const cls =
-    value >= 0.85
-      ? 'bg-emerald-100 text-emerald-700'
-      : value >= 0.6
-        ? 'bg-amber-100 text-amber-700'
-        : 'bg-slate-200 text-slate-600'
+  const level = value >= 0.85 ? 3 : value >= 0.6 ? 2 : 1
   return (
-    <span className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[11px] leading-4 ${cls}`}>
-      置信 {pct}%
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
+      <span className="inline-flex items-center gap-[3px]">
+        <i className={`block w-[3px] h-2.5 rounded-[1px] ${level >= 1 ? 'bg-slate-500' : 'bg-slate-200'}`} />
+        <i className={`block w-[3px] h-2.5 rounded-[1px] ${level >= 2 ? 'bg-slate-500' : 'bg-slate-200'}`} />
+        <i className={`block w-[3px] h-2.5 rounded-[1px] ${level >= 3 ? 'bg-slate-500' : 'bg-slate-200'}`} />
+      </span>
+      <span className="tabular-nums">{pct}%</span>
     </span>
   )
 }
