@@ -52,46 +52,20 @@ Deno.serve(async (req) => {
     // 0 行=并发的另一个回调已抢先 pending→paid → 幂等返回，绝不重复加积分
     if (!flipped || flipped.length === 0) return ok()
 
-    // 到账：读积分 → 按 kind 加 → 写流水
-    const { data: c } = await admin
-      .from('credits')
-      .select('grant_balance, grant_reset_at, purchased_balance, monthly_grant')
-      .eq('user_id', order.user_id)
-      .single()
-    if (c) {
-      let grant = c.grant_balance
-      let purchased = c.purchased_balance
-      let monthly = c.monthly_grant
-      let resetAt = c.grant_reset_at
-      let delta = 0
-      let reason = 'purchase'
-      if (order.kind === 'credits') {
-        delta = order.credits ?? 0
-        purchased += delta
-      } else {
-        // 会员：设月度赠送额度并立即激活本月赠送
-        monthly = order.credits ?? monthly // 会员档位携带的月度积分（按 plan 配）
-        grant = monthly
-        resetAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-        delta = monthly
-        reason = 'grant'
-      }
-      await admin
-        .from('credits')
-        .update({
-          grant_balance: grant,
-          purchased_balance: purchased,
-          monthly_grant: monthly,
-          grant_reset_at: resetAt,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', order.user_id)
-      await admin.from('credit_ledger').insert({
-        user_id: order.user_id,
-        delta,
-        reason,
-        balance_after: grant + purchased,
-        ref_order: order.out_trade_no
+    // 到账：调原子 RPC（for update 行锁 + 写流水），按 kind 分流。flip-gate 已保证只此一次。
+    if (order.kind === 'credits') {
+      await admin.rpc('add_credits', {
+        p_user: order.user_id,
+        p_credits: order.credits ?? 0,
+        p_reason: 'purchase',
+        p_ref: order.out_trade_no
+      })
+    } else {
+      // 会员：设月赠额并立即激活本月赠送（order.credits = 该档月度积分）
+      await admin.rpc('activate_membership', {
+        p_user: order.user_id,
+        p_monthly: order.credits ?? 1000,
+        p_ref: order.out_trade_no
       })
     }
     return ok()
