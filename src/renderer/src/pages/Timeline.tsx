@@ -97,10 +97,9 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
     .sort((a, b) => timeOf(a)!.localeCompare(timeOf(b)!))
   const unscheduled = live.filter((t) => !timeOf(t) && t.status !== 'overdue')
 
-  const upcoming = live
-    .filter((t) => timeOf(t))
-    .sort((a, b) => timeOf(a)!.localeCompare(timeOf(b)!))
-    .slice(0, 3)
+  // #10 去冗余（做减法）：顶部只置顶「真紧急」项（≤3 天内、非已延期）；已延期归「已延期」区、
+  // 远期归下方分组，不再用「最近 3 条」与下方重复展示。无紧急项时该区自然消失。
+  const upcoming = timed.filter((t) => daysUntil(timeOf(t)!) <= 3)
   const groups = buildGroups(timed, mode)
 
   return (
