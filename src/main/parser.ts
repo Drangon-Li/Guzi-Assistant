@@ -14,7 +14,9 @@ export type { ParsedItem }
 /** 调用解析模型并返回输出文本；120s 超时覆盖到 body 读取 */
 export async function callModel(instructions: string, input: unknown[]): Promise<string> {
   const { apiBase, apiKey, model } = getSettings()
-  if (!apiBase || !apiKey) throw new Error('尚未配置解析 API，请到设置页填写')
+  // 托管哲学下解析服务由我方在构建/运行时注入（ESHELL_API_*），用户无需也无处自配。
+  // 缺失即本版本尚未接入托管模型——是宿主侧配置问题，别让用户去找已删除的设置页。
+  if (!apiBase || !apiKey) throw new Error('解析服务暂未就绪：本版本尚未接入托管模型')
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 120_000)
