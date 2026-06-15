@@ -113,6 +113,10 @@ export interface AppSettings {
   screenSenseKeywords: string[]
   /** 扫描屏幕的全局快捷键 accelerator */
   screenSenseHotkey: string
+  /** 持续屏幕监控（#40）：screenSenseEnabled 之下的二级开关，默认 false */
+  screenSenseContinuous: boolean
+  /** 持续监控轮询间隔（秒），默认 5 */
+  screenSenseIntervalSec: number
 }
 
 export interface FeishuStatus {

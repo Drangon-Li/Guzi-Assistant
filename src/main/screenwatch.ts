@@ -1,12 +1,14 @@
 import { unlink } from 'fs/promises'
+import { nativeImage } from 'electron'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImage } from './ocr'
 import { parseToItems } from './parser'
 import { createSource, createTask, deleteSourceRow, getSettings, taskExists } from './db'
-import { broadcast, showPreview } from './windows'
+import { broadcast, showPreview, isPreviewVisible } from './windows'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
 import { matchKeywords } from '@shared/keywords'
 import { pickBest } from '@shared/suggest'
+import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
 import type { ParseSummary, ScanResult, TaskStatus } from '@shared/types'
 
@@ -95,9 +97,107 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
   return { candidate: 0, title: item.title, time, duplicate: false }
 }
 
-/** 跟随设置开关注册/注销扫描快捷键（启动时 + settings:save 时调用） */
+// ---------- 持续屏幕监控（#40 Phase 2）----------
+// 流水线：pHash 变化门 → OCR → 文本去重 → 关键词相关门 → 解析 → 建议卡。截图用完即弃、只文字上云。
+// pHash 算法与参数沿用 volcengine/MineContext（imagehash.dhash hash_size=8 + 异或 popcount 汉明距离；
+// capture_interval 默认 5s、similarity_hash_threshold 默认 2），其为 Python+imagehash，此处用 TS 等价落地（见 @shared/phash）。
+
+const PHASH_THRESHOLD = 2 // 汉明距离 ≤ 此值视为"屏幕没变" → 跳过 OCR/云（MineContext 实测默认）
+const COOLDOWN_MS = 10 * 60 * 1000 // 同一内容命中后冷却，避免反复弹卡
+
+let watchTimer: ReturnType<typeof setInterval> | null = null
+let watchPaused = false
+let ticking = false
+let lastHash: bigint | null = null
+let lastTextHash = ''
+const cooldown = new Map<string, number>()
+let trayRefresh: (() => void) | null = null
+
+/** index.ts 注入：监控状态变化（开/停/暂停）时刷新托盘菜单 */
+export function setTrayRefresh(fn: () => void): void {
+  trayRefresh = fn
+}
+export function isWatchActive(): boolean {
+  return watchTimer !== null
+}
+export function isWatchPaused(): boolean {
+  return watchPaused
+}
+
+/** 用 Electron nativeImage 取 9×8 灰度像素算 dhash（等价 imagehash.dhash hash_size=8） */
+async function pHashOfPng(pngPath: string): Promise<bigint> {
+  const img = nativeImage.createFromPath(pngPath).resize({ width: 9, height: 8, quality: 'good' })
+  const { width, height } = img.getSize()
+  return dhash(bgraToGray(img.toBitmap(), width, height), width, height)
+}
+
+/** 一轮静默监控；全程不打扰用户，只有真发现待办才弹建议卡 */
+async function watchTick(): Promise<void> {
+  if (ticking || watchPaused) return
+  if (isPreviewVisible()) return // 别覆盖用户正在看的卡
+  ticking = true
+  let png: string | null = null
+  try {
+    png = await captureScreenSilently()
+    if (!png) return
+    const hash = await pHashOfPng(png)
+    if (lastHash !== null && hamming(hash, lastHash) <= PHASH_THRESHOLD) return // 屏幕没变 → 不 OCR、不上云
+    lastHash = hash
+
+    const text = await ocrImage(png)
+    if (!text) return
+    const th = textHash(text)
+    if (th === lastTextHash) return // 文本没变 → 跳过
+    lastTextHash = th
+
+    const { screenSenseKeywords } = getSettings()
+    const hits = matchKeywords(text, screenSenseKeywords)
+    if (!hits.length) return // 相关性门：不含关键词不上云
+
+    const now = Date.now()
+    for (const [k, exp] of cooldown) if (exp <= now) cooldown.delete(k) // 清理过期，避免 Map 无界增长
+    const until = cooldown.get(th)
+    if (until && until > now) return // 同内容冷却中
+
+    const items = await parseToItems({ text, hint: HINTS.screen_scan })
+    const best = pickBest(items)
+    if (!best) return
+    cooldown.set(th, now + COOLDOWN_MS)
+    showPreview({ suggestion: { item: best, sourceText: text, hits } })
+  } catch {
+    // 持续监控全程静默：截图/OCR/解析/无 endpoint 等任何失败都不打扰
+  } finally {
+    if (png) void unlink(png).catch(() => {})
+    ticking = false
+  }
+}
+
+export function startWatch(intervalSec: number): void {
+  stopWatch()
+  watchTimer = setInterval(() => void watchTick(), Math.max(2, intervalSec) * 1000)
+  trayRefresh?.()
+}
+export function stopWatch(): void {
+  if (watchTimer) {
+    clearInterval(watchTimer)
+    watchTimer = null
+  }
+  lastHash = null
+  lastTextHash = ''
+  trayRefresh?.()
+}
+/** 托盘「暂停/恢复屏幕监控」：暂停时 watcher 仍在转但每轮直接 return */
+export function setWatchPaused(paused: boolean): void {
+  watchPaused = paused
+  trayRefresh?.()
+}
+
+/** 跟随设置开关注册/注销扫描快捷键 + 启停持续监控（启动时 + settings:save 时调用） */
 export function applyScreenSenseSettings(): void {
-  const { screenSenseEnabled, screenSenseHotkey } = getSettings()
+  const { screenSenseEnabled, screenSenseHotkey, screenSenseContinuous, screenSenseIntervalSec } =
+    getSettings()
   if (screenSenseEnabled) initScanHotkey(screenSenseHotkey, () => void scanOnce())
   else unregisterScanHotkey()
+  if (screenSenseEnabled && screenSenseContinuous) startWatch(screenSenseIntervalSec)
+  else stopWatch()
 }

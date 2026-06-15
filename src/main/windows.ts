@@ -85,6 +85,11 @@ export function hidePreview(): void {
   if (previewWin && !previewWin.isDestroyed()) previewWin.hide()
 }
 
+/** 预览卡（建议/结果卡）当前是否可见——持续监控用它避免覆盖用户正在看的卡 */
+export function isPreviewVisible(): boolean {
+  return !!previewWin && !previewWin.isDestroyed() && previewWin.isVisible()
+}
+
 export function broadcast(channel: string, payload?: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send(channel, payload)
