@@ -16,13 +16,7 @@
  * 注：relay 是国内 IP，若 Edge runtime 到不了，需在 relay 侧加公网入口或走代理（部署时验证）。
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import {
-  applyMonthlyGrant,
-  creditCost,
-  deduct,
-  type BillableAction,
-  type CreditState
-} from '../../../server/billing/credits.ts'
+import { creditCost, type BillableAction } from '../../../server/billing/credits.ts'
 
 const LLM_BASE = Deno.env.get('ESHELL_LLM_BASE') ?? ''
 const LLM_KEY = Deno.env.get('ESHELL_LLM_KEY') ?? ''
@@ -53,58 +47,39 @@ Deno.serve(async (req) => {
       instructions: string
       input: unknown[]
     }
-    const cost = creditCost(action ?? 'parse_text')
+    const reason = action ?? 'parse_text'
+    const cost = creditCost(reason)
 
-    // 2. 读积分 → 月度重置 → 够不够
+    // 2. 预检余额（含本月赠送将重置的情形）→ 明显不足则不调模型，直接 402
     const { data: row } = await admin
       .from('credits')
       .select('grant_balance, grant_reset_at, purchased_balance, monthly_grant')
       .eq('user_id', user.id)
       .single()
     if (!row) return json({ error: '账户未初始化' }, 403)
-    const before: CreditState = {
-      grant: row.grant_balance,
-      grantResetAtMs: new Date(row.grant_reset_at).getTime(),
-      purchased: row.purchased_balance
-    }
-    const refreshed = applyMonthlyGrant(before, Date.now(), row.monthly_grant)
-    const charged = deduct(refreshed, cost)
-    if (!charged.ok) return json({ error: '积分不足', balance: refreshed.grant + refreshed.purchased }, 402)
+    const willReset = Date.now() >= new Date(row.grant_reset_at).getTime()
+    const affordable = (willReset ? row.monthly_grant : row.grant_balance) + row.purchased_balance
+    if (affordable < cost)
+      return json({ error: '积分不足', balance: row.grant_balance + row.purchased_balance }, 402)
 
-    // 3. 转发我方模型 relay（与客户端 parser 同形：/v1/responses, reasoning low, 非流式）
+    // 3. 转发我方模型 relay（与客户端 parser 同形）。失败不扣（#56 心安）。
     const res = await fetch(`${LLM_BASE.replace(/\/$/, '')}/v1/responses`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${LLM_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: LLM_MODEL, instructions, input, reasoning: { effort: 'low' } })
     })
-    if (!res.ok) {
-      // 模型失败 → 不扣费（#56 心安：失败不扣），原样返回错误
-      return json({ error: `解析服务返回 ${res.status}` }, 502)
-    }
+    if (!res.ok) return json({ error: `解析服务返回 ${res.status}` }, 502)
     const data = await res.json()
 
-    // 4. 扣费落库 + 写流水（成功才扣）
-    const after = charged.state
-    const total = after.grant + after.purchased
-    await admin
-      .from('credits')
-      .update({
-        grant_balance: after.grant,
-        grant_reset_at: new Date(refreshed.grantResetAtMs).toISOString(),
-        purchased_balance: after.purchased,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', user.id)
-    if (cost > 0) {
-      await admin.from('credit_ledger').insert({
-        user_id: user.id,
-        delta: -cost,
-        reason: action ?? 'parse_text',
-        balance_after: total
-      })
-    }
+    // 4. 成功后原子扣费（deduct_credits：for update 行锁，含月度重置 + 写流水，防并发超扣）
+    const { data: charge } = await admin.rpc('deduct_credits', {
+      p_user: user.id,
+      p_cost: cost,
+      p_reason: reason
+    })
+    const balance = (charge as { balance?: number } | null)?.balance ?? null
 
-    return json({ data, balance: total })
+    return json({ data, balance })
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500)
   }
