@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase, hasBackend } from '../supabase'
+import RechargePanel from './RechargePanel'
 
 const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
@@ -22,18 +23,22 @@ export default function AccountSection(): React.JSX.Element {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  useEffect(() => {
+  const loadBalance = useCallback(async (): Promise<void> => {
     if (!supabase || !session) {
       setBalance(null)
       return
     }
-    void supabase
+    const { data } = await supabase
       .from('credits')
       .select('grant_balance, purchased_balance')
       .eq('user_id', session.user.id)
       .single()
-      .then(({ data }) => setBalance(data ? data.grant_balance + data.purchased_balance : null))
+    setBalance(data ? data.grant_balance + data.purchased_balance : null)
   }, [session])
+
+  useEffect(() => {
+    void loadBalance()
+  }, [loadBalance])
 
   if (!hasBackend || !supabase) {
     return <p className="text-xs leading-5 text-slate-400">托管服务未接入（本版本未配置后端）。</p>
@@ -71,6 +76,9 @@ export default function AccountSection(): React.JSX.Element {
         </div>
         <div className="text-xs text-slate-400">
           积分余额：{balance == null ? '—' : <span className="font-medium text-slate-700">{balance}</span>}
+        </div>
+        <div className="mt-1 border-t border-slate-100 pt-3">
+          <RechargePanel onRecharged={() => void loadBalance()} />
         </div>
       </div>
     )
