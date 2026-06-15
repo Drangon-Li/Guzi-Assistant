@@ -270,7 +270,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                 <button
                   className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
                   onClick={() => {
-                    void api.focusMain('account')
+                    void api.focusMain('settings')
                     close()
                   }}
                 >

@@ -104,9 +104,9 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
 
     if (res.error) {
       const hint = /积分|额度/.test(res.error)
-        ? '（到「账户」页充值后再试）'
+        ? '（到「设置 → 账户」充值后再试）'
         : /登录/.test(res.error)
-          ? '（到「账户」页登录后再试）'
+          ? '（请重新登录后再试）'
           : ''
       update([
         ...store.msgs,

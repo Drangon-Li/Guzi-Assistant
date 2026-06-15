@@ -1,26 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { api } from './api'
-import { supabase, functionsBase } from './supabase'
+import { supabase, functionsBase, hasBackend } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
+import Auth from './pages/Auth'
 import Assistant from './pages/Assistant'
 import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
 import Memory from './pages/Memory'
 import Settings from './pages/Settings'
-import Account from './pages/Account'
 import PreviewCard from './pages/PreviewCard'
-import { hasBackend } from './supabase'
 
-type Page = 'assistant' | 'timeline' | 'schedule' | 'memory' | 'account' | 'settings'
+type Page = 'assistant' | 'timeline' | 'schedule' | 'memory' | 'settings'
 
 const NAV: { key: Page; label: string }[] = [
   { key: 'assistant', label: '助手' },
   { key: 'timeline', label: '时间轴' },
   { key: 'schedule', label: '日程' },
   { key: 'memory', label: '记忆' },
-  { key: 'account', label: '账户' },
   { key: 'settings', label: '设置' }
 ]
 
@@ -37,6 +35,8 @@ function MainApp(): React.JSX.Element | null {
   const [dragging, setDragging] = useState(false)
   const [hotkeyLabel, setHotkeyLabel] = useState('⌥ C')
   const [signedIn, setSignedIn] = useState(false)
+  const [authReady, setAuthReady] = useState(!hasBackend)
+  const [skippedAuth, setSkippedAuth] = useState(false)
   const toastTimer = useRef<number | undefined>(undefined)
   const dragDepth = useRef(0)
 
@@ -57,7 +57,10 @@ function MainApp(): React.JSX.Element | null {
       void api.setSession(functionsBase(), token)
       setSignedIn(!!token)
     }
-    void supabase.auth.getSession().then(({ data }) => push(data.session?.access_token ?? null))
+    void supabase.auth.getSession().then(({ data }) => {
+      push(data.session?.access_token ?? null)
+      setAuthReady(true)
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => push(s?.access_token ?? null))
     return () => sub.subscription.unsubscribe()
   }, [])
@@ -77,7 +80,6 @@ function MainApp(): React.JSX.Element | null {
         route === 'timeline' ||
         route === 'schedule' ||
         route === 'memory' ||
-        route === 'account' ||
         route === 'settings'
       )
         setPage(route)
@@ -100,12 +102,14 @@ function MainApp(): React.JSX.Element | null {
     showToast(filesToast(results))
   }
 
-  if (profile === undefined)
+  if (profile === undefined || !authReady)
     return (
       <div className="flex h-full items-center justify-center bg-white">
         <div className="size-6 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
       </div>
     )
+  // 「注册登录即用」：未登录先进登录/注册页（可跳过先逛）。登录成功 onAuthStateChange→signedIn 切走。
+  if (hasBackend && !signedIn && !skippedAuth) return <Auth onSkip={() => setSkippedAuth(true)} />
   if (profile === null) return <Onboarding onDone={setProfile} />
 
   const pendingCount = tasks.filter((t) => t.status === 'pending').length
@@ -147,12 +151,6 @@ function MainApp(): React.JSX.Element | null {
                   {pendingCount}
                 </span>
               )}
-              {item.key === 'account' && hasBackend && !signedIn && (
-                <span
-                  className="size-1.5 rounded-full bg-[#c0584e]"
-                  title="未登录 —— 登录后即可用云端 AI 解析"
-                />
-              )}
             </button>
           ))}
         </nav>
@@ -174,7 +172,6 @@ function MainApp(): React.JSX.Element | null {
           {page === 'timeline' && <Timeline tasks={tasks} />}
           {page === 'schedule' && <Schedule tasks={tasks} />}
           {page === 'memory' && <Memory />}
-          {page === 'account' && <Account />}
           {page === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>
       </main>
