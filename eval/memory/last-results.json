@@ -1,0 +1,118 @@
+{
+  "when": "2026-06-15T18:34:02.104Z",
+  "memories": [
+    {
+      "title": "数据库系统期末项目",
+      "summary": "数据库系统课程群通知期末项目报告6月20日23:59截止，提交至教学网elearning。王老师邮件要求项目包含完整测试报告和说明文档。用户自记便签：周四前完成模块A。",
+      "entities": [
+        "数据库系统课程",
+        "王老师",
+        "教学网elearning"
+      ],
+      "time_range": "2026-06-20T23:59",
+      "source_refs": [
+        1,
+        2,
+        3
+      ],
+      "todos": [
+        {
+          "title": "完成数据库项目模块A",
+          "due_time": "2026-06-18T23:59"
+        },
+        {
+          "title": "提交数据库期末项目报告",
+          "due_time": "2026-06-20T23:59"
+        }
+      ]
+    },
+    {
+      "title": "实习复试与面试",
+      "summary": "HR通知用户于6月18日14:00在理科楼B203进行复试笔试，需携带学生证。6月19日9:30在行政楼305进行面试。",
+      "entities": [
+        "HR",
+        "理科楼B203",
+        "行政楼305"
+      ],
+      "time_range": "2026-06-18T14:00至2026-06-19T09:30",
+      "source_refs": [
+        4,
+        5
+      ],
+      "todos": [
+        {
+          "title": "参加实习复试笔试",
+          "due_time": "2026-06-18T14:00"
+        },
+        {
+          "title": "参加实习面试",
+          "due_time": "2026-06-19T09:30"
+        }
+      ]
+    },
+    {
+      "title": "组会讨论中期检查",
+      "summary": "组会通知周三（即6月17日）下午3点在C8-8308象山会议室，讨论中期检查PPT。",
+      "entities": [
+        "C8-8308象山会议室"
+      ],
+      "time_range": "2026-06-17T15:00",
+      "source_refs": [
+        7
+      ],
+      "todos": [
+        {
+          "title": "参加组会讨论中期检查PPT",
+          "due_time": "2026-06-17T15:00"
+        }
+      ]
+    },
+    {
+      "title": "实验室报销与房租缴费",
+      "summary": "提醒把实验室设备报销单交给王老师签字。房东通知6月25日前转房租，金额不变。",
+      "entities": [
+        "王老师",
+        "房东"
+      ],
+      "time_range": "2026-06-25T23:59",
+      "source_refs": [
+        8,
+        9
+      ],
+      "todos": [
+        {
+          "title": "把实验室设备报销单交给王老师签字",
+          "due_time": null
+        },
+        {
+          "title": "转交房租给房东",
+          "due_time": "2026-06-25T23:59"
+        }
+      ]
+    },
+    {
+      "title": "快递驿站取件",
+      "summary": "快递已到驿站，取件码已记录，需三天内领取。",
+      "entities": [],
+      "time_range": null,
+      "source_refs": [
+        10
+      ],
+      "todos": [
+        {
+          "title": "去驿站取快递",
+          "due_time": "2026-06-18T18:30"
+        }
+      ]
+    }
+  ],
+  "checks": {
+    "clusterCount": true,
+    "coverage": true,
+    "threadGrouping": true,
+    "todoRecall": true,
+    "todoTime": true,
+    "noiseExclusion": true,
+    "credential": true
+  }
+}

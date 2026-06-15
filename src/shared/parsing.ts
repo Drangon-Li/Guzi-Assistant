@@ -226,7 +226,7 @@ export function extractText(data: ResponsesOutput): string {
   return parts.join('\n')
 }
 
-function normalizeTime(v: unknown): string | null {
+export function normalizeTime(v: unknown): string | null {
   if (typeof v !== 'string') return null
   const m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{1,2}))?(?![\d:])/)
   if (!m) return null

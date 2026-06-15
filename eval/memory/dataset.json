@@ -1,0 +1,29 @@
+{
+  "_doc": "记忆整理归纳验证数据集：模拟用户一天里被捕获的零散来源(captures)，验证聚类/摘要/待办抽取/去噪。gold：memMin/memMax=期望记忆条数区间；threads=应被归并的『多源同一事件线』(组会/报销/房租/快递各自是独立单事件，按事件级聚类正确，不应被强行并成『实验室』『生活』大类——故只断言 course/job 两条真多源事件线的归并)；entityKeywords=每条记忆应覆盖的实体关键词组(每组命中任一即可)；todoKeywords=应抽到的待办关键词；todoDates=应出现的待办日期；noiseRefs=噪声编号(不得进任何 source_refs)；noCredential=不得出现的凭据串。",
+  "profile": { "name": "林动", "nicknames": ["动哥", "Leo"], "accounts": ["lindong"], "identity": "student", "org": "某大学 计算机学院", "group": "计算机 研一 2 班" },
+  "captures": [
+    { "ref": 1, "time": "2026-06-15T09:12", "type": "screen_scan", "text": "【数据库系统-课程群】各位同学，期末项目报告截止时间为 6月20日 23:59，请提交到教学网 elearning。" },
+    { "ref": 2, "time": "2026-06-15T09:40", "type": "clipboard_text", "text": "王老师邮件：期末项目需包含完整的测试报告和说明文档，缺一不可。" },
+    { "ref": 3, "time": "2026-06-15T10:05", "type": "screen_scan", "text": "便签：记得周四前先把数据库项目的模块A写完。" },
+    { "ref": 4, "time": "2026-06-15T11:20", "type": "feishu", "text": "HR：恭喜进入复试。笔试 6月18日 14:00，理科楼 B203，请携带学生证。" },
+    { "ref": 5, "time": "2026-06-15T11:22", "type": "feishu", "text": "面试安排：6月19日 上午 9:30，行政楼 305。" },
+    { "ref": 6, "time": "2026-06-15T11:50", "type": "clipboard_text", "text": "XX科技：主营推荐系统与广告算法，C 轮融资，总部北京中关村。" },
+    { "ref": 7, "time": "2026-06-15T14:00", "type": "screen_scan", "text": "组会通知：周三下午 3 点在 C8-8308 象山会议室，讨论中期检查 PPT。" },
+    { "ref": 8, "time": "2026-06-15T14:30", "type": "clipboard_text", "text": "提醒：把实验室设备报销单交给王老师签字。" },
+    { "ref": 9, "time": "2026-06-15T18:10", "type": "clipboard_text", "text": "房东：这个月房租麻烦 6月25日前转一下，金额不变。" },
+    { "ref": 10, "time": "2026-06-15T18:30", "type": "screen_scan", "text": "您的快递已到驿站，取件码 A-7，请三天内领取。" },
+    { "ref": 11, "time": "2026-06-15T15:00", "type": "screen_scan", "text": "文件 编辑 选择 查看 转到 运行 终端 窗口 帮助" },
+    { "ref": 12, "time": "2026-06-15T15:05", "type": "screen_scan", "text": "【双十二大促】全场五折起，点击领取专属优惠券，错过等一年！" },
+    { "ref": 13, "time": "2026-06-15T16:00", "type": "clipboard_text", "text": "哈哈那家火锅店叫啥来着，周末要不要约一下。" },
+    { "ref": 14, "time": "2026-06-15T16:30", "type": "screen_scan", "text": "【验证码】你的登录验证码是 482915，5分钟内有效，请勿告诉他人。" }
+  ],
+  "gold": {
+    "memMin": 3, "memMax": 6,
+    "threads": { "course": [1, 2, 3], "job": [4, 5] },
+    "entityKeywords": [["数据库", "项目", "课程"], ["复试", "面试", "笔试"], ["组会", "报销", "实验室"], ["房租", "快递", "房东"]],
+    "todoKeywords": ["项目", "笔试", "面试", "报销", "房租"],
+    "todoDates": ["2026-06-20", "2026-06-18", "2026-06-25"],
+    "noiseRefs": [11, 12, 13, 14],
+    "noCredential": "482915"
+  }
+}
