@@ -227,9 +227,9 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
               <Avatar role="assistant" initial="纸" />
               <div className="flex max-w-[82%] flex-col gap-3">
                 <div className="rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-3 text-sm leading-6">
-                  你好，我是 纸壳助手。把通知、聊天记录、邮件直接发给我，我来帮你提取待办；也可以直接问我日程安排。
+                  你好，我是纸壳助手。我会自动留意你设备上的通知、消息和聊天记录，从中帮你拎出该办的事，主动提给你确认；你也可以直接问我日程安排。
                   <span className="mt-1 block text-xs text-slate-400">
-                    （在其他应用里复制内容后按 {hotkeyLabel} 也能快速丢给我）
+                    （需要时也能手动把内容发我：复制后按 {hotkeyLabel}）
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
