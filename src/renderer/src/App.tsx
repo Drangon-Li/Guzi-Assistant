@@ -14,6 +14,37 @@ import PreviewCard from './pages/PreviewCard'
 
 type Page = 'assistant' | 'timeline' | 'schedule' | 'memory' | 'settings'
 
+/** 细线图标（设计稿 D5：1.5 描边、无填充），viewBox 24。 */
+const ICON: Record<Page, React.JSX.Element> = {
+  assistant: (
+    <path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 8.5 8.5 0 0 1-3.8-.9L3 20l1.9-4.2A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />
+  ),
+  timeline: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
+  schedule: (
+    <>
+      <rect x="3" y="4.5" width="18" height="16" rx="2" />
+      <path d="M3 9h18M8 2.5v4M16 2.5v4" />
+    </>
+  ),
+  memory: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
+    </>
+  ),
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </>
+  )
+}
+
 const NAV: { key: Page; label: string }[] = [
   { key: 'assistant', label: '助手' },
   { key: 'timeline', label: '时间轴' },
@@ -36,7 +67,6 @@ function MainApp(): React.JSX.Element | null {
   const [hotkeyLabel, setHotkeyLabel] = useState('⌥ C')
   const [signedIn, setSignedIn] = useState(false)
   const [authReady, setAuthReady] = useState(!hasBackend)
-  const [skippedAuth, setSkippedAuth] = useState(false)
   const toastTimer = useRef<number | undefined>(undefined)
   const dragDepth = useRef(0)
 
@@ -108,8 +138,8 @@ function MainApp(): React.JSX.Element | null {
         <div className="size-6 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
       </div>
     )
-  // 「注册登录即用」：未登录先进登录/注册页（可跳过先逛）。登录成功 onAuthStateChange→signedIn 切走。
-  if (hasBackend && !signedIn && !skippedAuth) return <Auth onSkip={() => setSkippedAuth(true)} />
+  // 「注册登录即用」：未登录必须先登录/注册（登录成功 onAuthStateChange→signedIn 切走）。
+  if (hasBackend && !signedIn) return <Auth />
   if (profile === null) return <Onboarding onDone={setProfile} />
 
   const pendingCount = tasks.filter((t) => t.status === 'pending').length
@@ -136,23 +166,50 @@ function MainApp(): React.JSX.Element | null {
           <div className="text-base font-semibold tracking-tight">EShell</div>
           <div className="mt-0.5 text-xs text-slate-400">个人事项捕获助手</div>
         </div>
-        <nav className="stagger flex flex-col gap-1 px-3">
-          {NAV.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setPage(item.key)}
-              className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                page === item.key ? 'bg-slate-100 font-medium text-slate-900' : 'hover:bg-slate-50'
-              }`}
-            >
-              <span>{item.label}</span>
-              {item.key === 'assistant' && pendingCount > 0 && (
-                <span className="rounded-full bg-ink px-1.5 py-0.5 text-[10px] leading-none text-white">
-                  {pendingCount}
-                </span>
-              )}
-            </button>
-          ))}
+        <nav className="stagger flex flex-col gap-px px-2.5">
+          {NAV.map((item) => {
+            const active = page === item.key
+            return (
+              <button
+                key={item.key}
+                onClick={() => setPage(item.key)}
+                className="flex items-center gap-2.5 rounded-[7px] px-2.5 py-[7px] text-left text-[13px] transition-colors"
+                style={{
+                  color: active ? 'var(--t1)' : 'var(--t2)',
+                  fontWeight: active ? 500 : 400,
+                  background: active ? 'var(--selected)' : 'transparent'
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.background = 'var(--hover)'
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="size-[17px] shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ opacity: 0.85 }}
+                >
+                  {ICON[item.key]}
+                </svg>
+                <span className="flex-1">{item.label}</span>
+                {item.key === 'assistant' && pendingCount > 0 && (
+                  <span
+                    className="flex h-[17px] min-w-[17px] items-center justify-center rounded-full px-1.5 text-[10px] leading-none text-white"
+                    style={{ background: 'var(--primary)' }}
+                  >
+                    {pendingCount}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </nav>
         <div className="mt-auto px-5 pb-5 text-[11px] leading-5 text-slate-400">
           复制内容后按 {hotkeyLabel}，快速提交剪切板。

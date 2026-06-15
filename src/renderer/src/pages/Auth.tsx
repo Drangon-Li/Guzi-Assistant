@@ -6,7 +6,7 @@ import { supabase } from '../supabase'
  * 走设计稿组件系统（.ob-card / .field / .btn，发丝边、柔灰、细字重、留白），与引导页同语言。
  * 仅常规邮箱密码；Google/微信日后再加。登录成功由 App 的 onAuthStateChange 接管切换。
  */
-export default function Auth({ onSkip }: { onSkip: () => void }): React.JSX.Element {
+export default function Auth(): React.JSX.Element {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -93,14 +93,6 @@ export default function Auth({ onSkip }: { onSkip: () => void }): React.JSX.Elem
           </button>
         </div>
       </div>
-
-      <button
-        className="fixed bottom-7 text-[11.5px] hover:underline"
-        style={{ color: 'var(--t4)' }}
-        onClick={onSkip}
-      >
-        暂不登录，先随便看看
-      </button>
     </div>
   )
 }

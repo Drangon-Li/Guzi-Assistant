@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase, hasBackend } from '../supabase'
 import { api } from '../api'
 import RechargePanel from './RechargePanel'
+import Modal from './Modal'
 
 /** #69 账号体系：登录/注册/登出 + 积分余额。托管解析(#39)与充值(#41)的前提。 */
 export default function AccountSection(): React.JSX.Element {
@@ -13,6 +14,7 @@ export default function AccountSection(): React.JSX.Element {
   const [balance, setBalance] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [showRecharge, setShowRecharge] = useState(false)
 
   useEffect(() => {
     if (!supabase) return
@@ -69,25 +71,53 @@ export default function AccountSection(): React.JSX.Element {
 
   if (session) {
     const em = session.user.email ?? ''
+    const approxRuns = balance == null ? null : balance // 1 积分≈1 次文本解析
     return (
-      <div className="flex flex-col gap-4">
+      <>
         <div className="acct">
           <div className="av">{(em[0] ?? 'U').toUpperCase()}</div>
           <div className="who">
             <div className="n">{em}</div>
             <div className="balance">
               <span className="v">{balance == null ? '—' : balance}</span>
-              <span className="u">积分</span>
+              <span className="u">
+                积分{approxRuns != null && ` · 约 ${approxRuns} 次解析`}
+              </span>
             </div>
           </div>
-          <button className="btn btn-outline btn-sm" onClick={() => void sb.auth.signOut()}>
-            退出登录
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-ghost btn-sm" onClick={() => void sb.auth.signOut()}>
+              退出登录
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowRecharge(true)}>
+              充值
+            </button>
+          </div>
         </div>
-        <div style={{ borderTop: '1px solid var(--line)' }} className="pt-4">
-          <RechargePanel onRecharged={() => void loadBalance()} />
-        </div>
-      </div>
+        <p className="desc" style={{ margin: '12px 0 0' }}>
+          解析能力由 EShell 云端提供，开箱即用，无需配置任何模型或密钥。按量计积分、失败不扣、用尽自动停。
+        </p>
+        {showRecharge && (
+          <Modal
+            panelClass="w-[420px] rounded-[14px] bg-white p-5"
+            onClose={() => setShowRecharge(false)}
+          >
+            {(close) => (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[15px] font-semibold" style={{ color: 'var(--t1)' }}>
+                    充值
+                  </h3>
+                  <button className="btn btn-ghost btn-sm" onClick={close}>
+                    关闭
+                  </button>
+                </div>
+                <RechargePanel onRecharged={() => void loadBalance()} />
+              </div>
+            )}
+          </Modal>
+        )}
+      </>
     )
   }
 

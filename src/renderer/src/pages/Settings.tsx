@@ -192,9 +192,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       <h1 className="text-lg font-semibold">设置</h1>
 
       <Section title="账户">
-        <p className="mb-3 text-xs leading-5 text-slate-400">
-          解析能力由 EShell 云端提供，登录即用，无需配置模型或密钥。
-        </p>
         <AccountSection />
       </Section>
 
