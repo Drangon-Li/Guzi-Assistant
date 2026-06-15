@@ -105,7 +105,7 @@ export default function AccountSection(): React.JSX.Element {
           </button>
         </div>
         <p className="desc" style={{ margin: '12px 0 0' }}>
-          解析能力由 EShell 云端提供，开箱即用，按量计积分、失败不扣、用尽自动停。
+          解析能力由 EShell 云端提供，开箱即用，无需配置任何模型或密钥。
         </p>
         <div className="mt-3 flex justify-end">
           <button
@@ -123,12 +123,9 @@ export default function AccountSection(): React.JSX.Element {
           >
             {(close) => (
               <div className="flex flex-col gap-4">
-                <div className="flex items-baseline justify-between">
-                  <h3 className="text-[15px] font-semibold" style={{ color: 'var(--t1)' }}>
-                    充值
-                  </h3>
-                  <span className="muted-s">积分用于解析，失败不扣</span>
-                </div>
+                <h3 className="text-[15px] font-semibold" style={{ color: 'var(--t1)' }}>
+                  充值
+                </h3>
                 <RechargePanel onRecharged={() => void loadBalance()} />
                 <button className="btn ghost sm self-center" onClick={close}>
                   关闭

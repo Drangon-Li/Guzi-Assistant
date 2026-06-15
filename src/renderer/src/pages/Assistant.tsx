@@ -11,7 +11,6 @@ import agentAvatar from '../assets/agent-avatar.png'
 interface Props {
   tasks: TaskRecord[]
   showToast: (msg: string) => void
-  hotkeyLabel: string
   userName: string
 }
 
@@ -48,7 +47,7 @@ function UserAvatar({ initial }: { initial: string }): React.JSX.Element {
   )
 }
 
-export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: Props): React.JSX.Element {
+export default function Assistant({ tasks, showToast, userName }: Props): React.JSX.Element {
   const [msgs, setMsgs] = useState<ChatMsg[]>(store.msgs)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -240,9 +239,6 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
               <div className="msg-col">
                 <div className="bubble agent">
                   你好，我是纸壳助手。我会自动留意你设备上的通知、消息和聊天记录，从中帮你拎出该办的事，主动提给你确认；你也可以直接问我日程安排。
-                  <span className="muted">
-                    需要时也能手动把内容发我（复制后按 {hotkeyLabel}）
-                  </span>
                 </div>
                 <div className="suggest">
                   {SUGGESTIONS.map((s) => (

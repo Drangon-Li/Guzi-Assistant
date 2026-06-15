@@ -8,7 +8,6 @@ interface Props {
   onProfileChange: (p: Profile) => void
 }
 
-const PRESET_HOTKEYS = ['Alt+C', 'Alt+Space', 'CommandOrControl+Shift+C']
 
 const CODE_KEYS: Record<string, string> = {
   Space: 'Space',
@@ -74,7 +73,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
   const [note, setNote] = useState('')
-  const [recording, setRecording] = useState(false)
   const [scanRecording, setScanRecording] = useState(false)
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
@@ -103,39 +101,11 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     window.setTimeout(() => setNote(''), 2500)
   }
 
-  const applyHotkey = async (acc: string): Promise<void> => {
-    const ok = await api.saveSettings({ hotkey: acc })
-    if (ok) {
-      setSettings((s) => (s ? { ...s, hotkey: acc } : s))
-      flash(`快捷键已设为 ${formatHotkey(acc)}`)
-    } else {
-      flash('注册失败：该组合可能被系统或其他应用占用')
-    }
-  }
-
   const applyScanHotkey = async (acc: string): Promise<void> => {
     await api.saveSettings({ screenSenseHotkey: acc })
     setSettings((s) => (s ? { ...s, screenSenseHotkey: acc } : s))
     flash(`扫描快捷键已设为 ${formatHotkey(acc)}`)
   }
-
-  useEffect(() => {
-    if (!recording) return
-    const onKey = (e: KeyboardEvent): void => {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.key === 'Escape') {
-        setRecording(false)
-        return
-      }
-      const acc = eventToAccelerator(e)
-      if (!acc) return
-      setRecording(false)
-      void applyHotkey(acc)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [recording])
 
   useEffect(() => {
     if (!scanRecording) return
@@ -254,55 +224,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             >
               <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--t1)' }}>{m.label}</div>
               <div style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 2 }}>{m.desc}</div>
-            </button>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="快捷键">
-        <div className="flex items-center gap-3" style={{ fontSize: 13 }}>
-          <span style={{ color: 'var(--t2)' }}>提交剪切板</span>
-          <button
-            onClick={() => setRecording(!recording)}
-            style={{
-              minWidth: 176,
-              borderRadius: 'var(--r-sm)',
-              border: '1px solid',
-              borderColor: recording ? 'var(--line)' : 'var(--line-2)',
-              background: recording ? 'var(--hover)' : 'transparent',
-              color: 'var(--t1)',
-              padding: '7px 14px',
-              fontWeight: 500,
-              cursor: 'pointer'
-            }}
-            className={recording ? 'animate-pulse' : ''}
-          >
-            {recording ? '按下新组合键…' : formatHotkey(settings.hotkey)}
-          </button>
-          {recording && <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>Esc 取消</span>}
-        </div>
-        <p className="desc" style={{ marginTop: 8 }}>
-          点击按键框后直接按下想要的组合：需包含至少一个修饰键（⌘ ⌥ ⌃ ⇧），F1–F12
-          可单独使用。注册失败说明该组合被系统或其他应用占用。
-        </p>
-        <div className="flex items-center gap-2" style={{ marginTop: 10, fontSize: 11.5, color: 'var(--t3)' }}>
-          常用：
-          {PRESET_HOTKEYS.map((acc) => (
-            <button
-              key={acc}
-              onClick={() => void applyHotkey(acc)}
-              style={{
-                borderRadius: 'var(--r-sm)',
-                border: '1px solid',
-                borderColor: settings.hotkey === acc ? 'var(--line)' : 'var(--line-2)',
-                background: settings.hotkey === acc ? 'var(--hover)' : 'transparent',
-                color: settings.hotkey === acc ? 'var(--t1)' : 'var(--t2)',
-                padding: '3px 8px',
-                fontSize: 11.5,
-                cursor: 'pointer'
-              }}
-            >
-              {formatHotkey(acc)}
             </button>
           ))}
         </div>

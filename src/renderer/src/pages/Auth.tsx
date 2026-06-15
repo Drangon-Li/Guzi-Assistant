@@ -37,9 +37,6 @@ export default function Auth(): React.JSX.Element {
     >
       <div className="ob-card animate-card-in" style={{ maxWidth: 380 }}>
         <div className="h">{mode === 'login' ? '登录 EShell' : '创建账号'}</div>
-        <div className="p">
-          登录后即可使用云端 AI——自动从截图 / 剪贴板 / 文件里拎出该办的事。失败不扣、用尽自动停。
-        </div>
 
         <div className="stagger mt-6 flex flex-col gap-3.5">
           <div className="field">

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { api } from './api'
 import { supabase, functionsBase, hasBackend } from './supabase'
-import { formatHotkey, summaryToast } from './labels'
+import { summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
 import Auth from './pages/Auth'
 import Assistant from './pages/Assistant'
@@ -64,7 +64,6 @@ function MainApp(): React.JSX.Element | null {
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [hotkeyLabel, setHotkeyLabel] = useState('⌥ C')
   const [signedIn, setSignedIn] = useState(false)
   const [authReady, setAuthReady] = useState(!hasBackend)
   const toastTimer = useRef<number | undefined>(undefined)
@@ -98,12 +97,7 @@ function MainApp(): React.JSX.Element | null {
   useEffect(() => {
     void api.getProfile().then(setProfile)
     refresh()
-    const loadHotkey = (): void => {
-      void api.getSettings().then((s) => setHotkeyLabel(formatHotkey(s.hotkey)))
-    }
-    loadHotkey()
     const offTasks = api.on('eshell:tasks-updated', refresh)
-    const offSettings = api.on('eshell:settings-updated', loadHotkey)
     const offNav = api.on('eshell:navigate', (route) => {
       if (route === 'inbox' || route === 'assistant') setPage('assistant')
       else if (
@@ -116,7 +110,6 @@ function MainApp(): React.JSX.Element | null {
     })
     return () => {
       offTasks()
-      offSettings()
       offNav()
     }
   }, [refresh])
@@ -194,18 +187,12 @@ function MainApp(): React.JSX.Element | null {
             )
           })}
         </nav>
-        <div className="hint">复制内容后按 {hotkeyLabel}，快速提交剪切板。</div>
       </aside>
 
       <main className="main">
         <div key={page} className={page === 'assistant' ? 'animate-page h-full' : 'animate-page'}>
           {page === 'assistant' && (
-            <Assistant
-              tasks={tasks}
-              showToast={showToast}
-              hotkeyLabel={hotkeyLabel}
-              userName={profile.name}
-            />
+            <Assistant tasks={tasks} showToast={showToast} userName={profile.name} />
           )}
           {page === 'timeline' && <Timeline tasks={tasks} />}
           {page === 'schedule' && <Schedule tasks={tasks} />}

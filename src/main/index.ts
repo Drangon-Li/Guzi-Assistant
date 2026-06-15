@@ -1,7 +1,6 @@
 import { app, Menu, nativeImage, Tray, type MenuItemConstructorOptions } from 'electron'
-import { initDb, getSettings } from './db'
+import { initDb } from './db'
 import { registerIpc, triggerClipboardCapture } from './ipc'
-import { initHotkey, stopHotkey } from './hotkey'
 import { initDropbox } from './dropbox'
 import { ensureFeishu } from './feishu'
 import {
@@ -68,7 +67,6 @@ if (!app.requestSingleInstanceLock()) {
     createMainWindow()
     createTray()
     setTrayRefresh(buildTrayMenu) // 监控启停/暂停时刷新托盘菜单
-    initHotkey(getSettings().hotkey, triggerClipboardCapture)
     initDropbox()
     ensureFeishu()
     applyScreenSenseSettings()
@@ -80,7 +78,6 @@ if (!app.requestSingleInstanceLock()) {
     appState.quitting = true
   })
   app.on('will-quit', () => {
-    stopHotkey()
     stopDailyBrief()
   })
   // 常驻托盘：所有窗口关闭后不退出
