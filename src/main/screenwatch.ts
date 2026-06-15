@@ -6,8 +6,10 @@ import { parseToItems } from './parser'
 import { createSource, createTask, deleteSourceRow, getSettings, taskExists } from './db'
 import { broadcast, showPreview, isPreviewVisible } from './windows'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
+import { getFrontmostApp } from './frontapp'
 import { matchKeywords } from '@shared/keywords'
 import { pickBest } from '@shared/suggest'
+import { isAppExcluded } from '@shared/app-exclude'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript } from '@shared/chat-layout'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
@@ -151,6 +153,11 @@ async function watchTick(): Promise<void> {
   ticking = true
   let png: string | null = null
   try {
+    const { screenSenseKeywords, screenSenseExcludedApps } = getSettings()
+    // 隐私门：敏感 App（密码/银行等）在前台时连截图都不做（在 capture 之前判断）
+    if (screenSenseExcludedApps.length && isAppExcluded(await getFrontmostApp(), screenSenseExcludedApps))
+      return
+
     png = await captureScreenSilently()
     if (!png) return
     const hash = await pHashOfPng(png)
@@ -163,7 +170,6 @@ async function watchTick(): Promise<void> {
     if (th === lastTextHash) return // 文本没变 → 跳过
     lastTextHash = th
 
-    const { screenSenseKeywords } = getSettings()
     const hits = matchKeywords(text, screenSenseKeywords)
     if (!hits.length) return // 相关性门：不含关键词不上云
 

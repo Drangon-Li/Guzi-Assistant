@@ -62,7 +62,13 @@ export function registerIpc(): void {
     }
     saveSettings(patch)
     if (patch.feishuAppId !== undefined || patch.feishuAppSecret !== undefined) ensureFeishu()
-    if (patch.screenSenseEnabled !== undefined || patch.screenSenseHotkey !== undefined)
+    // 持续监控开关/间隔改动也要即时重启 watcher，否则要等下次改 enabled 才生效
+    if (
+      patch.screenSenseEnabled !== undefined ||
+      patch.screenSenseHotkey !== undefined ||
+      patch.screenSenseContinuous !== undefined ||
+      patch.screenSenseIntervalSec !== undefined
+    )
       applyScreenSenseSettings()
     broadcast('eshell:settings-updated')
     return ok

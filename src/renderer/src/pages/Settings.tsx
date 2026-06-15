@@ -530,6 +530,23 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     屏幕静止时不触发识别与上云；可在菜单栏 纸壳助手 图标随时「暂停屏幕监控」。macOS
                     会持续显示系统录制指示器（无法关闭）。
                   </p>
+                  <label className="mt-1 flex flex-col gap-1 text-sm">
+                    <span className="text-slate-500">不监控的应用（逗号或顿号分隔）</span>
+                    <input
+                      className={input}
+                      placeholder="如：1Password、微信、网银"
+                      defaultValue={settings.screenSenseExcludedApps.join('、')}
+                      onBlur={async (e) => {
+                        const list = splitList(e.target.value)
+                        setSettings({ ...settings, screenSenseExcludedApps: list })
+                        await api.saveSettings({ screenSenseExcludedApps: list })
+                        flash('已保存应用排除名单')
+                      }}
+                    />
+                    <span className="text-xs text-slate-400">
+                      这些应用在前台时连截图都不做。中英文名称可都填（如 微信 / WeChat）。
+                    </span>
+                  </label>
                 </div>
               )}
             </div>

@@ -126,6 +126,8 @@ export interface AppSettings {
   screenSenseContinuous: boolean
   /** 持续监控轮询间隔（秒），默认 5 */
   screenSenseIntervalSec: number
+  /** 应用排除名单（#40 隐私门）：这些 App 在前台时连截图都不做，默认空（不排除） */
+  screenSenseExcludedApps: string[]
 }
 
 export interface FeishuStatus {
