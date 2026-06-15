@@ -20,6 +20,7 @@ export const INVOKE_CHANNELS = [
   'source:get',
   'source:delete',
   'memory:search',
+  'memory:read-shot',
   'data:wipe',
   'permissions:get',
   'quickaction:status',

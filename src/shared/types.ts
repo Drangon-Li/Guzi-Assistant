@@ -128,6 +128,10 @@ export interface AppSettings {
   screenSenseIntervalSec: number
   /** 应用排除名单（#40 隐私门）：这些 App 在前台时连截图都不做，默认空（不排除） */
   screenSenseExcludedApps: string[]
+  /** 持久化截图缩略图到可搜索记忆（#52/#53）：opt-in，默认 false（保持「截图用完即弃」）。加密落盘 */
+  screenSenseKeepShots: boolean
+  /** 截图保留天数（#53），到期自动清；<=0 永久保留。默认 14 */
+  screenSenseRetentionDays: number
 }
 
 export interface FeishuStatus {
