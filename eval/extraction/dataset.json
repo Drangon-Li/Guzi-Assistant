@@ -1,0 +1,22 @@
+{
+  "_doc": "抽取算法验证数据集（真实风格中文样本 + 金标）。gold 字段：task=是否应产出用户可操作事项；belongs=首要事项的归属期望(yes|no|uncertain)；dateAbs=绝对日期 YYYY-MM-DD / dateRel=相对(+Nd | wd:N 下个周N，1=周一)；multiMin=至少几个独立任务；notAutoAdd=不得高置信直接 add(应 confirm)；noCredential=该串不得出现在 title/notes/evidence；locationContains=地点应含子串。",
+  "profile": { "name": "林动", "nicknames": ["动哥", "Leo"], "accounts": ["lindong"], "identity": "student", "org": "某大学 计算机学院", "group": "计算机 研一 2 班" },
+  "samples": [
+    { "id": "course-deadline", "text": "【数据库系统-课程群】各位同学，期末项目报告截止时间为 6月20日 23:59，请提交到教学网 elearning，逾期不候。", "gold": { "task": true, "belongs": "yes", "dateAbs": "2026-06-20" } },
+    { "id": "at-everyone", "text": "【院学生会通知】@所有人 请大家本周内完成暑期社会实践登记，链接见群公告。", "gold": { "task": true, "belongs": "uncertain", "notAutoAdd": true } },
+    { "id": "multi-task", "text": "【招聘】恭喜进入复试。笔试：6月18日 14:00，理科楼 B203；面试：6月19日 上午 9:30，行政楼 305。请携带学生证。", "gold": { "task": true, "multiMin": 2, "dateAbs": "2026-06-18", "locationContains": "B203" } },
+    { "id": "pure-ad", "text": "【羽毛球馆】暑期会员卡大促！办卡立减 200 元，前 50 名再送球拍一支，详询前台。", "gold": { "task": false } },
+    { "id": "personal-reminder", "text": "记得明天上午把实验室的报销单交给王老师。", "gold": { "task": true, "belongs": "yes", "dateRel": "+1d" } },
+    { "id": "assigned-other", "text": "【项目分工】这次的需求文档：张三负责调研，李四负责汇总，赵五负责画原型。大家周四前各自完成。", "gold": { "task": false } },
+    { "id": "assigned-me", "text": "【课题组】林动，麻烦你周五前把上周的实验数据整理成表格发我，组会要用。", "gold": { "task": true, "belongs": "yes", "dateRel": "wd:5" } },
+    { "id": "vague-notice", "text": "【教务处】近期请各位同学留意并按要求完成学业信息填报，具体另行通知。", "gold": { "task": true, "belongs": "uncertain", "notAutoAdd": true } },
+    { "id": "credential", "text": "【验证码】你的登录验证码是 482915，5分钟内有效，请勿告诉他人。另：记得今晚8点参加线上答辩。", "gold": { "task": true, "noCredential": "482915" } },
+    { "id": "meeting-invite", "text": "周三下午 3 点在 C8-8308 象山会议室开组会，讨论中期检查的 PPT，请提前准备好各自部分。", "gold": { "task": true, "dateRel": "wd:3", "locationContains": "8308" } },
+    { "id": "polite-soft", "text": "林动同学，有空的时候帮忙看一下这份代码评审，不急，下周再说也行。", "gold": { "task": true, "belongs": "yes", "notAutoAdd": true } },
+    { "id": "spam-discount", "text": "【双十二】全场五折起，点击领取你的专属优惠券，错过再等一年！退订回 T。", "gold": { "task": false } },
+    { "id": "absolute-deadline", "text": "请于 6月25日 前在系统提交开题报告（PDF），未提交者按延期处理。", "gold": { "task": true, "belongs": "yes", "dateAbs": "2026-06-25" } },
+    { "id": "exam-notice", "text": "【考试通知】《编译原理》期末考试：6月22日 19:00-21:00，第三教学楼 301，开卷，可带一张 A4 手写资料。", "gold": { "task": true, "dateAbs": "2026-06-22", "locationContains": "301" } },
+    { "id": "chat-casual", "text": "哈哈那个电影确实好看，周末再约？对了你上次说的那家火锅店叫啥来着。", "gold": { "task": false } },
+    { "id": "scholarship", "text": "【奖学金】国家奖学金申请材料请于 6月30日 17:00 前交至学院办公室 A区 210，需本人签字的纸质版一式三份。", "gold": { "task": true, "dateAbs": "2026-06-30", "locationContains": "210" } }
+  ]
+}

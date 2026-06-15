@@ -45,9 +45,11 @@ function profileBlock(profile: Profile): string {
     .join('\n')
 }
 
-const BELONGING_RULES = `1. 内容明确点名用户姓名/昵称/账号 → belongs_to_user=yes，confidence 0.85~1.0，suggested_action=add。
+const BELONGING_RULES = `0. 第一人称自述 / 用户写给自己的待办（"记得…""我要…""别忘了…""todo:""明天要…"等，个人备忘、日程草稿）→ 用户即本人，belongs_to_user=yes，user_role=owner，confidence 0.8~0.95；信息完整时 suggested_action=add。
+1. 内容明确点名用户姓名/昵称/账号 → belongs_to_user=yes，confidence 0.85~1.0，suggested_action=add。
 2. 按角色/身份匹配（如"产品同学"且用户岗位是产品）→ belongs_to_user=yes 或 uncertain，confidence 0.6~0.85，suggested_action=confirm。
-3. @所有人 / 全体成员 / 群发任务 → belongs_to_user=uncertain，confidence 不超过 0.7，suggested_action=confirm，绝不能直接 add。
+2b. 群发但属于用户本人必办的事务（本人所选修课程的作业/考试/报告截止、本人所在班级或课题组的必办事项）→ 与身份强相关时倾向 belongs_to_user=yes，confidence 0.7~0.85，suggested_action=confirm（仍是群发，不直接 add）。
+3. @所有人 / 全体成员 / 与用户身份无强关联的群发任务 → belongs_to_user=uncertain，confidence 不超过 0.7，suggested_action=confirm，绝不能直接 add。
 4. 多人分工（A 做调研，B 做汇总）→ 只提取分配给用户的项；明确分配给别人的事项 belongs_to_user=no。
 5. 模糊通知（"近期请大家完成填报"）→ uncertain，confidence 0.3~0.5，suggested_action=confirm。
 5b. 点名了用户但语气委婉、无明确义务或时限的请求（"有空看一下""不急"）→ belongs 可为 yes，但 priority=low 且 suggested_action=confirm，不要 add。

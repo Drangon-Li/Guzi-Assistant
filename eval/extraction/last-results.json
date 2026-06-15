@@ -1,0 +1,454 @@
+{
+  "when": "2026-06-15T18:21:54.463Z",
+  "overall": "15/16",
+  "dim": {
+    "detection": {
+      "ok": 15,
+      "n": 16
+    },
+    "belongs": {
+      "ok": 6,
+      "n": 7
+    },
+    "time": {
+      "ok": 8,
+      "n": 8
+    },
+    "notAutoAdd": {
+      "ok": 3,
+      "n": 3
+    },
+    "multi": {
+      "ok": 1,
+      "n": 1
+    },
+    "location": {
+      "ok": 4,
+      "n": 4
+    },
+    "credential": {
+      "ok": 1,
+      "n": 1
+    }
+  },
+  "results": [
+    {
+      "id": "course-deadline",
+      "items": [
+        {
+          "title": "提交数据库期末项目报告",
+          "item_type": "deadline",
+          "belongs_to_user": "yes",
+          "belonging_reason": "用户是计算机学院研一学生，属于该课程群成员，且该事项是本人所选修课程的必办事务",
+          "user_role": "owner",
+          "start_time": null,
+          "due_time": "2026-06-20T23:59",
+          "location": "教学网 elearning",
+          "priority": "high",
+          "confidence": 0.85,
+          "suggested_action": "confirm",
+          "evidence": [
+            "【数据库系统-课程群】各位同学，期末项目报告截止时间为 6月20日 23:59，请提交到教学网 elearning，逾期不候。"
+          ],
+          "notes": [
+            "报告截止时间为 6月20日 23:59，逾期不候",
+            "需提交到教学网 elearning"
+          ],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "belongs": true,
+        "time": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "at-everyone",
+      "items": [
+        {
+          "title": "完成暑期社会实践登记",
+          "item_type": "deadline",
+          "belongs_to_user": "uncertain",
+          "belonging_reason": "通知为@所有人群发，与用户身份（大学生）关联，但未明确点名用户，属于群发必办事务",
+          "user_role": "notified",
+          "start_time": null,
+          "due_time": "2026-06-21T23:59",
+          "location": null,
+          "priority": "medium",
+          "confidence": 0.6,
+          "suggested_action": "confirm",
+          "evidence": [
+            "【院学生会通知】@所有人 请大家本周内完成暑期社会实践登记，链接见群公告。"
+          ],
+          "notes": [
+            "登记链接见群公告"
+          ],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "belongs": true,
+        "notAutoAdd": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "multi-task",
+      "items": [
+        {
+          "title": "参加复试笔试（6月18日）",
+          "item_type": "preparation",
+          "belongs_to_user": "uncertain",
+          "belonging_reason": "通知未点名用户姓名或昵称，但若用户是应聘者则为自己相关",
+          "user_role": "participant",
+          "start_time": "2026-06-18T14:00",
+          "due_time": null,
+          "location": "理科楼 B203",
+          "priority": "high",
+          "confidence": 0.5,
+          "suggested_action": "confirm",
+          "evidence": [
+            "【招聘】恭喜进入复试。笔试：6月18日 14:00，理科楼 B203",
+            "请携带学生证。"
+          ],
+          "notes": [
+            "携带学生证"
+          ],
+          "duplicate_of": null
+        },
+        {
+          "title": "参加复试面试（6月19日）",
+          "item_type": "meeting",
+          "belongs_to_user": "uncertain",
+          "belonging_reason": "通知未点名用户姓名或昵称，但若用户是应聘者则为自己相关",
+          "user_role": "participant",
+          "start_time": "2026-06-19T09:30",
+          "due_time": null,
+          "location": "行政楼 305",
+          "priority": "high",
+          "confidence": 0.5,
+          "suggested_action": "confirm",
+          "evidence": [
+            "面试：6月19日 上午 9:30，行政楼 305"
+          ],
+          "notes": [],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "time": true,
+        "multi": true,
+        "location": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "pure-ad",
+      "items": [],
+      "checks": {
+        "detection": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "personal-reminder",
+      "items": [
+        {
+          "title": "提交实验室报销单给王老师",
+          "item_type": "deadline",
+          "belongs_to_user": "yes",
+          "belonging_reason": "第一人称自述，明确为用户的个人待办事项",
+          "user_role": "owner",
+          "start_time": null,
+          "due_time": "2026-06-16T23:59",
+          "location": null,
+          "priority": "medium",
+          "confidence": 0.9,
+          "suggested_action": "add",
+          "evidence": [
+            "记得明天上午把实验室的报销单交给王老师。"
+          ],
+          "notes": [],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "belongs": true,
+        "time": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "assigned-other",
+      "items": [],
+      "checks": {
+        "detection": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "assigned-me",
+      "items": [
+        {
+          "title": "整理上周实验数据成表格并发送",
+          "item_type": "deadline",
+          "belongs_to_user": "yes",
+          "belonging_reason": "内容直接点名用户姓名林动，要求其完成任务",
+          "user_role": "owner",
+          "start_time": null,
+          "due_time": "2026-06-19T23:59",
+          "location": null,
+          "priority": "medium",
+          "confidence": 0.9,
+          "suggested_action": "add",
+          "evidence": [
+            "【课题组】林动，麻烦你周五前把上周的实验数据整理成表格发我"
+          ],
+          "notes": [
+            "将上周实验数据整理成表格",
+            "完成表格后发送给通知人"
+          ],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "belongs": true,
+        "time": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "vague-notice",
+      "items": [],
+      "checks": {
+        "detection": false,
+        "belongs": false,
+        "notAutoAdd": true
+      },
+      "pass": false,
+      "err": null
+    },
+    {
+      "id": "credential",
+      "items": [
+        {
+          "title": "参加线上答辩",
+          "item_type": "meeting",
+          "belongs_to_user": "yes",
+          "belonging_reason": "用户以第一人称自述个人备忘（'记得今晚8点参加线上答辩'）",
+          "user_role": "owner",
+          "start_time": "2026-06-15T20:00",
+          "due_time": null,
+          "location": null,
+          "priority": "medium",
+          "confidence": 0.9,
+          "suggested_action": "add",
+          "evidence": [
+            "记得今晚8点参加线上答辩"
+          ],
+          "notes": [],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "credential": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "meeting-invite",
+      "items": [
+        {
+          "title": "参加组会并讨论中期检查PPT",
+          "item_type": "meeting",
+          "belongs_to_user": "yes",
+          "belonging_reason": "内容属于用户所在课题组（计算机研一2班）的集体组会，用户作为成员必须参加",
+          "user_role": "participant",
+          "start_time": "2026-06-17T15:00",
+          "due_time": null,
+          "location": "C8-8308 象山会议室",
+          "priority": "medium",
+          "confidence": 0.8,
+          "suggested_action": "confirm",
+          "evidence": [
+            "周三下午 3 点在 C8-8308 象山会议室开组会",
+            "讨论中期检查的 PPT",
+            "请提前准备好各自部分"
+          ],
+          "notes": [
+            "提前准备好各自部分的内容（PPT相关材料）",
+            "地点在C8-8308象山会议室",
+            "时间：周三下午3点"
+          ],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "time": true,
+        "location": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "polite-soft",
+      "items": [
+        {
+          "title": "查看代码评审",
+          "item_type": "follow_up",
+          "belongs_to_user": "yes",
+          "belonging_reason": "内容点名了用户姓名林动",
+          "user_role": "owner",
+          "start_time": null,
+          "due_time": null,
+          "location": null,
+          "priority": "low",
+          "confidence": 0.9,
+          "suggested_action": "confirm",
+          "evidence": [
+            "林动同学，有空的时候帮忙看一下这份代码评审，不急，下周再说也行。"
+          ],
+          "notes": [],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "belongs": true,
+        "notAutoAdd": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "spam-discount",
+      "items": [],
+      "checks": {
+        "detection": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "absolute-deadline",
+      "items": [
+        {
+          "title": "提交开题报告（PDF）",
+          "item_type": "deadline",
+          "belongs_to_user": "yes",
+          "belonging_reason": "用户是研究生，开题报告是研究生培养的必办事项，与用户身份强相关",
+          "user_role": "owner",
+          "start_time": null,
+          "due_time": "2026-06-25T23:59",
+          "location": null,
+          "priority": "high",
+          "confidence": 0.8,
+          "suggested_action": "confirm",
+          "evidence": [
+            "请于 6月25日 前在系统提交开题报告（PDF）"
+          ],
+          "notes": [],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "belongs": true,
+        "time": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "exam-notice",
+      "items": [
+        {
+          "title": "《编译原理》期末考试",
+          "item_type": "meeting",
+          "belongs_to_user": "yes",
+          "belonging_reason": "内容为计算机学院研究生课程《编译原理》的考试通知，用户为该专业学生",
+          "user_role": "owner",
+          "start_time": "2026-06-22T19:00",
+          "due_time": "2026-06-22T21:00",
+          "location": "第三教学楼 301",
+          "priority": "high",
+          "confidence": 0.85,
+          "suggested_action": "add",
+          "evidence": [
+            "《编译原理》期末考试：6月22日 19:00-21:00，第三教学楼 301，开卷，可带一张 A4 手写资料。"
+          ],
+          "notes": [
+            "开卷考试",
+            "可携带一张A4手写资料"
+          ],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "time": true,
+        "location": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "chat-casual",
+      "items": [],
+      "checks": {
+        "detection": true
+      },
+      "pass": true,
+      "err": null
+    },
+    {
+      "id": "scholarship",
+      "items": [
+        {
+          "title": "提交国家奖学金申请材料",
+          "item_type": "deadline",
+          "belongs_to_user": "uncertain",
+          "belonging_reason": "群发通知，与用户身份（研究生）相关但非强制必办，需用户确认是否申请",
+          "user_role": "notified",
+          "start_time": null,
+          "due_time": "2026-06-30T17:00",
+          "location": "学院办公室A区210",
+          "priority": "medium",
+          "confidence": 0.65,
+          "suggested_action": "confirm",
+          "evidence": [
+            "国家奖学金申请材料请于 6月30日 17:00 前交至学院办公室 A区 210",
+            "需本人签字的纸质版一式三份"
+          ],
+          "notes": [
+            "需提交本人签字的纸质版一式三份"
+          ],
+          "duplicate_of": null
+        }
+      ],
+      "checks": {
+        "detection": true,
+        "time": true,
+        "location": true
+      },
+      "pass": true,
+      "err": null
+    }
+  ]
+}
