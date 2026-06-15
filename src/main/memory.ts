@@ -20,6 +20,14 @@ import {
 } from '@shared/memory-extract'
 import type { ConsolidateResult, MemoryRecord } from '@shared/types'
 
+// 向量缓存：避免每次语义检索都从 SQLite 全量读 + JSON.parse 所有向量（压测发现这才是规模下的真瓶颈，
+// 非余弦本身）。整理归档新增记忆后失效。个人量级（≤数万条）内存可控（~12MB/千条）。
+let vecCache: ReturnType<typeof allMemoryVectors> | null = null
+function memoryVectors(): ReturnType<typeof allMemoryVectors> {
+  if (!vecCache) vecCache = allMemoryVectors()
+  return vecCache
+}
+
 /**
  * #路线图 3a/3b/3c：把尚未整理的本地来源整理归档为「记忆」。
  * 借鉴 mem0 的设计（Apache-2.0）：每条来源 → LLM 抽原子自包含中文记忆 → 嵌入 → 跨记忆语义去重 →
@@ -97,6 +105,7 @@ export async function consolidateMemories(): Promise<ConsolidateResult> {
   }
 
   markSourcesConsolidated(sources.map((s) => s.id))
+  if (memCount) vecCache = null // 新增记忆 → 向量缓存失效
   if (todoCount) broadcast('eshell:tasks-updated')
   return { memories: memCount, todos: todoCount, sourcesProcessed: sources.length }
 }
@@ -105,7 +114,7 @@ export async function consolidateMemories(): Promise<ConsolidateResult> {
 export async function searchMemoriesSemantic(query: string): Promise<MemoryRecord[]> {
   const q = query.trim()
   if (!q) return listMemories(50)
-  const vectors = allMemoryVectors()
+  const vectors = memoryVectors()
   if (!vectors.length) return []
   let qv: number[] | undefined
   try {
