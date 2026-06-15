@@ -60,3 +60,18 @@ create policy "own credits read"  on public.credits       for select using (auth
 create policy "own ledger read"   on public.credit_ledger for select using (auth.uid() = user_id);
 create policy "own orders read"   on public.orders        for select using (auth.uid() = user_id);
 -- 无 insert/update/delete policy → 客户端无法改余额/订单；service-role 绕 RLS 由后端独占写入。
+
+-- ── 注册即初始化：新用户自动建 profile + credits（默认每月 1000 赠送）──────────────
+-- 没有它，新用户登录后无 credits 行，parse 网关会返「账户未初始化」。security definer 绕 RLS。
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id) values (new.id) on conflict do nothing;
+  insert into public.credits (user_id, grant_balance, grant_reset_at, monthly_grant)
+    values (new.id, 1000, now() + interval '30 days', 1000) on conflict do nothing;
+  return new;
+end;
+$$;
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users for each row execute function public.handle_new_user();
