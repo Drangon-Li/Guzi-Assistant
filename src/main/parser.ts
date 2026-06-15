@@ -7,6 +7,7 @@ import {
   type ParsedItem,
   type ResponsesOutput
 } from '@shared/parsing'
+import { belongingPriorFromProfile } from '@shared/belonging-hints'
 
 export type { ParsedItem }
 
@@ -64,6 +65,9 @@ export async function parseToItems(input: {
     .slice(0, 60)
     .map((t) => ({ title: t.title, due_time: t.dueTime }))
 
-  const output = await callModel(buildInstructions(profile, existing), [{ role: 'user', content }])
+  const output = await callModel(
+    buildInstructions(profile, existing, belongingPriorFromProfile(profile)),
+    [{ role: 'user', content }]
+  )
   return parseModelOutput(output)
 }

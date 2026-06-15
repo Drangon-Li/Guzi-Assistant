@@ -1,5 +1,7 @@
-// #15 归属判断个性化学习 —— part 1：把用户纠偏积累的归属信号格式化成 prompt 片段。
+// #15 归属判断个性化学习 —— 把用户积累的归属信号格式化成 prompt 片段。
 // 纯函数、可测；作为「先验提示」，绝不覆盖模型对本次内容的判断（最坏情况是 no-op）。
+import type { Profile } from './types'
+
 export type BelongingPolarity = 'mine' | 'not_mine'
 
 export interface BelongingHint {
@@ -29,4 +31,13 @@ export function buildBelongingHints(hints: BelongingHint[]): string {
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+/** 从 Profile 的「通常不是本人」词典构造归属先验块（#15 part 2）；空则返回 ''。 */
+export function belongingPriorFromProfile(profile: Profile): string {
+  const hints = (profile.belongingNotMine ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((signal): BelongingHint => ({ signal, polarity: 'not_mine' }))
+  return buildBelongingHints(hints)
 }

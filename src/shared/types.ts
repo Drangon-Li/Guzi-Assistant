@@ -35,6 +35,8 @@ export interface Profile {
   group: string
   workHours: string
   confirmMode: ConfirmMode
+  /** #15 归属个性化：通常「不是本人」的称呼/账号/角色词，注入解析 prompt 作先验（可选，迁移安全） */
+  belongingNotMine?: string[]
 }
 
 export interface SourceRecord {

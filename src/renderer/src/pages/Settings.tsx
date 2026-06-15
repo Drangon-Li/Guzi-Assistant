@@ -72,6 +72,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [profile, setProfile] = useState<Profile | null>(null)
   const [nicknames, setNicknames] = useState('')
   const [accounts, setAccounts] = useState('')
+  const [notMine, setNotMine] = useState('')
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
   const [note, setNote] = useState('')
@@ -90,6 +91,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       if (p) {
         setNicknames(p.nicknames.join('、'))
         setAccounts(p.accounts.join('、'))
+        setNotMine((p.belongingNotMine ?? []).join('、'))
       }
     })
     void api.getSettings().then(setSettings)
@@ -172,7 +174,8 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       ...profile,
       name: profile.name.trim(),
       nicknames: splitList(nicknames),
-      accounts: splitList(accounts)
+      accounts: splitList(accounts),
+      belongingNotMine: splitList(notMine)
     })
     flash('档案已保存')
   }
@@ -224,6 +227,18 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           <label className="flex flex-col gap-1">
             <span className="text-slate-500">常用账号名</span>
             <input className={input} value={accounts} onChange={(e) => setAccounts(e.target.value)} />
+          </label>
+          <label className="col-span-2 flex flex-col gap-1">
+            <span className="text-slate-500">
+              通常不是我的称呼 / 账号 / 角色
+              <span className="ml-2 text-xs text-slate-400">顿号分隔；帮助判断「哪些不是你的事」</span>
+            </span>
+            <input
+              className={input}
+              value={notMine}
+              onChange={(e) => setNotMine(e.target.value)}
+              placeholder="如：同事小王、@market、市场部"
+            />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-slate-500">组织 / 学校 / 公司</span>

@@ -76,12 +76,16 @@ export interface ExistingTaskBrief {
 }
 
 /** 捕获解析（剪切板/截图/文件提交）的系统提示词 */
-export function buildInstructions(profile: Profile, existingTasks: ExistingTaskBrief[] = []): string {
+export function buildInstructions(
+  profile: Profile,
+  existingTasks: ExistingTaskBrief[] = [],
+  belongingPrior = ''
+): string {
   return `你是 纸壳助手（个人事项捕获助手）的解析引擎。用户会提交剪切板文本、聊天截图、通知、邮件或文件内容，你需要从中提取「行动项/待办」，并判断每一项是否属于该用户本人。
 
 # 用户档案
 ${profileBlock(profile)}
-
+${belongingPrior ? '\n' + belongingPrior + '\n' : ''}
 # 用户已有任务（查重用）
 ${existingTasks.length ? JSON.stringify(existingTasks) : '（无）'}
 ${DUP_RULE}
