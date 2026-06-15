@@ -75,3 +75,58 @@ $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users for each row execute function public.handle_new_user();
+
+-- ── 原子积分操作（修 #67/#72 review 标的并发竞态：read-modify-write 非原子）──────────
+-- Edge Functions 调这些 RPC 而非手动查改写；for update 行锁串行化同一用户的并发请求。
+
+-- 扣费：月度重置 → 余额不足返 ok:false 不扣 → 先扣赠送后购买 → 写流水。cost<=0 不扣(失败/跳过)。
+create or replace function public.deduct_credits(p_user uuid, p_cost int, p_reason text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare c public.credits%rowtype; from_g int; g int; p int;
+begin
+  select * into c from public.credits where user_id = p_user for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'no_account'); end if;
+  if now() >= c.grant_reset_at then          -- 跨重置点 → 赠送重置为月额，reset 推到 now 之后
+    c.grant_balance := c.monthly_grant;
+    while c.grant_reset_at <= now() loop c.grant_reset_at := c.grant_reset_at + interval '30 days'; end loop;
+  end if;
+  if p_cost <= 0 then
+    update public.credits set grant_balance=c.grant_balance, grant_reset_at=c.grant_reset_at, updated_at=now() where user_id=p_user;
+    return jsonb_build_object('ok', true, 'balance', c.grant_balance + c.purchased_balance);
+  end if;
+  if c.grant_balance + c.purchased_balance < p_cost then
+    update public.credits set grant_balance=c.grant_balance, grant_reset_at=c.grant_reset_at, updated_at=now() where user_id=p_user;
+    return jsonb_build_object('ok', false, 'balance', c.grant_balance + c.purchased_balance);
+  end if;
+  from_g := least(c.grant_balance, p_cost);
+  g := c.grant_balance - from_g;
+  p := c.purchased_balance - (p_cost - from_g);
+  update public.credits set grant_balance=g, purchased_balance=p, grant_reset_at=c.grant_reset_at, updated_at=now() where user_id=p_user;
+  insert into public.credit_ledger(user_id, delta, reason, balance_after) values (p_user, -p_cost, p_reason, g+p);
+  return jsonb_build_object('ok', true, 'balance', g+p);
+end; $$;
+
+-- 充值积分包：加购买余额(不过期) + 写流水。
+create or replace function public.add_credits(p_user uuid, p_credits int, p_reason text, p_ref text default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare g int; p int;
+begin
+  update public.credits set purchased_balance = purchased_balance + greatest(0, p_credits), updated_at = now()
+    where user_id = p_user returning grant_balance, purchased_balance into g, p;
+  if not found then return jsonb_build_object('ok', false, 'error', 'no_account'); end if;
+  insert into public.credit_ledger(user_id, delta, reason, balance_after, ref_order) values (p_user, p_credits, p_reason, g+p, p_ref);
+  return jsonb_build_object('ok', true, 'balance', g+p);
+end; $$;
+
+-- 开通会员：设月赠额 + 立即激活本月赠送 + 写流水。
+create or replace function public.activate_membership(p_user uuid, p_monthly int, p_ref text default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare g int; p int;
+begin
+  update public.credits set monthly_grant = p_monthly, grant_balance = p_monthly,
+    grant_reset_at = now() + interval '30 days', updated_at = now()
+    where user_id = p_user returning grant_balance, purchased_balance into g, p;
+  if not found then return jsonb_build_object('ok', false, 'error', 'no_account'); end if;
+  insert into public.credit_ledger(user_id, delta, reason, balance_after, ref_order) values (p_user, p_monthly, 'grant', g+p, p_ref);
+  return jsonb_build_object('ok', true, 'balance', g+p);
+end; $$;
