@@ -69,6 +69,12 @@ export const api = {
   exportTaskIcs: (task: TaskRecord) =>
     inv<{ ok: boolean; canceled?: boolean; error?: string }>('task:export-ics', task),
 
+  /** 打开充值支付窗口（chpay 表单 POST 跳转） */
+  openPayment: (payUrl: string, params: Record<string, string>) =>
+    inv<void>('payment:open', payUrl, params),
+  /** 关闭充值支付窗口（支付成功 / 取消） */
+  closePayment: () => inv<void>('payment:close'),
+
   on: (channel: string, cb: (payload: unknown) => void) => window.eshell.on(channel, cb)
 }
 

@@ -31,6 +31,7 @@ import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
 import { acceptSuggestion, applyScreenSenseSettings, scanOnce } from './screenwatch'
 import { setSession } from './session'
+import { closePayment, openPayment } from './payment'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
@@ -164,4 +165,9 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('task:export-ics', (_e, task: TaskRecord) => exportTaskIcs(task))
+
+  ipcMain.handle('payment:open', (_e, payUrl: string, params: Record<string, string>) =>
+    openPayment(payUrl, params)
+  )
+  ipcMain.handle('payment:close', () => closePayment())
 }
