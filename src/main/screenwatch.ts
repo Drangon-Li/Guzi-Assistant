@@ -2,7 +2,7 @@ import { unlink } from 'fs/promises'
 import { nativeImage } from 'electron'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImageDetailed } from './ocr'
-import { parseToItems } from './parser'
+import { parseToItems, ParseError } from './parser'
 import { createSource, createTask, deleteSourceRow, getSettings, getSource, taskExists } from './db'
 import { broadcast, showPreview, isPreviewVisible } from './windows'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
@@ -196,8 +196,13 @@ async function watchTick(): Promise<void> {
     // 截图持久化（#52/#53，opt-in）：趁 png 还在存加密临时缩略图，接受建议时落实
     if (screenSenseKeepShots && png) saveShotTempFromPng(th, png)
     showPreview({ suggestion: { item: best, sourceText: text, hits } })
-  } catch {
-    // 持续监控全程静默：截图/OCR/解析/无 endpoint 等任何失败都不打扰
+  } catch (e) {
+    // #56 用尽自动停：积分不足(402)→暂停持续监控，别再空转 OCR+网关；提示一次，充值后到设置重开。
+    if (e instanceof ParseError && e.code === '402') {
+      setWatchPaused(true)
+      showPreview({ error: '积分不足，已自动暂停屏幕监控；充值后可在设置重新开启。' })
+    }
+    // 其余（截图/OCR/无 endpoint 等）持续监控全程静默，不打扰。
   } finally {
     if (png) void unlink(png).catch(() => {})
     ticking = false
@@ -206,6 +211,7 @@ async function watchTick(): Promise<void> {
 
 export function startWatch(intervalSec: number): void {
   stopWatch()
+  watchPaused = false // 重新开启监控时清掉「积分不足自动暂停」，充值后切换开关即恢复
   watchTimer = setInterval(() => void watchTick(), Math.max(2, intervalSec) * 1000)
   trayRefresh?.()
 }

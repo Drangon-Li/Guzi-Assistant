@@ -196,19 +196,17 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
 
       <Section title="用户档案">
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-500">真实姓名 *</span>
+        <div className="grid2">
+          <label className="field">
+            <span>真实姓名 *</span>
             <input
-              className={input}
               value={profile.name}
               onChange={(e) => setProfile({ ...profile, name: e.target.value })}
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-500">身份类型</span>
+          <label className="field">
+            <span>身份类型</span>
             <select
-              className={input}
               value={profile.identity}
               onChange={(e) => setProfile({ ...profile, identity: e.target.value as Identity })}
             >
@@ -219,56 +217,20 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-500">常用昵称 / 英文名</span>
-            <input className={input} value={nicknames} onChange={(e) => setNicknames(e.target.value)} />
+          <label className="field">
+            <span>常用昵称 / 英文名</span>
+            <input value={nicknames} onChange={(e) => setNicknames(e.target.value)} />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-500">常用账号名</span>
-            <input className={input} value={accounts} onChange={(e) => setAccounts(e.target.value)} />
-          </label>
-          <label className="col-span-2 flex flex-col gap-1">
-            <span className="text-slate-500">
-              通常不是我的称呼 / 账号 / 角色
-              <span className="ml-2 text-xs text-slate-400">顿号分隔；帮助判断「哪些不是你的事」</span>
-            </span>
+          <label className="field">
+            <span>组织 / 学校</span>
             <input
-              className={input}
-              value={notMine}
-              onChange={(e) => setNotMine(e.target.value)}
-              placeholder="如：同事小王、@market、市场部"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-500">组织 / 学校 / 公司</span>
-            <input
-              className={input}
               value={profile.org}
               onChange={(e) => setProfile({ ...profile, org: e.target.value })}
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-500">班级 / 课题组 / 岗位</span>
-            <input
-              className={input}
-              value={profile.group}
-              onChange={(e) => setProfile({ ...profile, group: e.target.value })}
-            />
-          </label>
-          <label className="col-span-2 flex flex-col gap-1">
-            <span className="text-slate-500">工作 / 学习时间偏好</span>
-            <input
-              className={input}
-              value={profile.workHours}
-              onChange={(e) => setProfile({ ...profile, workHours: e.target.value })}
-            />
-          </label>
         </div>
-        <div className="mt-4">
-          <button
-            className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
-            onClick={() => void saveProfileForm()}
-          >
+        <div style={{ marginTop: 14 }}>
+          <button className="btn btn-primary btn-sm" onClick={() => void saveProfileForm()}>
             保存档案
           </button>
         </div>

@@ -105,69 +105,112 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
     setMsg('')
   }
 
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-3 gap-2">
-        {PACKS.map((p) => {
-          const selected = choice.kind === 'credits' && choice.pack.id === p.id
-          return (
-            <button
-              key={p.id}
-              className={`opt${selected ? ' on' : ''}`}
-              onClick={() => setChoice({ kind: 'credits', pack: p })}
-            >
-              <div className="ol">{p.label}</div>
-              <div className="od">{yuan(p.amountCents)}</div>
-              {p.tag && (
-                <div className="od mt-0.5" style={{ color: 'var(--okc)' }}>
-                  {p.tag}
-                </div>
-              )}
-            </button>
-          )
-        })}
-      </div>
+  const amountCents = choice.kind === 'credits' ? choice.pack.amountCents : MEMBERSHIP.amountCents
 
-      <button
-        className={`opt${choice.kind === 'membership' ? ' on' : ''}`}
-        onClick={() => setChoice({ kind: 'membership' })}
+  const row = (
+    sel: boolean,
+    title: string,
+    sub: string | undefined,
+    price: string,
+    bonus: boolean,
+    onClick: () => void,
+    key?: string
+  ): React.JSX.Element => (
+    <button
+      key={key}
+      onClick={onClick}
+      className="flex items-center gap-3 rounded-[10px] border px-3.5 py-2.5 text-left transition-colors"
+      style={{
+        borderColor: sel ? 'var(--t2)' : 'var(--line-2)',
+        background: sel ? 'var(--hover)' : 'var(--card)'
+      }}
+    >
+      <span
+        className="flex size-[15px] shrink-0 items-center justify-center rounded-full border"
+        style={{
+          borderColor: sel ? 'var(--primary)' : 'var(--line-3)',
+          background: sel ? 'var(--primary)' : 'transparent'
+        }}
       >
-        <div className="ol">{MEMBERSHIP.label}</div>
-        <div className="od">每月赠 {MEMBERSHIP.grant} 积分 · 跨设备通用</div>
-      </button>
+        {sel && <span className="size-1.5 rounded-full bg-white" />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-medium" style={{ color: 'var(--t1)' }}>
+          {title}
+        </div>
+        {sub && (
+          <div className="mt-0.5 text-[11.5px]" style={{ color: bonus ? 'var(--okc)' : 'var(--t3)' }}>
+            {sub}
+          </div>
+        )}
+      </div>
+      <div className="text-[13px] font-medium tabular-nums" style={{ color: 'var(--t1)' }}>
+        {price}
+      </div>
+    </button>
+  )
 
-      <div className="flex items-center gap-2">
-        <span className="text-[11.5px]" style={{ color: 'var(--t3)' }}>
-          支付方式
-        </span>
-        <button
-          className={`btn btn-sm ${payType === 'alipay' ? 'btn-outline on' : 'btn-ghost'}`}
-          style={payType === 'alipay' ? { borderColor: 'var(--t2)', color: 'var(--t1)' } : undefined}
-          onClick={() => setPayType('alipay')}
-        >
-          支付宝
-        </button>
-        <button
-          className={`btn btn-sm ${payType === 'wxpay' ? 'btn-outline on' : 'btn-ghost'}`}
-          style={payType === 'wxpay' ? { borderColor: 'var(--t2)', color: 'var(--t1)' } : undefined}
-          onClick={() => setPayType('wxpay')}
-        >
-          微信
-        </button>
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
+        {PACKS.map((p) =>
+          row(
+            choice.kind === 'credits' && choice.pack.id === p.id,
+            p.label,
+            p.tag,
+            yuan(p.amountCents),
+            true,
+            () => setChoice({ kind: 'credits', pack: p }),
+            p.id
+          )
+        )}
+        {row(
+          choice.kind === 'membership',
+          '会员',
+          `每月赠 ${MEMBERSHIP.grant} 积分 · 跨设备通用`,
+          `${yuan(MEMBERSHIP.amountCents)}/月`,
+          false,
+          () => setChoice({ kind: 'membership' }),
+          'membership'
+        )}
       </div>
 
       <div className="flex items-center gap-3">
-        <button className="btn btn-primary" disabled={busy} onClick={() => void recharge()}>
-          {busy ? '等待支付…' : '充值'}
-        </button>
-        {busy && (
-          <button className="btn btn-ghost btn-sm" onClick={cancel}>
-            取消
-          </button>
-        )}
+        <span className="text-[11.5px]" style={{ color: 'var(--t3)' }}>
+          支付方式
+        </span>
+        <div className="flex gap-1">
+          {(['alipay', 'wxpay'] as const).map((pt) => (
+            <button
+              key={pt}
+              onClick={() => setPayType(pt)}
+              className="rounded-[7px] border px-3 py-1 text-[12px] transition-colors"
+              style={{
+                borderColor: payType === pt ? 'var(--t2)' : 'var(--line-2)',
+                color: payType === pt ? 'var(--t1)' : 'var(--t3)'
+              }}
+            >
+              {pt === 'alipay' ? '支付宝' : '微信'}
+            </button>
+          ))}
+        </div>
       </div>
+
+      <button
+        className="btn btn-primary w-full"
+        style={{ padding: '9px 14px' }}
+        disabled={busy}
+        onClick={() => void recharge()}
+      >
+        {busy ? '等待支付…' : `${payType === 'alipay' ? '支付宝' : '微信'}支付 ${yuan(amountCents)}`}
+      </button>
+      {busy && (
+        <button className="btn btn-ghost btn-sm self-center" onClick={cancel}>
+          取消
+        </button>
+      )}
       {msg && (
-        <p className="text-[11.5px] leading-5" style={{ color: 'var(--t2)' }}>
+        <p className="text-center text-[11.5px] leading-5" style={{ color: 'var(--t2)' }}>
           {msg}
         </p>
       )}

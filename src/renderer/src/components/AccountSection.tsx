@@ -85,18 +85,22 @@ export default function AccountSection(): React.JSX.Element {
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button className="btn btn-ghost btn-sm" onClick={() => void sb.auth.signOut()}>
-              退出登录
-            </button>
-            <button className="btn btn-primary btn-sm" onClick={() => setShowRecharge(true)}>
-              充值
-            </button>
-          </div>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowRecharge(true)}>
+            充值
+          </button>
         </div>
-        <p className="desc" style={{ margin: '12px 0 0' }}>
-          解析能力由 EShell 云端提供，开箱即用，无需配置任何模型或密钥。按量计积分、失败不扣、用尽自动停。
-        </p>
+        <div className="mt-3 flex items-center justify-between">
+          <p className="desc" style={{ margin: 0 }}>
+            解析能力由 EShell 云端提供，开箱即用，按量计积分、失败不扣、用尽自动停。
+          </p>
+          <button
+            className="shrink-0 text-[11.5px] hover:underline"
+            style={{ color: 'var(--t3)' }}
+            onClick={() => void sb.auth.signOut()}
+          >
+            退出登录
+          </button>
+        </div>
         {showRecharge && (
           <Modal
             panelClass="w-[420px] rounded-[14px] bg-white p-5"
