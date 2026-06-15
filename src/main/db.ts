@@ -105,8 +105,18 @@ export function getSettings(): AppSettings {
     screenSenseKeywords: parseKeywords(map.screenSenseKeywords),
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',
     screenSenseContinuous: map.screenSenseContinuous === 'true',
-    screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5
+    screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,
+    // 排除名单空 = 不排除（不能像关键词那样回退默认词表）
+    screenSenseExcludedApps: parseList(map.screenSenseExcludedApps)
   }
+}
+
+/** 逗号存储字符串 → 数组；空则返回空数组（无默认） */
+function parseList(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
 }
 
 /** 逗号存储的关键词字符串 → 数组；空则用默认词表 */
