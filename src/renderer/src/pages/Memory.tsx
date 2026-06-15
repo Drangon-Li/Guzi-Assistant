@@ -39,9 +39,9 @@ export default function Memory(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 pb-16">
+    <div className="page animate-page flex flex-col" style={{ gap: 14 }}>
       <div>
-        <h1 className="text-lg font-semibold">记忆</h1>
+        <h1 className="page-title">记忆</h1>
         <p className="mt-0.5 text-xs text-slate-400">
           搜索捕获过的历史内容（屏幕 / 剪贴板 / 文件），定位回来源。全部本地，不上传。
         </p>

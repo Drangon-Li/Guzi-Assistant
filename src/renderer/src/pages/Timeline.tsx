@@ -103,9 +103,9 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
   const groups = buildGroups(timed, mode)
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <div className="page animate-page">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">时间轴</h1>
+        <h1 className="page-title">时间轴</h1>
         <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
           {(
             [
