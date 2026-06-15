@@ -5,12 +5,15 @@ import {
   getProfile,
   getSettings,
   getSource,
+  getTask,
   listTasks,
   saveProfile,
   saveSettings,
+  searchSources,
   updateTask,
   wipeAll
 } from './db'
+import { learnNotMine } from '@shared/belonging-learn'
 import {
   cancelPending,
   clearPendings,
@@ -93,6 +96,15 @@ export function registerIpc(): void {
   ipcMain.handle('tasks:update', (_e, id: string, patch: Partial<TaskRecord>) => {
     if (patch.status && !STATUSES.includes(patch.status)) return
     updateTask(id, patch)
+    // #15：用户把任务改判为「不是我的」→ 从其文本提取高精度信号，沉淀个人归属词典
+    if (patch.belongsToUser === 'no') {
+      const task = getTask(id)
+      const profile = getProfile()
+      if (task && profile) {
+        const next = learnNotMine(profile, `${task.title} ${task.belongingReason ?? ''}`)
+        if (next !== profile) saveProfile(next)
+      }
+    }
     broadcast('eshell:tasks-updated')
   })
   ipcMain.handle('tasks:bulk', (_e, ids: string[], status: TaskStatus) => {
@@ -102,6 +114,7 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('source:get', (_e, id: string) => getSource(id))
+  ipcMain.handle('memory:search', (_e, query: string) => searchSources(query))
   ipcMain.handle('source:delete', (_e, id: string) => {
     deleteSourceContent(id)
     broadcast('eshell:tasks-updated')

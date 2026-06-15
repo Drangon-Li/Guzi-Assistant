@@ -1,7 +1,7 @@
 import { unlink } from 'fs/promises'
 import { nativeImage } from 'electron'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
-import { ocrImage } from './ocr'
+import { ocrImageDetailed } from './ocr'
 import { parseToItems } from './parser'
 import { createSource, createTask, deleteSourceRow, getSettings, taskExists } from './db'
 import { broadcast, showPreview, isPreviewVisible } from './windows'
@@ -10,12 +10,25 @@ import { getFrontmostApp } from './frontapp'
 import { matchKeywords } from '@shared/keywords'
 import { pickBest } from '@shared/suggest'
 import { isAppExcluded } from '@shared/app-exclude'
+import { looksLikeChat, clusterChatSpeakers, formatChatTranscript } from '@shared/chat-layout'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
 import type { ParseSummary, ScanResult, TaskStatus } from '@shared/types'
 
 function emptySummary(error: string | null): ParseSummary {
   return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
+}
+
+/** OCR 文本；若像聊天界面（#54），前置「谁说的」转写作归属信号，保留全文。 */
+async function ocrTextForParse(png: string): Promise<string> {
+  const boxes = await ocrImageDetailed(png)
+  const text = boxes.map((b) => b.text).join('\n')
+  if (!text) return ''
+  if (looksLikeChat(boxes)) {
+    const transcript = formatChatTranscript(clusterChatSpeakers(boxes))
+    if (transcript) return `【聊天记录·谁说的】\n${transcript}\n\n【屏幕全文】\n${text}`
+  }
+  return text
 }
 
 /** 扫描一次当前屏幕：截图 → 本地 OCR → 解析 → 选最优 → 右下角弹建议卡 */
@@ -32,7 +45,7 @@ export async function scanOnce(): Promise<ScanResult> {
 
     let text: string
     try {
-      text = await ocrImage(png)
+      text = await ocrTextForParse(png)
     } finally {
       void unlink(png).catch(() => {}) // 截图用完即弃
     }
@@ -151,7 +164,7 @@ async function watchTick(): Promise<void> {
     if (lastHash !== null && hamming(hash, lastHash) <= PHASH_THRESHOLD) return // 屏幕没变 → 不 OCR、不上云
     lastHash = hash
 
-    const text = await ocrImage(png)
+    const text = await ocrTextForParse(png)
     if (!text) return
     const th = textHash(text)
     if (th === lastTextHash) return // 文本没变 → 跳过

@@ -49,6 +49,13 @@ export interface SourceRecord {
   deleted: boolean
 }
 
+/** #52 记忆检索命中：来源 + 高亮片段 + 其派生任务数 */
+export interface MemoryHit {
+  source: SourceRecord
+  snippet: string
+  taskCount: number
+}
+
 export interface TaskRecord {
   id: string
   sourceId: string | null
