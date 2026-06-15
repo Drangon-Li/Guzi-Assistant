@@ -12,7 +12,7 @@ interface Props {
 }
 
 const input =
-  'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none'
+  'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/5'
 
 export default function EditTaskModal({
   task,
@@ -112,7 +112,7 @@ export default function EditTaskModal({
             取消
           </button>
           <button
-            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-700"
+            className="rounded-lg bg-ink px-4 py-1.5 text-sm text-white hover:bg-black"
             onClick={save}
           >
             {confirmLabel}

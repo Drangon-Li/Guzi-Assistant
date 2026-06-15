@@ -38,8 +38,8 @@ function joinStatus(t: { startTime?: string | null; dueTime?: string | null }): 
 function Avatar({ role, initial }: { role: 'user' | 'assistant'; initial: string }): React.JSX.Element {
   return (
     <div
-      className={`flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-        role === 'assistant' ? 'bg-indigo-600 text-white' : 'bg-slate-300 text-slate-700'
+      className={`flex size-8 shrink-0 items-center justify-center text-xs font-semibold ${
+        role === 'assistant' ? 'bg-[#2c2d35] text-white rounded-[9px]' : 'bg-[#8a7aa0] text-white rounded-full'
       }`}
     >
       {initial}
@@ -224,9 +224,9 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-6 py-6">
           {msgs.length === 0 && (
             <div className="flex gap-3">
-              <Avatar role="assistant" initial="a1" />
+              <Avatar role="assistant" initial="纸" />
               <div className="flex max-w-[82%] flex-col gap-3">
-                <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-sm leading-6 shadow-sm">
+                <div className="rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-3 text-sm leading-6">
                   你好，我是 纸壳助手。把通知、聊天记录、邮件直接发给我，我来帮你提取待办；也可以直接问我日程安排。
                   <span className="mt-1 block text-xs text-slate-400">
                     （在其他应用里复制内容后按 {hotkeyLabel} 也能快速丢给我）
@@ -237,7 +237,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                     <button
                       key={s}
                       onClick={() => void send(s)}
-                      className="rounded-full border border-indigo-200 px-3 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50"
+                      className="rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
                     >
                       {s}
                     </button>
@@ -250,18 +250,18 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
           {msgs.map((m) =>
             m.role === 'user' ? (
               <div key={m.id} className="flex justify-end gap-3">
-                <div className="max-w-[82%] rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-white shadow-sm">
+                <div className="max-w-[82%] rounded-2xl rounded-tr-sm bg-[#eef3fa] px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-slate-800 shadow-sm">
                   {m.text}
                 </div>
                 <Avatar role="user" initial={userName.slice(0, 1) || '我'} />
               </div>
             ) : (
               <div key={m.id} className="flex gap-3">
-                <Avatar role="assistant" initial="a1" />
+                <Avatar role="assistant" initial="纸" />
                 <div className="flex max-w-[82%] min-w-0 flex-col gap-2">
                   <div
-                    className={`rounded-2xl rounded-tl-sm border px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap shadow-sm ${
-                      m.error ? 'border-red-200 bg-red-50 text-red-600' : 'border-slate-200 bg-white'
+                    className={`rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap ${
+                      m.error ? 'border border-red-200 bg-red-50 text-red-600' : 'bg-[#f5f4f3]'
                     }`}
                   >
                     {m.text}
@@ -281,7 +281,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                       return (
                         <div
                           key={idx}
-                          className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 shadow-sm"
+                          className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
                         >
                           <div className="flex items-start gap-2">
                             <span className="mt-0.5 shrink-0 rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
@@ -316,7 +316,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                                   className={`rounded-lg px-3 py-1 text-xs text-white ${
                                     item.duplicate_of
                                       ? 'bg-amber-500 hover:bg-amber-600'
-                                      : 'bg-indigo-600 hover:bg-indigo-700'
+                                      : 'bg-ink hover:bg-black'
                                   }`}
                                   onClick={() => void addCandidate(m.id, idx1, m.candidates!.ctx, item)}
                                 >
@@ -336,19 +336,19 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
 
           {pending.length > 0 && (
             <div className="flex gap-3">
-              <Avatar role="assistant" initial="a1" />
+              <Avatar role="assistant" initial="纸" />
               <div className="flex max-w-[82%] min-w-0 flex-col gap-2">
-                <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-2.5 text-sm leading-6 shadow-sm">
+                <div className="rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-2.5 text-sm leading-6">
                   我从你之前提交的内容里发现了 {pending.length} 个待确认事项：
                 </div>
                 {pending.map((t) => (
-                  <div key={t.id} className="rounded-xl border border-amber-200 bg-amber-50/40 p-3 shadow-sm">
+                  <div key={t.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                     <div className="flex items-start gap-2">
                       <span className="mt-0.5 shrink-0 rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
                         {TYPE_LABELS[t.itemType]}
                       </span>
                       <button
-                        className="min-w-0 flex-1 text-left text-sm leading-5 font-medium hover:text-indigo-600"
+                        className="min-w-0 flex-1 text-left text-sm leading-5 font-medium hover:text-slate-900"
                         onClick={() => setDetail(t)}
                       >
                         {t.title}
@@ -369,7 +369,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                     <div className="mt-2 flex items-center gap-2">
                       <button
                         className={`rounded-lg px-3 py-1 text-xs text-white ${
-                          t.duplicateOf ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'
+                          t.duplicateOf ? 'bg-amber-500 hover:bg-amber-600' : 'bg-ink hover:bg-black'
                         }`}
                         onClick={() => void api.updateTask(t.id, { status: joinStatus(t) })}
                       >
@@ -385,7 +385,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                         忽略
                       </button>
                       <button
-                        className="ml-auto rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-indigo-600"
+                        className="ml-auto rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-slate-900"
                         onClick={() => setDetail(t)}
                       >
                         详情
@@ -396,7 +396,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                 {pending.length > 1 && (
                   <div className="flex gap-2">
                     <button
-                      className="rounded-lg border border-indigo-200 px-3 py-1 text-xs text-indigo-600 hover:bg-indigo-50"
+                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
                       onClick={() => void joinAllPending()}
                     >
                       全部加入
@@ -415,8 +415,8 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
 
           {busy && (
             <div className="flex gap-3">
-              <Avatar role="assistant" initial="a1" />
-              <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <Avatar role="assistant" initial="纸" />
+              <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-3">
                 {[0, 150, 300].map((delay) => (
                   <span
                     key={delay}
@@ -439,7 +439,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
               title="扫描当前屏幕，自动提取待办"
               disabled={busy}
               onClick={() => void scanScreen()}
-              className="rounded-lg border border-indigo-300 px-2.5 py-2 text-xs text-indigo-600 hover:bg-indigo-50 disabled:opacity-40"
+              className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
             >
               扫描屏幕
             </button>
@@ -472,12 +472,12 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
               }
             }}
             placeholder="粘贴通知让我提取事项，或直接问我日程…（Shift+Enter 换行）"
-            className="max-h-36 min-w-0 flex-1 resize-none rounded-xl border border-slate-300 px-3.5 py-2 text-sm leading-6 focus:border-indigo-400 focus:outline-none"
+            className="max-h-36 min-w-0 flex-1 resize-none rounded-xl border border-slate-200 px-3.5 py-2 text-sm leading-6 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/5"
           />
           <button
             disabled={busy || !input.trim()}
             onClick={() => void send(input)}
-            className="rounded-xl bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-40"
+            className="rounded-xl bg-ink px-4 py-2 text-sm text-white hover:bg-black disabled:opacity-40"
           >
             发送
           </button>

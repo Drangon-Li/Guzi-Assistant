@@ -1,4 +1,17 @@
 @import 'tailwindcss';
+@import './sora.css';
+
+/* ============================================================
+   设计 token（Bloome 化设计语言 —— 中性外壳 / 色给内容 / 细字重 / 大留白）
+   见 UI 设计准则 issue。新增 UI 一律遵循。
+   ============================================================ */
+@theme {
+  --font-sans: 'Sora', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  /* 近黑主色（替代旧 indigo 主色）：主按钮 / 选中徽标 / 复选勾 */
+  --color-ink: #1d1d22;
+  /* Bloome 动效缓动 */
+  --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 
 html,
 body,
@@ -8,16 +21,18 @@ body,
 
 body {
   margin: 0;
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'PingFang SC',
-    'Helvetica Neue',
-    sans-serif;
+  font-family: var(--font-sans);
   background: transparent;
+  color: #23232a;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
+::selection {
+  background: #3b82f61f;
+}
+
+/* ---------- 动效（统一缓动 cubic-bezier(.2,.8,.2,1)，时长 120/180/260ms） ---------- */
 @keyframes overlay-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -27,30 +42,48 @@ body {
   to { opacity: 0; }
 }
 @keyframes modal-in {
-  from { opacity: 0; transform: scale(0.96) translateY(10px); }
+  from { opacity: 0; transform: scale(0.97) translateY(8px); }
   to { opacity: 1; transform: none; }
 }
 @keyframes modal-out {
   from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: scale(0.97) translateY(8px); }
+  to { opacity: 0; transform: scale(0.98) translateY(6px); }
 }
 @keyframes page-in {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes item-in {
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
 @keyframes toast-in {
-  from { opacity: 0; transform: translate(-50%, 12px); }
+  from { opacity: 0; transform: translate(-50%, 10px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 @keyframes card-in {
-  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
   to { opacity: 1; transform: none; }
 }
 
-.animate-overlay-in { animation: overlay-in 0.18s ease-out; }
+.animate-overlay-in { animation: overlay-in 0.18s var(--ease-spring); }
 .animate-overlay-out { animation: overlay-out 0.16s ease-in forwards; }
-.animate-modal-in { animation: modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-modal-in { animation: modal-in 0.26s var(--ease-spring); }
 .animate-modal-out { animation: modal-out 0.16s ease-in forwards; }
-.animate-page { animation: page-in 0.26s cubic-bezier(0.16, 1, 0.3, 1); }
-.animate-toast { animation: toast-in 0.2s ease-out; }
-.animate-card-in { animation: card-in 0.24s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-page { animation: page-in 0.26s var(--ease-spring); }
+.animate-toast { animation: toast-in 0.2s var(--ease-spring); }
+.animate-card-in { animation: card-in 0.24s var(--ease-spring); }
+
+/* 列表错位进场：父级加 .stagger，子项依次淡入 */
+.stagger > * { animation: item-in 0.18s var(--ease-spring) both; }
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.10s; }
+.stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.stagger > *:nth-child(6) { animation-delay: 0.22s; }
+.stagger > *:nth-child(7) { animation-delay: 0.26s; }
+.stagger > *:nth-child(8) { animation-delay: 0.30s; }
+
+/* macOS hiddenInset：为交通灯腾出空间 */
+.titlebar-pad { padding-top: 40px; }

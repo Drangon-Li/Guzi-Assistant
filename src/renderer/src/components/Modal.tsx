@@ -29,7 +29,7 @@ export default function Modal({ panelClass, onClose, children }: Props): React.J
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/30 ${
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-[#11152030] ${
         closing ? 'animate-overlay-out' : 'animate-overlay-in'
       }`}
       onClick={close}

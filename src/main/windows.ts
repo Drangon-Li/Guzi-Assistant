@@ -23,6 +23,10 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 600,
     title: 'EShell',
     show: false,
+    // 现代 macOS 风格：隐藏标题栏，红黄绿交通灯浮在侧栏上方（与设计稿一致）
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 18, y: 18 },
+    backgroundColor: '#ffffff',
     webPreferences: { preload }
   })
   mainWin.on('ready-to-show', () => mainWin?.show())

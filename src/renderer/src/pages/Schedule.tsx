@@ -78,7 +78,7 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
     <div className="mx-auto max-w-3xl px-8 py-8">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">日程</h1>
-        <div className="flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs">
+        <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
           {(
             [
               ['today', '今日'],
@@ -90,7 +90,9 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
               key={key}
               onClick={() => setTab(key)}
               className={`rounded-md px-3 py-1 ${
-                tab === key ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700'
+                tab === key
+                  ? 'bg-white text-slate-900 font-medium shadow-sm'
+                  : 'text-slate-400 hover:text-slate-700'
               }`}
             >
               {label}
@@ -140,7 +142,7 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
                     </span>
                   )}
                   <button
-                    className="shrink-0 rounded px-2 py-1 text-[11px] text-indigo-600 hover:bg-indigo-50"
+                    className="shrink-0 rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                     onClick={() => void api.updateTask(t.id, { status: 'pending', feedback: null })}
                   >
                     恢复
@@ -223,12 +225,12 @@ function TaskRow({
             status: isDone ? (task.dueTime || task.startTime ? 'scheduled' : 'not_started') : 'done'
           })
         }
-        className="size-4 shrink-0 accent-indigo-600"
+        className="size-4 shrink-0 accent-slate-800"
       />
       <div className="min-w-0 flex-1">
         <button
           onClick={onOpen}
-          className={`block w-full truncate text-left text-sm hover:text-indigo-600 ${
+          className={`block w-full truncate text-left text-sm hover:text-slate-900 ${
             isDone ? 'text-slate-400 line-through' : ''
           }`}
         >
@@ -248,7 +250,7 @@ function TaskRow({
         </div>
       </div>
       {isOverdue ? (
-        <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[11px] text-red-600">
+        <span className="shrink-0 rounded-full border border-[#c0584e]/30 px-2 py-0.5 text-[11px] text-[#c0584e]">
           已延期
         </span>
       ) : (
@@ -267,14 +269,14 @@ function TaskRow({
         )
       )}
       <button
-        className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-indigo-600"
+        className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-50"
         onClick={onEdit}
       >
         编辑
       </button>
       {task.sourceId && (
         <button
-          className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-indigo-600"
+          className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-50"
           onClick={onShowSource}
         >
           来源

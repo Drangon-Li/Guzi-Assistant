@@ -107,7 +107,7 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
     <div className="mx-auto max-w-3xl px-8 py-8">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">时间轴</h1>
-        <div className="flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs">
+        <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
           {(
             [
               ['day', '天'],
@@ -119,7 +119,9 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
               key={key}
               onClick={() => setMode(key)}
               className={`rounded-md px-3 py-1 ${
-                mode === key ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-700'
+                mode === key
+                  ? 'bg-white text-slate-900 font-medium shadow-sm'
+                  : 'text-slate-400 hover:text-slate-700'
               }`}
             >
               {label}
@@ -148,13 +150,11 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
               <button
                 key={t.id}
                 onClick={() => setDetail(t)}
-                className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 text-left shadow-sm ${
-                  urgent ? 'border-red-200 bg-red-50/60' : 'border-indigo-100 bg-indigo-50/60'
-                }`}
+                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left shadow-sm"
               >
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">「{t.title}」</span>
                 <span
-                  className={`shrink-0 text-sm font-semibold ${urgent ? 'text-red-600' : 'text-indigo-600'}`}
+                  className={`shrink-0 text-sm font-semibold ${urgent ? 'text-[#c0584e]' : 'text-slate-700'}`}
                 >
                   {label}
                 </span>
@@ -240,11 +240,11 @@ function TimelineSection({
       <div className="absolute top-1.5 bottom-0 left-[5px] w-px bg-slate-200" />
       <div
         className={`absolute top-1.5 left-0 size-[11px] rounded-full border-2 bg-white ${
-          danger ? 'border-red-400' : 'border-indigo-400'
+          danger ? 'border-[#c0584e]' : 'border-slate-300'
         }`}
       />
       <div className="flex items-baseline gap-2">
-        <h2 className={`text-sm font-semibold ${danger ? 'text-red-600' : ''}`}>{label}</h2>
+        <h2 className={`text-sm font-semibold ${danger ? 'text-[#c0584e]' : ''}`}>{label}</h2>
         {sub && <span className="text-xs text-slate-400">{sub}</span>}
       </div>
       <div className="mt-2 flex flex-col gap-2">
@@ -254,9 +254,9 @@ function TimelineSection({
             <button
               key={t.id}
               onClick={() => onOpen(t)}
-              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left shadow-sm hover:border-indigo-300"
+              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left shadow-sm hover:border-slate-300"
             >
-              <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
+              <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-500">
                 {TYPE_LABELS[t.itemType]}
               </span>
               <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
@@ -264,22 +264,20 @@ function TimelineSection({
                 <span className="hidden shrink-0 text-xs text-slate-400 sm:inline">{t.location}</span>
               )}
               {time && (
-                <span className={`shrink-0 text-xs ${danger ? 'text-red-500' : 'text-slate-500'}`}>
+                <span className={`shrink-0 text-xs ${danger ? 'text-[#c0584e]' : 'text-slate-500'}`}>
                   {fmtTime(time)}
                 </span>
               )}
               {t.priority !== 'unknown' && (
                 <span
-                  className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${
+                  className={`shrink-0 size-1.5 rounded-full ${
                     t.priority === 'high'
-                      ? 'bg-red-100 text-red-600'
+                      ? 'bg-[#c0584e]'
                       : t.priority === 'medium'
-                        ? 'bg-amber-100 text-amber-600'
-                        : 'bg-slate-100 text-slate-500'
+                        ? 'bg-[#c8a24a]'
+                        : 'bg-slate-300'
                   }`}
-                >
-                  {PRIORITY_LABELS[t.priority]}
-                </span>
+                />
               )}
             </button>
           )

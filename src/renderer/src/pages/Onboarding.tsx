@@ -8,7 +8,7 @@ interface Props {
 }
 
 const input =
-  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none'
+  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
 
 function splitList(s: string): string[] {
   return s
@@ -46,7 +46,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
   return (
     <div className="flex h-full items-center justify-center bg-slate-100">
       <div className="w-[520px] rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="text-xl font-bold">欢迎使用 纸壳助手</div>
+        <div className="text-xl font-semibold">欢迎使用 纸壳助手</div>
         <p className="mt-1 text-xs leading-5 text-slate-400">
           纸壳助手 需要一份最小档案来判断「哪些事是你的事」。约 2 分钟完成，所有选填项都可以跳过。
         </p>
@@ -55,7 +55,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
           {[0, 1, 2].map((i) => (
             <div
               key={i}
-              className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-indigo-500' : 'bg-slate-200'}`}
+              className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-ink' : 'bg-slate-200'}`}
             />
           ))}
         </div>
@@ -109,7 +109,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
                     onClick={() => setIdentity(it.value)}
                     className={`rounded-xl border px-4 py-2.5 text-left ${
                       identity === it.value
-                        ? 'border-indigo-400 bg-indigo-50'
+                        ? 'border-slate-300 bg-slate-50'
                         : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
@@ -152,7 +152,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
                   onClick={() => setConfirmMode(m.value)}
                   className={`rounded-xl border px-4 py-3 text-left ${
                     confirmMode === m.value
-                      ? 'border-indigo-400 bg-indigo-50'
+                      ? 'border-slate-300 bg-slate-50'
                       : 'border-slate-200 hover:border-slate-300'
                   }`}
                 >
@@ -174,7 +174,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
           </button>
           {step < 2 ? (
             <button
-              className="rounded-lg bg-indigo-600 px-5 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-40"
+              className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black disabled:opacity-40"
               disabled={step === 0 && !name.trim()}
               onClick={() => setStep(step + 1)}
             >
@@ -182,7 +182,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
             </button>
           ) : (
             <button
-              className="rounded-lg bg-indigo-600 px-5 py-2 text-sm text-white hover:bg-indigo-700"
+              className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black"
               onClick={() => void finish()}
             >
               开始使用

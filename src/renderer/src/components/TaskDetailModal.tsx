@@ -19,7 +19,7 @@ interface Props {
 }
 
 const input =
-  'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none'
+  'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/5'
 
 const EDIT_STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'done']
 
@@ -167,7 +167,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   )}
                   {due && current.status !== 'done' && (
                     <Field label="倒计时">
-                      <span className={current.status === 'overdue' ? 'text-red-500' : 'text-indigo-600'}>
+                      <span className={current.status === 'overdue' ? 'text-[#c0584e]' : 'text-slate-700'}>
                         {countdownLabel(due)}
                       </span>
                     </Field>
@@ -234,7 +234,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   取消
                 </button>
                 <button
-                  className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs text-white hover:bg-indigo-700 disabled:opacity-40"
+                  className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black disabled:opacity-40"
                   disabled={!title.trim()}
                   onClick={() => void save()}
                 >
@@ -270,7 +270,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   编辑
                 </button>
                 <button
-                  className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs text-white hover:bg-indigo-700"
+                  className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
                   onClick={close}
                 >
                   关闭
