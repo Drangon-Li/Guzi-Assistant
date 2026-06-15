@@ -105,63 +105,72 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
     setMsg('')
   }
 
-  const packCls = (selected: boolean): string =>
-    `flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left text-sm transition ${
-      selected ? 'border-ink ring-2 ring-ink/10' : 'border-slate-200 hover:border-slate-300'
-    }`
-  const payCls = (selected: boolean): string =>
-    `rounded-lg border px-3 py-1 text-xs transition ${
-      selected ? 'border-ink text-ink' : 'border-slate-200 text-slate-400 hover:text-slate-600'
-    }`
-
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-3 gap-2">
         {PACKS.map((p) => {
           const selected = choice.kind === 'credits' && choice.pack.id === p.id
           return (
-            <button key={p.id} className={packCls(selected)} onClick={() => setChoice({ kind: 'credits', pack: p })}>
-              <span className="font-medium text-slate-700">{p.label}</span>
-              <span className="text-slate-500">{yuan(p.amountCents)}</span>
-              {p.tag && <span className="text-[10px] text-emerald-600">{p.tag}</span>}
+            <button
+              key={p.id}
+              className={`opt${selected ? ' on' : ''}`}
+              onClick={() => setChoice({ kind: 'credits', pack: p })}
+            >
+              <div className="ol">{p.label}</div>
+              <div className="od">{yuan(p.amountCents)}</div>
+              {p.tag && (
+                <div className="od mt-0.5" style={{ color: 'var(--okc)' }}>
+                  {p.tag}
+                </div>
+              )}
             </button>
           )
         })}
       </div>
 
       <button
-        className={packCls(choice.kind === 'membership')}
+        className={`opt${choice.kind === 'membership' ? ' on' : ''}`}
         onClick={() => setChoice({ kind: 'membership' })}
       >
-        <span className="font-medium text-slate-700">{MEMBERSHIP.label}</span>
-        <span className="text-slate-500">每月赠 {MEMBERSHIP.grant} 积分 · 跨设备通用</span>
+        <div className="ol">{MEMBERSHIP.label}</div>
+        <div className="od">每月赠 {MEMBERSHIP.grant} 积分 · 跨设备通用</div>
       </button>
 
       <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-400">支付方式</span>
-        <button className={payCls(payType === 'alipay')} onClick={() => setPayType('alipay')}>
+        <span className="text-[11.5px]" style={{ color: 'var(--t3)' }}>
+          支付方式
+        </span>
+        <button
+          className={`btn btn-sm ${payType === 'alipay' ? 'btn-outline on' : 'btn-ghost'}`}
+          style={payType === 'alipay' ? { borderColor: 'var(--t2)', color: 'var(--t1)' } : undefined}
+          onClick={() => setPayType('alipay')}
+        >
           支付宝
         </button>
-        <button className={payCls(payType === 'wxpay')} onClick={() => setPayType('wxpay')}>
+        <button
+          className={`btn btn-sm ${payType === 'wxpay' ? 'btn-outline on' : 'btn-ghost'}`}
+          style={payType === 'wxpay' ? { borderColor: 'var(--t2)', color: 'var(--t1)' } : undefined}
+          onClick={() => setPayType('wxpay')}
+        >
           微信
         </button>
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black disabled:opacity-40"
-          disabled={busy}
-          onClick={() => void recharge()}
-        >
+        <button className="btn btn-primary" disabled={busy} onClick={() => void recharge()}>
           {busy ? '等待支付…' : '充值'}
         </button>
         {busy && (
-          <button className="text-xs text-slate-400 hover:text-slate-600" onClick={cancel}>
+          <button className="btn btn-ghost btn-sm" onClick={cancel}>
             取消
           </button>
         )}
       </div>
-      {msg && <p className="text-xs leading-5 text-slate-500">{msg}</p>}
+      {msg && (
+        <p className="text-[11.5px] leading-5" style={{ color: 'var(--t2)' }}>
+          {msg}
+        </p>
+      )}
     </div>
   )
 }

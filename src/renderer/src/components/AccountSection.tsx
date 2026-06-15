@@ -4,9 +4,6 @@ import { supabase, hasBackend } from '../supabase'
 import { api } from '../api'
 import RechargePanel from './RechargePanel'
 
-const input =
-  'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
-
 /** #69 账号体系：登录/注册/登出 + 积分余额。托管解析(#39)与充值(#41)的前提。 */
 export default function AccountSection(): React.JSX.Element {
   const [session, setSession] = useState<Session | null>(null)
@@ -71,21 +68,23 @@ export default function AccountSection(): React.JSX.Element {
   }
 
   if (session) {
+    const em = session.user.email ?? ''
     return (
-      <div className="flex flex-col gap-2 text-sm">
-        <div className="flex items-center justify-between">
-          <span className="text-slate-600">{session.user.email}</span>
-          <button
-            className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:bg-slate-50"
-            onClick={() => void sb.auth.signOut()}
-          >
+      <div className="flex flex-col gap-4">
+        <div className="acct">
+          <div className="av">{(em[0] ?? 'U').toUpperCase()}</div>
+          <div className="who">
+            <div className="n">{em}</div>
+            <div className="balance">
+              <span className="v">{balance == null ? '—' : balance}</span>
+              <span className="u">积分</span>
+            </div>
+          </div>
+          <button className="btn btn-outline btn-sm" onClick={() => void sb.auth.signOut()}>
             退出登录
           </button>
         </div>
-        <div className="text-xs text-slate-400">
-          积分余额：{balance == null ? '—' : <span className="font-medium text-slate-700">{balance}</span>}
-        </div>
-        <div className="mt-1 border-t border-slate-100 pt-3">
+        <div style={{ borderTop: '1px solid var(--line)' }} className="pt-4">
           <RechargePanel onRecharged={() => void loadBalance()} />
         </div>
       </div>
@@ -93,30 +92,33 @@ export default function AccountSection(): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-2 gap-2">
-        <input className={input} placeholder="邮箱" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <input
-          className={input}
-          type="password"
-          placeholder="密码"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void submit()
-          }}
-        />
+    <div className="flex flex-col gap-3">
+      <div className="grid2">
+        <div className="field">
+          <input placeholder="邮箱" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </div>
+        <div className="field">
+          <input
+            type="password"
+            placeholder="密码"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submit()
+            }}
+          />
+        </div>
       </div>
       <div className="flex items-center gap-3">
         <button
-          className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black disabled:opacity-40"
+          className="btn btn-primary"
           disabled={busy || !email.trim() || !password}
           onClick={() => void submit()}
         >
           {mode === 'login' ? '登录' : '注册'}
         </button>
         <button
-          className="text-xs text-slate-400 hover:text-slate-600"
+          className="btn btn-ghost btn-sm"
           onClick={() => {
             setMode(mode === 'login' ? 'register' : 'login')
             setMsg('')
@@ -125,7 +127,11 @@ export default function AccountSection(): React.JSX.Element {
           {mode === 'login' ? '没有账号？注册' : '已有账号？登录'}
         </button>
       </div>
-      {msg && <p className="text-xs leading-5 text-amber-700">{msg}</p>}
+      {msg && (
+        <p className="text-[11.5px] leading-5" style={{ color: 'var(--warn)' }}>
+          {msg}
+        </p>
+      )}
     </div>
   )
 }
