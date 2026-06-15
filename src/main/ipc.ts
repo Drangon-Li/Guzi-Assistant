@@ -30,6 +30,7 @@ import { setHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
 import { acceptSuggestion, applyScreenSenseSettings, scanOnce } from './screenwatch'
+import { setSession } from './session'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
@@ -51,6 +52,11 @@ export function triggerClipboardCapture(): void {
 export function registerIpc(): void {
   ipcMain.handle('profile:get', () => getProfile())
   ipcMain.handle('profile:save', (_e, p: Profile) => saveProfile(p))
+
+  ipcMain.handle(
+    'auth:set-session',
+    (_e, s: { functionsBase: string; token: string | null }) => setSession(s)
+  )
 
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {

@@ -27,6 +27,9 @@ export const api = {
   getProfile: () => inv<Profile | null>('profile:get'),
   saveProfile: (p: Profile) => inv<void>('profile:save', p),
 
+  setSession: (functionsBase: string, token: string | null) =>
+    inv<void>('auth:set-session', { functionsBase, token }),
+
   getSettings: () => inv<AppSettings>('settings:get'),
   /** 返回 false 表示快捷键注册失败（被其他应用占用） */
   saveSettings: (patch: Partial<AppSettings>) => inv<boolean>('settings:save', patch),
