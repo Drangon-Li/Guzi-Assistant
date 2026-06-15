@@ -454,6 +454,15 @@ export default function Assistant({ tasks, showToast, userName }: Props): React.
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault()
+                  // 键盘交互视觉（#2c）：回车提交时输入栏轻微反馈一下
+                  if (input.trim()) {
+                    const pill = e.currentTarget.closest('.input-pill')
+                    if (pill) {
+                      pill.classList.remove('key-sent')
+                      void (pill as HTMLElement).offsetWidth // 重启动画
+                      pill.classList.add('key-sent')
+                    }
+                  }
                   void send(input)
                 }
               }}

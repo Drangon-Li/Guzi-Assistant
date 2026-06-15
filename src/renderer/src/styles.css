@@ -81,6 +81,32 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 /* macOS hiddenInset：为交通灯腾出空间 */
 .titlebar-pad { padding-top: 40px; }
 
+/* ---------- 键盘交互视觉（#2c）：仅键盘聚焦显示焦点环，鼠标点击不打扰；含细微进入动画 ---------- */
+@keyframes focus-ring-in { from { box-shadow: 0 0 0 0 #3b82f600; } to { box-shadow: 0 0 0 3px #3b82f63d; } }
+.nav-item:focus-visible,
+.btn:focus-visible,
+.opt:focus-visible,
+.seg button:focus-visible,
+.icon-btn:focus-visible,
+.send:focus-visible,
+.checkbox:focus-visible,
+.mini-select:focus-visible,
+.suggest button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px #3b82f63d;
+  animation: focus-ring-in var(--fast) var(--ease);
+}
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible,
+.input-pill:focus-within {
+  border-color: var(--line-3);
+  box-shadow: 0 0 0 3px #3b82f61f;
+}
+/* 键入即时反馈：撞回车「发送/提交」时输入栏轻微下沉一下（JS 加 .key-sent 触发） */
+@keyframes key-sent { 0% { transform: scale(1); } 35% { transform: scale(0.985); } 100% { transform: scale(1); } }
+.key-sent { animation: key-sent 0.18s var(--ease); }
+
 /* ============================================================
    应用骨架
    ============================================================ */
