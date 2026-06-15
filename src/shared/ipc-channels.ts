@@ -7,6 +7,7 @@ export const INVOKE_CHANNELS = [
   'profile:save',
   'settings:get',
   'settings:save',
+  'auth:set-session',
   'capture:clipboard',
   'capture:files',
   'capture:screenshot',

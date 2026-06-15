@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { api } from './api'
+import { supabase, functionsBase } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
 import Assistant from './pages/Assistant'
@@ -43,6 +44,15 @@ function MainApp(): React.JSX.Element | null {
 
   const refresh = useCallback(() => {
     void api.listTasks().then(setTasks)
+  }, [])
+
+  // #70：把 Supabase 登录态(functionsBase + token)推给主进程，供 parser 调 parse 网关
+  useEffect(() => {
+    if (!supabase) return
+    const push = (token: string | null): void => void api.setSession(functionsBase(), token)
+    void supabase.auth.getSession().then(({ data }) => push(data.session?.access_token ?? null))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => push(s?.access_token ?? null))
+    return () => sub.subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
