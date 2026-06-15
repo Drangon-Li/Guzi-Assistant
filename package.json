@@ -26,9 +26,11 @@
     "test:filters": "node test/task-filters-smoke.mjs",
     "test:phash": "node test/phash-smoke.mjs",
     "test:safepath": "node test/safe-path-smoke.mjs",
+    "test:ftsquery": "node test/fts-query-smoke.mjs",
+    "test:chatlayout": "node test/chat-layout-smoke.mjs",
     "test:belonglearn": "node test/belonging-learn-smoke.mjs",
     "test:chpay": "node test/chpay-smoke.mjs",
-    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs && node test/ics-smoke.mjs && node test/parse-smoke.mjs && node test/labels-smoke.mjs && node test/ipc-channels-smoke.mjs && node test/daily-brief-smoke.mjs && node test/belonging-hints-smoke.mjs && node test/task-filters-smoke.mjs && node test/phash-smoke.mjs && node test/safe-path-smoke.mjs && node test/belonging-learn-smoke.mjs && node test/chpay-smoke.mjs"
+    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs && node test/ics-smoke.mjs && node test/parse-smoke.mjs && node test/labels-smoke.mjs && node test/ipc-channels-smoke.mjs && node test/daily-brief-smoke.mjs && node test/belonging-hints-smoke.mjs && node test/task-filters-smoke.mjs && node test/phash-smoke.mjs && node test/safe-path-smoke.mjs && node test/fts-query-smoke.mjs && node test/chat-layout-smoke.mjs && node test/belonging-learn-smoke.mjs && node test/chpay-smoke.mjs"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.66.1",
@@ -52,5 +54,8 @@
     "tailwindcss": "^4.1.0",
     "typescript": "^5.9.0",
     "vite": "^7.1.0"
+  },
+  "overrides": {
+    "axios": "^1.18.0"
   }
 }

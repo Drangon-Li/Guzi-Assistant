@@ -6,15 +6,17 @@ import Onboarding from './pages/Onboarding'
 import Assistant from './pages/Assistant'
 import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
+import Memory from './pages/Memory'
 import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
 
-type Page = 'assistant' | 'timeline' | 'schedule' | 'settings'
+type Page = 'assistant' | 'timeline' | 'schedule' | 'memory' | 'settings'
 
 const NAV: { key: Page; label: string }[] = [
   { key: 'assistant', label: '助手' },
   { key: 'timeline', label: '时间轴' },
   { key: 'schedule', label: '日程' },
+  { key: 'memory', label: '记忆' },
   { key: 'settings', label: '设置' }
 ]
 
@@ -54,7 +56,13 @@ function MainApp(): React.JSX.Element | null {
     const offSettings = api.on('eshell:settings-updated', loadHotkey)
     const offNav = api.on('eshell:navigate', (route) => {
       if (route === 'inbox' || route === 'assistant') setPage('assistant')
-      else if (route === 'timeline' || route === 'schedule' || route === 'settings') setPage(route)
+      else if (
+        route === 'timeline' ||
+        route === 'schedule' ||
+        route === 'memory' ||
+        route === 'settings'
+      )
+        setPage(route)
     })
     return () => {
       offTasks()
@@ -141,6 +149,7 @@ function MainApp(): React.JSX.Element | null {
           )}
           {page === 'timeline' && <Timeline tasks={tasks} />}
           {page === 'schedule' && <Schedule tasks={tasks} />}
+          {page === 'memory' && <Memory />}
           {page === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>
       </main>
