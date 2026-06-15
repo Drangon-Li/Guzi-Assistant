@@ -29,3 +29,24 @@ export async function accessToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession()
   return data.session?.access_token ?? null
 }
+
+/**
+ * 调 Edge Function：自动带 apikey + 登录 token。path 形如 `/pay-create`、`/pay-query?out_trade_no=x`。
+ * 解析 JSON；非 2xx 抛 Error（取后端 error 文案）。未登录抛「请先登录」。
+ */
+export async function callFunction<T = unknown>(path: string, init?: RequestInit): Promise<T> {
+  const token = await accessToken()
+  if (!token) throw new Error('请先登录')
+  const res = await fetch(`${functionsBase()}${path}`, {
+    ...init,
+    headers: {
+      apikey: anonKey!,
+      Authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+      ...(init?.headers ?? {})
+    }
+  })
+  const body = (await res.json().catch(() => ({}))) as { error?: string } & T
+  if (!res.ok) throw new Error(body?.error || `服务返回 ${res.status}`)
+  return body as T
+}
