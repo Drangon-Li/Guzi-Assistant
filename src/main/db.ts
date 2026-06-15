@@ -291,7 +291,14 @@ const TASK_EDITABLE: Record<string, string> = {
   priority: 'priority',
   status: 'status',
   feedback: 'feedback',
-  notes: 'notes'
+  notes: 'notes',
+  belongsToUser: 'belongs_to_user' // #15：允许用户改判归属（驱动个性化学习）
+}
+
+/** 单条任务（归属纠偏学习要读 title/belongingReason） */
+export function getTask(id: string): TaskRecord | null {
+  const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow | undefined
+  return row ? rowToTask(row) : null
 }
 
 export function updateTask(id: string, patch: Partial<TaskRecord>): void {
