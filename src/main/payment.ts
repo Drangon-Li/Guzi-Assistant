@@ -15,6 +15,8 @@ const escapeHtml = (s: string): string =>
 /** 打开支付窗口：自动提交表单 POST 到 chpay。重复调用先关旧窗。 */
 export function openPayment(payUrl: string, params: Record<string, string>): void {
   closePayment()
+  // 只接受 http(s) 跳转：挡 javascript:/data: 等危险 scheme + null/非串导致主进程崩溃
+  if (typeof payUrl !== 'string' || !/^https?:\/\//i.test(payUrl) || !params) return
   const fields = Object.entries(params)
     .map(([k, v]) => `<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(String(v))}">`)
     .join('')
@@ -23,17 +25,19 @@ export function openPayment(payUrl: string, params: Record<string, string>): voi
 正在跳转到支付页…
 <form method="POST" action="${escapeHtml(payUrl)}">${fields}</form>
 </body></html>`
-  payWin = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 460,
     height: 640,
     title: '充值支付',
     autoHideMenuBar: true,
     webPreferences: { nodeIntegration: false, contextIsolation: true }
   })
-  payWin.on('closed', () => {
-    payWin = null
+  payWin = win
+  // 仅当自己仍是当前窗口才清引用：避免旧窗异步 'closed' 抹掉新窗（取消后快速重试会泄漏新窗）
+  win.on('closed', () => {
+    if (payWin === win) payWin = null
   })
-  void payWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+  void win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
 }
 
 /** 关闭支付窗口（支付成功 / 用户取消时）。 */

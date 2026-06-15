@@ -80,6 +80,7 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
               setMsg('充值成功，积分已到账 🎉')
               setBusy(false)
               onRecharged()
+              return // 命中即收尾，别让下面的超时分支覆盖成功提示（恰好第 60 次到账时）
             }
           } catch {
             // 单次查询失败忽略，继续轮询
