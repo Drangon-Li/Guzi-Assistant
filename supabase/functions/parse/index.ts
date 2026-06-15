@@ -7,20 +7,23 @@
  *
  * 复用 server/billing/credits.ts(#63) 的纯积分逻辑（Deno 可直接 import 纯 TS）。
  *
+ * ⚙️ 上游 relay = OpenAI **Chat Completions**（`/v1/chat/completions`，yunwu.ai 聚合，Edge 可达的公网
+ * HTTPS）。本函数做适配层：把客户端的 Responses 风格请求（{instructions, input}）转成 chat messages，
+ * 再把回复包成 `{output_text}` —— 让客户端 extractText 原样可用（客户端 / 共享解析零改动）。
+ *
  * 部署：supabase functions deploy parse
  * 所需密钥（supabase secrets set）：
- *   ESHELL_LLM_BASE  = http://101.201.227.31:9000   （我方模型 relay，国内 HTTP）
+ *   ESHELL_LLM_BASE  = https://yunwu.ai
  *   ESHELL_LLM_KEY   = <relay key>
- *   ESHELL_LLM_MODEL = gpt-5.5
+ *   ESHELL_LLM_MODEL = deepseek-v4-flash
  *   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 由平台注入
- * 注：relay 是国内 IP，若 Edge runtime 到不了，需在 relay 侧加公网入口或走代理（部署时验证）。
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { creditCost, type BillableAction } from '../../../server/billing/credits.ts'
 
 const LLM_BASE = Deno.env.get('ESHELL_LLM_BASE') ?? ''
 const LLM_KEY = Deno.env.get('ESHELL_LLM_KEY') ?? ''
-const LLM_MODEL = Deno.env.get('ESHELL_LLM_MODEL') ?? 'gpt-5.5'
+const LLM_MODEL = Deno.env.get('ESHELL_LLM_MODEL') ?? 'deepseek-v4-flash'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -28,6 +31,31 @@ const cors = {
 }
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'content-type': 'application/json' } })
+
+/** Responses 风格 content 段 */
+type RPart = { type: string; text?: string; image_url?: string }
+type RTurn = { role: string; content: RPart[] }
+type ChatPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+
+/** 把 {instructions, input(Responses 风格)} 适配成 OpenAI Chat Completions messages。 */
+function toMessages(instructions: string, input: RTurn[]): unknown[] {
+  const messages: unknown[] = []
+  if (instructions) messages.push({ role: 'system', content: instructions })
+  for (const turn of input ?? []) {
+    const parts: ChatPart[] = (turn.content ?? []).map((c) =>
+      c.type === 'input_image' && c.image_url
+        ? { type: 'image_url', image_url: { url: c.image_url } }
+        : { type: 'text', text: c.text ?? '' }
+    )
+    // 纯文本时压成字符串（最大兼容，避免个别模型不收 content 数组）
+    const onlyText = parts.every((p) => p.type === 'text')
+    messages.push({
+      role: turn.role === 'assistant' ? 'assistant' : 'user',
+      content: onlyText ? parts.map((p) => (p as { text: string }).text).join('\n') : parts
+    })
+  }
+  return messages
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -45,7 +73,7 @@ Deno.serve(async (req) => {
     const { action, instructions, input } = (await req.json()) as {
       action: BillableAction
       instructions: string
-      input: unknown[]
+      input: RTurn[]
     }
     const reason = action ?? 'parse_text'
     const cost = creditCost(reason)
@@ -62,14 +90,18 @@ Deno.serve(async (req) => {
     if (affordable < cost)
       return json({ error: '积分不足', balance: row.grant_balance + row.purchased_balance }, 402)
 
-    // 3. 转发我方模型 relay（与客户端 parser 同形）。失败不扣（#56 心安）。
-    const res = await fetch(`${LLM_BASE.replace(/\/$/, '')}/v1/responses`, {
+    // 3. 转发上游 relay（OpenAI Chat Completions）。失败不扣（#56 心安）。
+    const res = await fetch(`${LLM_BASE.replace(/\/$/, '')}/v1/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${LLM_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: LLM_MODEL, instructions, input, reasoning: { effort: 'low' } })
+      body: JSON.stringify({ model: LLM_MODEL, messages: toMessages(instructions, input) })
     })
     if (!res.ok) return json({ error: `解析服务返回 ${res.status}` }, 502)
-    const data = await res.json()
+    const completion = (await res.json()) as {
+      choices?: { message?: { content?: string } }[]
+    }
+    const text = completion?.choices?.[0]?.message?.content ?? ''
+    if (!text) return json({ error: '解析服务空响应' }, 502)
 
     // 4. 成功后原子扣费（deduct_credits：for update 行锁，含月度重置 + 写流水，防并发超扣）
     const { data: charge } = await admin.rpc('deduct_credits', {
@@ -79,7 +111,8 @@ Deno.serve(async (req) => {
     })
     const balance = (charge as { balance?: number } | null)?.balance ?? null
 
-    return json({ data, balance })
+    // 包成 Responses 形状（output_text）→ 客户端 extractText 原样可用
+    return json({ data: { output_text: text }, balance })
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500)
   }
