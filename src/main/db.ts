@@ -146,7 +146,9 @@ export function getSettings(): AppSettings {
     screenSenseContinuous: map.screenSenseContinuous === 'true',
     screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,
     // 排除名单空 = 不排除（不能像关键词那样回退默认词表）
-    screenSenseExcludedApps: parseList(map.screenSenseExcludedApps)
+    screenSenseExcludedApps: parseList(map.screenSenseExcludedApps),
+    screenSenseKeepShots: map.screenSenseKeepShots === 'true',
+    screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14
   }
 }
 

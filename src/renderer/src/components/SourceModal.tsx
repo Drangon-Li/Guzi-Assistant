@@ -11,9 +11,11 @@ interface Props {
 
 export default function SourceModal({ sourceId, onClose }: Props): React.JSX.Element {
   const [source, setSource] = useState<SourceRecord | null | undefined>(undefined)
+  const [shot, setShot] = useState<string | null>(null)
 
   const load = (): void => {
     void api.getSource(sourceId).then(setSource)
+    void api.readShot(sourceId).then(setShot) // #52/#53：解密的截图缩略图（无则 null）
   }
   useEffect(load, [sourceId])
 
@@ -45,6 +47,12 @@ export default function SourceModal({ sourceId, onClose }: Props): React.JSX.Ele
               <span>提交于 {fmtTime(source.createdAt)}</span>
               {source.filePath && <span className="truncate">{source.filePath}</span>}
             </div>
+            {shot && !source.deleted && (
+              <div className="mb-3">
+                <div className="mb-1 text-[11px] text-slate-400">截图（本地加密保存）</div>
+                <img src={shot} alt="截图缩略图" className="max-h-48 rounded border border-slate-200" />
+              </div>
+            )}
             <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
               {source.deleted ? (
                 <div className="py-6 text-center text-sm text-slate-400">原文已删除</div>

@@ -549,6 +549,50 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                       这些应用在前台时连截图都不做。中英文名称可都填（如 微信 / WeChat）。
                     </span>
                   </label>
+
+                  <div className="mt-2 border-t border-slate-100 pt-3">
+                    <label className="flex items-center justify-between gap-4 text-sm">
+                      <span>
+                        保存截图到可搜索记忆
+                        <span className="ml-2 text-xs text-slate-400">本地加密保存，可在「记忆」里回看</span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={settings.screenSenseKeepShots}
+                        onChange={async (e) => {
+                          const next = e.target.checked
+                          setSettings({ ...settings, screenSenseKeepShots: next })
+                          await api.saveSettings({ screenSenseKeepShots: next })
+                          flash(next ? '已开启截图保存（加密）' : '已关闭截图保存')
+                        }}
+                      />
+                    </label>
+                    {settings.screenSenseKeepShots && (
+                      <label className="mt-2 flex items-center gap-3 text-sm">
+                        <span className="text-slate-500">保留天数</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={365}
+                          className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                          value={settings.screenSenseRetentionDays}
+                          onChange={(e) =>
+                            setSettings({ ...settings, screenSenseRetentionDays: Number(e.target.value) })
+                          }
+                          onBlur={async (e) => {
+                            const v = Math.min(365, Math.max(0, Number(e.target.value) || 0))
+                            setSettings({ ...settings, screenSenseRetentionDays: v })
+                            await api.saveSettings({ screenSenseRetentionDays: v })
+                            flash('已保存截图保留期')
+                          }}
+                        />
+                        <span className="text-xs text-slate-400">天，到期自动清；0 = 永久</span>
+                      </label>
+                    )}
+                    <p className="mt-1.5 text-xs leading-5 text-slate-400">
+                      默认关闭，保持「截图用完即弃」。开启后仅保存缩略图、用系统钥匙串加密；原图始终不留。
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

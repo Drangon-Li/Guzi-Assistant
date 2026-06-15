@@ -32,6 +32,7 @@ import { ensureFeishu, feishuStatus } from './feishu'
 import { acceptSuggestion, applyScreenSenseSettings, scanOnce } from './screenwatch'
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
+import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
@@ -122,13 +123,16 @@ export function registerIpc(): void {
 
   ipcMain.handle('source:get', (_e, id: string) => getSource(id))
   ipcMain.handle('memory:search', (_e, query: string) => searchSources(query))
+  ipcMain.handle('memory:read-shot', (_e, id: string) => readShotDataUrl(id))
   ipcMain.handle('source:delete', (_e, id: string) => {
     deleteSourceContent(id)
+    deleteShot(id) // 删来源原文时一并删其加密截图
     broadcast('eshell:tasks-updated')
   })
 
   ipcMain.handle('data:wipe', () => {
     wipeAll()
+    clearAllShots() // 一键清除覆盖加密截图（#53）
     broadcast('eshell:tasks-updated')
   })
 

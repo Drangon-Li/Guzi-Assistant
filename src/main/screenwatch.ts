@@ -3,14 +3,22 @@ import { nativeImage } from 'electron'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImageDetailed } from './ocr'
 import { parseToItems } from './parser'
-import { createSource, createTask, deleteSourceRow, getSettings, taskExists } from './db'
+import { createSource, createTask, deleteSourceRow, getSettings, getSource, taskExists } from './db'
 import { broadcast, showPreview, isPreviewVisible } from './windows'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
 import { getFrontmostApp } from './frontapp'
+import {
+  saveShotTempFromPng,
+  finalizeShot,
+  deleteShot,
+  listShotIds,
+  sweepTempShots
+} from './shotvault'
 import { matchKeywords } from '@shared/keywords'
 import { pickBest } from '@shared/suggest'
 import { isAppExcluded } from '@shared/app-exclude'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript } from '@shared/chat-layout'
+import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
 import type { ParseSummary, ScanResult, TaskStatus } from '@shared/types'
@@ -43,11 +51,14 @@ export async function scanOnce(): Promise<ScanResult> {
       return { status: 'error', message }
     }
 
+    const { screenSenseKeywords, screenSenseKeepShots } = getSettings()
     let text: string
     try {
       text = await ocrTextForParse(png)
+      // 截图持久化（#52/#53，opt-in）：趁 png 还在，按 textHash 存加密临时缩略图
+      if (text && screenSenseKeepShots) saveShotTempFromPng(textHash(text), png)
     } finally {
-      void unlink(png).catch(() => {}) // 截图用完即弃
+      void unlink(png).catch(() => {}) // 原图始终用完即弃；只可能留加密缩略图
     }
     if (!text) {
       showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
@@ -55,7 +66,6 @@ export async function scanOnce(): Promise<ScanResult> {
     }
 
     showPreview({ busy: '正在分析屏幕内容…' })
-    const { screenSenseKeywords } = getSettings()
     const hits = matchKeywords(text, screenSenseKeywords)
 
     const items = await parseToItems({ text, hint: HINTS.screen_scan })
@@ -108,6 +118,7 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
     status,
     feedback: null
   })
+  finalizeShot(textHash(sourceText), source.id) // 把捕获时存的临时加密缩略图落实到本来源（无则 no-op）
   broadcast('eshell:tasks-updated')
   return { candidate: 0, title: item.title, time, duplicate: false }
 }
@@ -153,7 +164,7 @@ async function watchTick(): Promise<void> {
   ticking = true
   let png: string | null = null
   try {
-    const { screenSenseKeywords, screenSenseExcludedApps } = getSettings()
+    const { screenSenseKeywords, screenSenseExcludedApps, screenSenseKeepShots } = getSettings()
     // 隐私门：敏感 App（密码/银行等）在前台时连截图都不做（在 capture 之前判断）
     if (screenSenseExcludedApps.length && isAppExcluded(await getFrontmostApp(), screenSenseExcludedApps))
       return
@@ -182,6 +193,8 @@ async function watchTick(): Promise<void> {
     const best = pickBest(items)
     if (!best) return
     cooldown.set(th, now + COOLDOWN_MS)
+    // 截图持久化（#52/#53，opt-in）：趁 png 还在存加密临时缩略图，接受建议时落实
+    if (screenSenseKeepShots && png) saveShotTempFromPng(th, png)
     showPreview({ suggestion: { item: best, sourceText: text, hits } })
   } catch {
     // 持续监控全程静默：截图/OCR/解析/无 endpoint 等任何失败都不打扰
@@ -219,4 +232,24 @@ export function applyScreenSenseSettings(): void {
   else unregisterScanHotkey()
   if (screenSenseEnabled && screenSenseContinuous) startWatch(screenSenseIntervalSec)
   else stopWatch()
+  runShotRetention()
+}
+
+/**
+ * 截图保留期清理（#53）：删超期的已落实截图 + 清未接受的临时截图。
+ * 启动时 + settings:save 时跑（挂在 applyScreenSenseSettings）。
+ */
+export function runShotRetention(): void {
+  try {
+    const { screenSenseRetentionDays } = getSettings()
+    const now = Date.now()
+    const refs = listShotIds().map((id) => {
+      const s = getSource(id)
+      return { id, createdAtMs: s ? new Date(s.createdAt).getTime() : 0 }
+    })
+    for (const id of expiredShotIds(refs, screenSenseRetentionDays, now)) deleteShot(id)
+    sweepTempShots(24 * 60 * 60 * 1000, now) // 未接受的临时缩略图 1 天清
+  } catch {
+    /* 清理失败不影响主流程 */
+  }
 }
