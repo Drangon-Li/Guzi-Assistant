@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, watch, ty
 import { join } from 'path'
 import { app } from 'electron'
 import { submitExternalFiles } from './capture'
+import { isSafeDropPath } from '@shared/safe-path'
 
 let debounce: NodeJS.Timeout | null = null
 let watcher: FSWatcher | null = null
@@ -34,7 +35,8 @@ function processManifests(): void {
       // 读取失败的 manifest 留待下次
     }
   }
-  const valid = paths.filter((p) => existsSync(p))
+  // #3：拦截敏感路径（恶意 manifest 投递 ~/.ssh/id_rsa 等会被外发），再校验存在
+  const valid = paths.filter((p) => isSafeDropPath(p) && existsSync(p))
   if (valid.length) void submitExternalFiles(valid)
 }
 
