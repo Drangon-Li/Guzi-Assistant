@@ -6,6 +6,7 @@ import { fmtTime, summaryToast, TYPE_LABELS } from '../labels'
 import ConfidenceBadge from '../components/ConfidenceBadge'
 import TaskDetailModal from '../components/TaskDetailModal'
 import SourceModal from '../components/SourceModal'
+import agentAvatar from '../assets/agent-avatar.png'
 
 interface Props {
   tasks: TaskRecord[]
@@ -36,12 +37,11 @@ function joinStatus(t: { startTime?: string | null; dueTime?: string | null }): 
 }
 
 function Avatar({ role, initial }: { role: 'user' | 'assistant'; initial: string }): React.JSX.Element {
+  if (role === 'assistant') {
+    return <img src={agentAvatar} alt="纸壳助手" className="size-8 shrink-0 rounded-[9px]" />
+  }
   return (
-    <div
-      className={`flex size-8 shrink-0 items-center justify-center text-xs font-semibold ${
-        role === 'assistant' ? 'bg-[#2c2d35] text-white rounded-[9px]' : 'bg-[#8a7aa0] text-white rounded-full'
-      }`}
-    >
+    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#8a7aa0] text-xs font-semibold text-white">
       {initial}
     </div>
   )
