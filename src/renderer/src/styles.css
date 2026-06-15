@@ -157,3 +157,7 @@ body {
 /* 状态信号点（唯一允许的外壳上色，极小） */
 .dot { width: 6px; height: 6px; border-radius: var(--r-pill); flex: 0 0 auto; }
 .dot.high { background: var(--danger); } .dot.med { background: #c8a24a; } .dot.low { background: var(--t4); }
+
+/* 页面骨架（设计稿 .page/.page-title：720 宽、34/36 padding、标题 18/600） */
+.page { max-width: 720px; margin: 0 auto; padding: 34px 36px; }
+.page-title { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; color: var(--t1); }

@@ -62,8 +62,8 @@ function splitList(s: string): string[] {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-4 text-sm font-semibold">{title}</h2>
+    <section className="section">
+      <h2>{title}</h2>
       {children}
     </section>
   )
@@ -188,10 +188,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 pb-16">
-      <h1 className="text-lg font-semibold">设置</h1>
+    <div className="page flex flex-col" style={{ gap: 14, paddingBottom: 48 }}>
+      <div className="page-title">设置</div>
 
-      <Section title="账户">
+      <Section title="账户与服务">
         <AccountSection />
       </Section>
 

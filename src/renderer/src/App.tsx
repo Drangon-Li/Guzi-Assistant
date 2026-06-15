@@ -161,10 +161,17 @@ function MainApp(): React.JSX.Element | null {
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200/60 bg-[#fafafa]">
+      <aside
+        className="flex w-52 shrink-0 flex-col"
+        style={{ borderRight: '1px solid var(--line)', background: 'var(--surface)' }}
+      >
         <div className="px-5 pt-10 pb-4 titlebar-pad">
-          <div className="text-base font-semibold tracking-tight">EShell</div>
-          <div className="mt-0.5 text-xs text-slate-400">个人事项捕获助手</div>
+          <div className="text-base font-semibold tracking-tight" style={{ color: 'var(--t1)' }}>
+            EShell
+          </div>
+          <div className="mt-0.5 text-[11px]" style={{ color: 'var(--t3)' }}>
+            个人事项捕获助手
+          </div>
         </div>
         <nav className="stagger flex flex-col gap-px px-2.5">
           {NAV.map((item) => {
