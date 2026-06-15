@@ -8,6 +8,7 @@ import {
   listTasks,
   saveProfile,
   saveSettings,
+  searchSources,
   updateTask,
   wipeAll
 } from './db'
@@ -96,6 +97,7 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('source:get', (_e, id: string) => getSource(id))
+  ipcMain.handle('memory:search', (_e, query: string) => searchSources(query))
   ipcMain.handle('source:delete', (_e, id: string) => {
     deleteSourceContent(id)
     broadcast('eshell:tasks-updated')
