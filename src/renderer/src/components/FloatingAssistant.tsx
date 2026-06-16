@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { TaskRecord } from '@shared/types'
 import AssistantChat from './AssistantChat'
 import agentAvatar from '../assets/agent-avatar.png'
@@ -21,14 +22,27 @@ export default function FloatingAssistant({
   onOpenChange
 }: Props): React.JSX.Element {
   const pendingCount = tasks.filter((t) => t.status === 'pending').length
+  // 关闭时先播放淡出动画再卸载：open 决定播 in/out，mounted 决定何时真正卸载
+  const [mounted, setMounted] = useState(open)
+  useEffect(() => {
+    if (open) {
+      setMounted(true)
+      return
+    }
+    if (!mounted) return
+    const t = window.setTimeout(() => setMounted(false), 160)
+    return () => window.clearTimeout(t)
+  }, [open, mounted])
 
   return (
     <>
       {open && (
         <div className="fixed inset-0 z-30" onClick={() => onOpenChange(false)} aria-hidden />
       )}
-      {open && (
-        <div className="animate-modal-in fixed right-5 bottom-24 z-40 flex h-[min(600px,72vh)] w-[400px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      {mounted && (
+        <div
+          className={`${open ? 'animate-modal-in' : 'animate-modal-out'} fixed right-5 bottom-24 z-40 flex h-[min(600px,72vh)] w-[400px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl`}
+        >
           <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2.5">
             <div className="flex items-center gap-2">
               <img src={agentAvatar} alt="纸壳助手" className="size-6" />
