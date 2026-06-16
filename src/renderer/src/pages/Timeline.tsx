@@ -182,7 +182,7 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
         ))}
         {!groups.length && !overdue.length && (
           <div className="mt-10 text-center text-sm text-slate-400">
-            还没有带时间的已确认任务。先去收件箱确认几条吧。
+            还没有带时间的已确认任务。在「日程」确认待办并设置时间后，会按时间显示在这里。
           </div>
         )}
       </div>
