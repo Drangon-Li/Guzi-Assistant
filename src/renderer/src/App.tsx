@@ -9,15 +9,17 @@ import FloatingAssistant from './components/FloatingAssistant'
 import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
 import Memory from './pages/Memory'
+import Account from './pages/Account'
 import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
 
-type Page = 'timeline' | 'schedule' | 'memory' | 'settings'
+type Page = 'timeline' | 'schedule' | 'memory' | 'account' | 'settings'
 
 const NAV: { key: Page; label: string }[] = [
   { key: 'schedule', label: '日程' },
   { key: 'timeline', label: '时间轴' },
   { key: 'memory', label: '记忆' },
+  { key: 'account', label: '个人' },
   { key: 'settings', label: '设置' }
 ]
 
@@ -80,6 +82,7 @@ function MainApp(): React.JSX.Element | null {
         route === 'timeline' ||
         route === 'schedule' ||
         route === 'memory' ||
+        route === 'account' ||
         route === 'settings'
       )
         setPage(route)
@@ -181,6 +184,7 @@ function MainApp(): React.JSX.Element | null {
             />
           )}
           {shownPage === 'memory' && <Memory />}
+          {shownPage === 'account' && <Account onProfileChange={setProfile} />}
           {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>
       </main>
