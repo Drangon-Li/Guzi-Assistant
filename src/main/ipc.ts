@@ -77,7 +77,8 @@ export function registerIpc(): void {
       patch.screenSenseEnabled !== undefined ||
       patch.screenSenseHotkey !== undefined ||
       patch.screenSenseContinuous !== undefined ||
-      patch.screenSenseIntervalSec !== undefined
+      patch.screenSenseIntervalSec !== undefined ||
+      patch.enterCaptureEnabled !== undefined
     )
       applyScreenSenseSettings()
     broadcast('eshell:settings-updated')

@@ -11,6 +11,7 @@ import {
   isWatchPaused
 } from './screenwatch'
 import { submitExternalFiles } from './capture'
+import { stopKeyMonitor } from './keymonitor'
 import { appState, createMainWindow, focusMain } from './windows'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 
@@ -79,6 +80,7 @@ if (!app.requestSingleInstanceLock()) {
   })
   app.on('will-quit', () => {
     stopDailyBrief()
+    stopKeyMonitor()
   })
   // 常驻托盘：所有窗口关闭后不退出
   app.on('window-all-closed', () => {})

@@ -153,6 +153,8 @@ export interface AppSettings {
   screenSenseKeepShots: boolean
   /** 截图保留天数（#53），到期自动清；<=0 永久保留。默认 14 */
   screenSenseRetentionDays: number
+  /** 回车自动记录（#2b）：监控回车键，提交时把当前屏幕内容记为被动记忆来源。opt-in，默认 false */
+  enterCaptureEnabled: boolean
 }
 
 export interface FeishuStatus {

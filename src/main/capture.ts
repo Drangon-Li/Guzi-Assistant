@@ -1,7 +1,7 @@
-import { app, clipboard, nativeImage } from 'electron'
+import { app, clipboard, desktopCapturer, nativeImage, screen } from 'electron'
 import type { NativeImage } from 'electron'
 import { execFile } from 'child_process'
-import { existsSync, readFileSync, unlinkSync } from 'fs'
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { basename, extname, join } from 'path'
 import { randomUUID } from 'crypto'
 import pdfParse from 'pdf-parse'
@@ -108,13 +108,26 @@ export function clearPendings(): void {
   pendings.clear()
 }
 
-// ---------- 截图（macOS screencapture 框选） ----------
+// ---------- 截图（框选，跨平台：macOS screencapture / Linux scrot -s） ----------
+
+/** 平台对应的交互式框选截图命令；不支持的平台返回 null（调用方降级） */
+function regionShotCmd(file: string): { cmd: string; args: string[] } | null {
+  if (process.platform === 'darwin') return { cmd: 'screencapture', args: ['-i', '-x', file] }
+  if (process.platform === 'linux') return { cmd: 'scrot', args: ['-s', file] } // -s 交互框选
+  return null // win32 等暂无交互框选 CLI，调用方可改用全屏静默截图
+}
 
 export async function takeScreenshot(): Promise<string | null> {
   const file = join(app.getPath('temp'), `eshell-shot-${Date.now()}.png`)
-  await new Promise<void>((resolve, reject) => {
-    execFile('screencapture', ['-i', '-x', file], (err) => (err ? reject(err) : resolve()))
-  })
+  const spec = regionShotCmd(file)
+  if (!spec) return null
+  try {
+    await new Promise<void>((resolve, reject) => {
+      execFile(spec.cmd, spec.args, (err) => (err ? reject(err) : resolve()))
+    })
+  } catch {
+    return null // 命令缺失/取消
+  }
   if (!existsSync(file)) return null // 用户按 Esc 取消了框选
   try {
     return toJpegDataUrl(nativeImage.createFromPath(file), 1600)
@@ -126,15 +139,26 @@ export async function takeScreenshot(): Promise<string | null> {
 
 /** 静默全屏截图（无交互、无快门声），返回临时 png 路径；失败返回 null。调用方 OCR 后须自行删除 */
 export async function captureScreenSilently(): Promise<string | null> {
-  const file = join(app.getPath('temp'), `eshell-screen-${Date.now()}.png`)
+  // 跨平台静默截屏（Mac/Win/Linux）：用 Electron desktopCapturer 取整屏，避免依赖某平台专有命令
+  // （旧实现用 macOS 专有 `screencapture`，在 Linux/Windows 直接失败）。thumbnailSize 拉满到物理分辨率保清晰度。
   try {
-    await new Promise<void>((resolve, reject) => {
-      execFile('screencapture', ['-x', file], (err) => (err ? reject(err) : resolve()))
+    const primary = screen.getPrimaryDisplay()
+    const scale = primary.scaleFactor || 1
+    const width = Math.round(primary.size.width * scale)
+    const height = Math.round(primary.size.height * scale)
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width, height }
     })
+    if (!sources.length) return null
+    const img = sources[0].thumbnail
+    if (!img || img.isEmpty()) return null
+    const file = join(app.getPath('temp'), `eshell-screen-${Date.now()}.png`)
+    writeFileSync(file, img.toPNG())
+    return existsSync(file) ? file : null
   } catch {
     return null
   }
-  return existsSync(file) ? file : null
 }
 
 // ---------- 文件文本抽取 ----------

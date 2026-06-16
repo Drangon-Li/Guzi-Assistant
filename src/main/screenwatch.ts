@@ -6,6 +6,7 @@ import { parseToItems, ParseError } from './parser'
 import { createSource, createTask, deleteSourceRow, getSettings, getSource, taskExists } from './db'
 import { broadcast, showPreview, isPreviewVisible } from './windows'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
+import { startKeyMonitor, stopKeyMonitor } from './keymonitor'
 import { getFrontmostApp } from './frontapp'
 import {
   saveShotTempFromPng,
@@ -230,14 +231,21 @@ export function setWatchPaused(paused: boolean): void {
   trayRefresh?.()
 }
 
-/** 跟随设置开关注册/注销扫描快捷键 + 启停持续监控（启动时 + settings:save 时调用） */
+/** 跟随设置开关注册/注销扫描快捷键 + 启停持续监控 + 回车自动记录（启动时 + settings:save 时调用） */
 export function applyScreenSenseSettings(): void {
-  const { screenSenseEnabled, screenSenseHotkey, screenSenseContinuous, screenSenseIntervalSec } =
-    getSettings()
+  const {
+    screenSenseEnabled,
+    screenSenseHotkey,
+    screenSenseContinuous,
+    screenSenseIntervalSec,
+    enterCaptureEnabled
+  } = getSettings()
   if (screenSenseEnabled) initScanHotkey(screenSenseHotkey, () => void scanOnce())
   else unregisterScanHotkey()
   if (screenSenseEnabled && screenSenseContinuous) startWatch(screenSenseIntervalSec)
   else stopWatch()
+  if (enterCaptureEnabled) startKeyMonitor()
+  else stopKeyMonitor()
   runShotRetention()
 }
 

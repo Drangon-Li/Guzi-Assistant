@@ -345,6 +345,28 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           />
         </label>
 
+        <label
+          className="flex items-center justify-between gap-4"
+          style={{ fontSize: 13, marginTop: 12, borderTop: '1px solid var(--line-2)', paddingTop: 12 }}
+        >
+          <span style={{ color: 'var(--t1)' }}>
+            回车自动记录
+            <span style={{ marginLeft: 8, fontSize: 11.5, color: 'var(--t3)' }}>
+              按回车「提交」时，把当前屏幕内容静默记为记忆素材，供整理归档
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={settings.enterCaptureEnabled}
+            onChange={async (e) => {
+              const next = e.target.checked
+              setSettings({ ...settings, enterCaptureEnabled: next })
+              await api.saveSettings({ enterCaptureEnabled: next })
+              flash(next ? '已开启回车自动记录' : '已关闭回车自动记录')
+            }}
+          />
+        </label>
+
         {settings.screenSenseEnabled && (
           <div className="flex flex-col gap-4" style={{ marginTop: 14 }}>
             <label className="field">

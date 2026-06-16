@@ -177,7 +177,8 @@ export function getSettings(): AppSettings {
     // 排除名单空 = 不排除（不能像关键词那样回退默认词表）
     screenSenseExcludedApps: parseList(map.screenSenseExcludedApps),
     screenSenseKeepShots: map.screenSenseKeepShots === 'true',
-    screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14
+    screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
+    enterCaptureEnabled: map.enterCaptureEnabled === 'true'
   }
 }
 
