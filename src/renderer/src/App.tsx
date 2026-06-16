@@ -144,7 +144,13 @@ function MainApp(): React.JSX.Element | null {
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div key={page} className="animate-page">
           {page === 'timeline' && <Timeline tasks={tasks} />}
-          {page === 'schedule' && <Schedule tasks={tasks} />}
+          {page === 'schedule' && (
+            <Schedule
+              tasks={tasks}
+              hotkeyLabel={hotkeyLabel}
+              onOpenAssistant={() => setChatOpen(true)}
+            />
+          )}
           {page === 'memory' && <Memory />}
           {page === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>
