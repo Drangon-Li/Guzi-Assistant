@@ -4,19 +4,18 @@ import { api } from './api'
 import { supabase, functionsBase } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
-import Assistant from './pages/Assistant'
+import FloatingAssistant from './components/FloatingAssistant'
 import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
 import Memory from './pages/Memory'
 import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
 
-type Page = 'assistant' | 'timeline' | 'schedule' | 'memory' | 'settings'
+type Page = 'timeline' | 'schedule' | 'memory' | 'settings'
 
 const NAV: { key: Page; label: string }[] = [
-  { key: 'assistant', label: '助手' },
-  { key: 'timeline', label: '时间轴' },
   { key: 'schedule', label: '日程' },
+  { key: 'timeline', label: '时间轴' },
   { key: 'memory', label: '记忆' },
   { key: 'settings', label: '设置' }
 ]
@@ -28,7 +27,8 @@ export default function App(): React.JSX.Element {
 
 function MainApp(): React.JSX.Element | null {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
-  const [page, setPage] = useState<Page>('assistant')
+  const [page, setPage] = useState<Page>('schedule')
+  const [chatOpen, setChatOpen] = useState(false)
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -65,7 +65,7 @@ function MainApp(): React.JSX.Element | null {
     const offTasks = api.on('eshell:tasks-updated', refresh)
     const offSettings = api.on('eshell:settings-updated', loadHotkey)
     const offNav = api.on('eshell:navigate', (route) => {
-      if (route === 'inbox' || route === 'assistant') setPage('assistant')
+      if (route === 'inbox' || route === 'assistant') setChatOpen(true)
       else if (
         route === 'timeline' ||
         route === 'schedule' ||
@@ -100,8 +100,6 @@ function MainApp(): React.JSX.Element | null {
     )
   if (profile === null) return <Onboarding onDone={setProfile} />
 
-  const pendingCount = tasks.filter((t) => t.status === 'pending').length
-
   return (
     <div
       className="flex h-full bg-[#fafafa] text-slate-800"
@@ -135,11 +133,6 @@ function MainApp(): React.JSX.Element | null {
               }`}
             >
               <span>{item.label}</span>
-              {item.key === 'assistant' && pendingCount > 0 && (
-                <span className="rounded-full bg-ink px-1.5 py-0.5 text-[10px] leading-none text-white">
-                  {pendingCount}
-                </span>
-              )}
             </button>
           ))}
         </nav>
@@ -149,21 +142,22 @@ function MainApp(): React.JSX.Element | null {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div key={page} className={page === 'assistant' ? 'animate-page h-full' : 'animate-page'}>
-          {page === 'assistant' && (
-            <Assistant
-              tasks={tasks}
-              showToast={showToast}
-              hotkeyLabel={hotkeyLabel}
-              userName={profile.name}
-            />
-          )}
+        <div key={page} className="animate-page">
           {page === 'timeline' && <Timeline tasks={tasks} />}
           {page === 'schedule' && <Schedule tasks={tasks} />}
           {page === 'memory' && <Memory />}
           {page === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>
       </main>
+
+      <FloatingAssistant
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        tasks={tasks}
+        showToast={showToast}
+        hotkeyLabel={hotkeyLabel}
+        userName={profile.name}
+      />
 
       {dragging && (
         <div className="animate-overlay-in pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-slate-900/5 backdrop-blur-[1px]">
