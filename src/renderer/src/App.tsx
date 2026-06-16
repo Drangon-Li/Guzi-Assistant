@@ -29,6 +29,8 @@ function MainApp(): React.JSX.Element | null {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
   const [page, setPage] = useState<Page>('schedule')
   const [chatOpen, setChatOpen] = useState(false)
+  const [shownPage, setShownPage] = useState<Page>('schedule')
+  const [pageVisible, setPageVisible] = useState(true)
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -81,6 +83,17 @@ function MainApp(): React.JSX.Element | null {
     }
   }, [refresh])
 
+  // 切页过渡：先淡出旧页，再换页并淡入新页
+  useEffect(() => {
+    if (page === shownPage) return
+    setPageVisible(false)
+    const t = window.setTimeout(() => {
+      setShownPage(page)
+      setPageVisible(true)
+    }, 150)
+    return () => window.clearTimeout(t)
+  }, [page, shownPage])
+
   const handleDrop = async (e: React.DragEvent): Promise<void> => {
     e.preventDefault()
     dragDepth.current = 0
@@ -120,7 +133,7 @@ function MainApp(): React.JSX.Element | null {
       <div className="drag-strip" />
       <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200/60 bg-[#fafafa]">
         <div className="px-5 pt-10 pb-4 titlebar-pad">
-          <div className="text-base font-semibold tracking-tight">EShell</div>
+          <div className="text-base font-semibold tracking-tight">纸壳助手</div>
           <div className="mt-0.5 text-xs text-slate-400">个人事项捕获助手</div>
         </div>
         <nav className="stagger flex flex-col gap-1 px-3">
@@ -142,11 +155,17 @@ function MainApp(): React.JSX.Element | null {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div key={page} className="animate-page">
-          {page === 'timeline' && <Timeline tasks={tasks} />}
-          {page === 'schedule' && <Schedule tasks={tasks} />}
-          {page === 'memory' && <Memory />}
-          {page === 'settings' && <Settings onProfileChange={setProfile} />}
+        <div className={`transition-opacity duration-150 ${pageVisible ? 'opacity-100' : 'opacity-0'}`}>
+          {shownPage === 'timeline' && <Timeline tasks={tasks} />}
+          {shownPage === 'schedule' && (
+            <Schedule
+              tasks={tasks}
+              hotkeyLabel={hotkeyLabel}
+              onOpenAssistant={() => setChatOpen(true)}
+            />
+          )}
+          {shownPage === 'memory' && <Memory />}
+          {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>
       </main>
 

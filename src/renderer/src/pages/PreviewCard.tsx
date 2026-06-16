@@ -20,6 +20,17 @@ export default function PreviewCard(): React.JSX.Element | null {
   const [state, setState] = useState<State>({ phase: 'idle' })
   // 解析期间用户再次触发快捷键时，旧提交的结果不能覆盖新预览
   const submitIdRef = useRef('')
+  const [closing, setClosing] = useState(false)
+
+  // 关闭前先播放淡出动画，再执行真正的隐藏 */
+  const fadeOut = (action: () => void): void => {
+    setClosing(true)
+    window.setTimeout(() => {
+      setClosing(false)
+      setState({ phase: 'idle' })
+      action()
+    }, 180)
+  }
 
   const submit = async (capture: PendingCapture): Promise<void> => {
     submitIdRef.current = capture.captureId
@@ -42,10 +53,7 @@ export default function PreviewCard(): React.JSX.Element | null {
     else setState({ phase: 'result', summary })
   }
 
-  const close = (): void => {
-    void api.previewHide()
-    setState({ phase: 'idle' })
-  }
+  const close = (): void => fadeOut(() => void api.previewHide())
 
   const acceptSuggestion = async (modify: boolean): Promise<void> => {
     if (state.phase !== 'suggestion') return
@@ -80,6 +88,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             summary?: undefined
           }
       submitIdRef.current = ''
+      setClosing(false)
       if ('suggestion' in p && p.suggestion) {
         setState({ phase: 'suggestion', ...p.suggestion })
       } else if (p.busy) {
@@ -131,10 +140,10 @@ export default function PreviewCard(): React.JSX.Element | null {
     <div className="flex h-screen items-end justify-end p-2">
       <div
         key={state.phase}
-        className="animate-card-in flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-2xl"
+        className={`${closing ? 'animate-card-out' : 'animate-card-in'} flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-2xl`}
       >
         <div className="flex items-center gap-2">
-          <span className="font-semibold">EShell</span>
+          <span className="font-semibold">纸壳助手</span>
           {state.phase === 'preview' && (
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
               {SOURCE_LABELS[state.capture.type]}
@@ -142,11 +151,12 @@ export default function PreviewCard(): React.JSX.Element | null {
           )}
           <button
             className="ml-auto -mr-1 px-1 text-slate-400 hover:text-slate-600"
-            onClick={() => {
-              if (state.phase === 'preview') void api.previewCancel(state.capture.captureId)
-              else void api.previewHide()
-              setState({ phase: 'idle' })
-            }}
+            onClick={() =>
+              fadeOut(() => {
+                if (state.phase === 'preview') void api.previewCancel(state.capture.captureId)
+                else void api.previewHide()
+              })
+            }
           >
             ✕
           </button>
@@ -181,8 +191,8 @@ export default function PreviewCard(): React.JSX.Element | null {
               <button
                 className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
                 onClick={() => {
-                  void api.previewCancel(state.capture.captureId)
-                  setState({ phase: 'idle' })
+                  const id = state.capture.captureId
+                  fadeOut(() => void api.previewCancel(id))
                 }}
               >
                 取消
@@ -294,10 +304,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             <div className="flex justify-end gap-2">
               <button
                 className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
-                onClick={() => {
-                  void api.previewHide()
-                  setState({ phase: 'idle' })
-                }}
+                onClick={() => fadeOut(() => void api.previewHide())}
               >
                 拒绝
               </button>

@@ -84,7 +84,7 @@ export const CONFIRM_MODES: {
   label: string
   desc: string
 }[] = [
-  { value: 'conservative', label: '保守', desc: '所有任务都进入待确认收件箱，绝不自动加入日程' },
+  { value: 'conservative', label: '保守', desc: '所有任务都先进入待确认，绝不自动加入日程' },
   { value: 'standard', label: '标准（推荐）', desc: '所有任务进入待确认，高置信度任务高亮提示' },
   {
     value: 'aggressive',
@@ -138,6 +138,6 @@ export function summaryToast(s: ParseSummary): string {
       : '解析完成，未发现与你相关的事项'
   }
   return `发现 ${s.related} 个可能与你有关的事项${
-    s.autoAdded ? `，其中 ${s.autoAdded} 个已自动加入日程` : '，已进入待确认收件箱'
+    s.autoAdded ? `，其中 ${s.autoAdded} 个已自动加入日程` : '，已进入待确认'
   }${s.duplicates ? `；另跳过 ${s.duplicates} 个重复任务` : ''}`
 }

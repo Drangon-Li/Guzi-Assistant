@@ -8,6 +8,8 @@ import TaskDetailModal from '../components/TaskDetailModal'
 
 interface Props {
   tasks: TaskRecord[]
+  hotkeyLabel: string
+  onOpenAssistant: () => void
 }
 
 type Tab = 'today' | 'week' | 'all'
@@ -34,13 +36,14 @@ function nowLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export default function Schedule({ tasks }: Props): React.JSX.Element {
+export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('today')
   const [editing, setEditing] = useState<TaskRecord | null>(null)
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
 
   const active = tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).sort(byTime)
+  const pending = tasks.filter((t) => t.status === 'pending')
   const done = tasks.filter((t) => t.status === 'done')
   const ignored = tasks.filter((t) => t.status === 'ignored')
   const overdue = active.filter((t) => t.status === 'overdue')
@@ -102,7 +105,38 @@ export default function Schedule({ tasks }: Props): React.JSX.Element {
       </div>
 
       <div className="mt-5 flex flex-col gap-6 pb-10">
-        {sections.map((sec) => (
+        {pending.length > 0 && (
+          <button
+            onClick={onOpenAssistant}
+            className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition-colors hover:bg-amber-100/70"
+          >
+            <span className="text-sm text-amber-800">
+              助手发现了 <b>{pending.length}</b> 个待确认事项
+            </span>
+            <span className="shrink-0 text-xs font-medium text-amber-700">去确认 →</span>
+          </button>
+        )}
+
+        {tasks.length === 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="text-base font-semibold text-slate-800">还没有任何日程</div>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              纸壳助手会自动留意你的通知、消息和截图，从中帮你拎出该办的事，发现后在右下角的助手里提给你确认。
+            </p>
+            <p className="mt-1 text-sm leading-6 text-slate-500">
+              也可以手动添加：复制内容后按 <b>{hotkeyLabel}</b>，或点右下角的助手直接问我 / 把文件拖进窗口。
+            </p>
+            <button
+              onClick={onOpenAssistant}
+              className="mt-4 rounded-lg bg-ink px-4 py-2 text-sm text-white hover:bg-black"
+            >
+              打开助手
+            </button>
+          </div>
+        )}
+
+        {tasks.length > 0 &&
+          sections.map((sec) => (
           <section key={sec.title}>
             <h2 className="mb-2 text-xs font-medium text-slate-400">{sec.title}</h2>
             <div className="flex flex-col gap-2">
