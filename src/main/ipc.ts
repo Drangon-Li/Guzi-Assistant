@@ -1,4 +1,4 @@
-import { ipcMain, systemPreferences } from 'electron'
+import { ipcMain, shell, systemPreferences } from 'electron'
 import {
   bulkUpdateStatus,
   deleteSourceContent,
@@ -143,6 +143,14 @@ export function registerIpc(): void {
         process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'granted',
       apiConfigured: !!(settings.apiBase && settings.apiKey)
     }
+  })
+
+  // 首启屏幕录制授权引导：打开系统设置的「屏幕录制」面板（仅 macOS）
+  ipcMain.handle('permissions:open-screen-settings', () => {
+    if (process.platform === 'darwin')
+      void shell.openExternal(
+        'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+      )
   })
 
   ipcMain.handle('quickaction:status', () => quickActionInstalled())
