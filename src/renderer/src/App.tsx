@@ -119,6 +119,7 @@ function MainApp(): React.JSX.Element | null {
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
+      <div className="drag-strip" />
       <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200/60 bg-[#fafafa]">
         <div className="px-5 pt-10 pb-4 titlebar-pad">
           <div className="text-base font-semibold tracking-tight">EShell</div>
