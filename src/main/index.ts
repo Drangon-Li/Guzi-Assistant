@@ -14,6 +14,9 @@ import {
 import { submitExternalFiles } from './capture'
 import { appState, createMainWindow, focusMain } from './windows'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
+import { readFileSync } from 'fs'
+import trayIcon from '../../resources/trayTemplate.png?asset'
+import trayIcon2x from '../../resources/trayTemplate@2x.png?asset'
 
 let tray: Tray | null = null
 
@@ -47,8 +50,10 @@ function buildTrayMenu(): void {
 }
 
 function createTray(): void {
-  tray = new Tray(nativeImage.createEmpty())
-  tray.setTitle('EShell')
+  const icon = nativeImage.createFromPath(trayIcon)
+  icon.addRepresentation({ scaleFactor: 2, buffer: readFileSync(trayIcon2x) })
+  icon.setTemplateImage(true) // 单色剪影，由 macOS 按菜单栏明暗自动着色（深色栏白/浅色栏黑）
+  tray = new Tray(icon)
   tray.setToolTip('纸壳助手（可把文件拖到这里提交解析）')
   // macOS：文件拖到菜单栏图标上直接提交解析
   tray.on('drop-files', (_e, files) => {
