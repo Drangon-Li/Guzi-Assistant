@@ -4,6 +4,7 @@ import { api } from './api'
 import { supabase, functionsBase } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
+import ScreenPermissionGate from './pages/ScreenPermissionGate'
 import FloatingAssistant from './components/FloatingAssistant'
 import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
@@ -27,6 +28,8 @@ export default function App(): React.JSX.Element {
 
 function MainApp(): React.JSX.Element | null {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
+  const [screenPerm, setScreenPerm] = useState<string | undefined>(undefined)
+  const [screenGateSkipped, setScreenGateSkipped] = useState(false)
   const [page, setPage] = useState<Page>('schedule')
   const [chatOpen, setChatOpen] = useState(false)
   const [shownPage, setShownPage] = useState<Page>('schedule')
@@ -55,6 +58,11 @@ function MainApp(): React.JSX.Element | null {
     void supabase.auth.getSession().then(({ data }) => push(data.session?.access_token ?? null))
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => push(s?.access_token ?? null))
     return () => sub.subscription.unsubscribe()
+  }, [])
+
+  // 首启屏幕录制授权 gate：查当前权限状态（仅 macOS 可能非 granted）
+  useEffect(() => {
+    void api.permissions().then((p) => setScreenPerm(p.screen))
   }, [])
 
   useEffect(() => {
@@ -112,6 +120,14 @@ function MainApp(): React.JSX.Element | null {
       </div>
     )
   if (profile === null) return <Onboarding onDone={setProfile} />
+  if (screenPerm === undefined)
+    return (
+      <div className="flex h-full items-center justify-center bg-white">
+        <div className="size-6 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
+      </div>
+    )
+  if (screenPerm !== 'granted' && !screenGateSkipped)
+    return <ScreenPermissionGate onDone={() => setScreenGateSkipped(true)} />
 
   return (
     <div

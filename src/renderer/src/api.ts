@@ -53,6 +53,7 @@ export const api = {
 
   wipeData: () => inv<void>('data:wipe'),
   permissions: () => inv<PermissionStatus>('permissions:get'),
+  openScreenSettings: () => inv<void>('permissions:open-screen-settings'),
   quickActionStatus: () => inv<boolean>('quickaction:status'),
   installQuickAction: () => inv<boolean>('quickaction:install'),
   feishuStatus: () => inv<FeishuStatus>('feishu:status'),

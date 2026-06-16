@@ -23,6 +23,7 @@ export const INVOKE_CHANNELS = [
   'memory:read-shot',
   'data:wipe',
   'permissions:get',
+  'permissions:open-screen-settings',
   'quickaction:status',
   'quickaction:install',
   'feishu:status',
