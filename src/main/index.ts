@@ -80,7 +80,11 @@ if (!app.requestSingleInstanceLock()) {
     startDailyBrief()
   })
 
-  app.on('activate', () => focusMain())
+  // macOS 惯例：仅在没有可见窗口时（如点 Dock 图标重开）才显示主窗；
+  // 否则点悬浮建议卡使 app 激活会偶发把主窗一并拉出（见 focusMain 诊断）
+  app.on('activate', (_e, hasVisibleWindows) => {
+    if (!hasVisibleWindows) focusMain()
+  })
   app.on('before-quit', () => {
     appState.quitting = true
   })

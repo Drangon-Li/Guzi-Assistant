@@ -13,9 +13,10 @@
  *
  * 部署：supabase functions deploy parse
  * 所需密钥（supabase secrets set）：
- *   ESHELL_LLM_BASE  = https://yunwu.ai
- *   ESHELL_LLM_KEY   = <relay key>
- *   ESHELL_LLM_MODEL = deepseek-v4-flash
+ *   ESHELL_LLM_BASE         = https://yunwu.ai
+ *   ESHELL_LLM_KEY          = <relay key>
+ *   ESHELL_LLM_MODEL        = deepseek-v4-flash   // 文本 / 对话
+ *   ESHELL_LLM_MODEL_VISION = qwen3.5-plus        // 含图（parse_vision）走多模态
  *   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 由平台注入
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2'
@@ -24,6 +25,8 @@ import { creditCost, type BillableAction } from '../../../server/billing/credits
 const LLM_BASE = Deno.env.get('ESHELL_LLM_BASE') ?? ''
 const LLM_KEY = Deno.env.get('ESHELL_LLM_KEY') ?? ''
 const LLM_MODEL = Deno.env.get('ESHELL_LLM_MODEL') ?? 'deepseek-v4-flash'
+// 含图请求（parse_vision）走多模态模型；文本/对话用上面的便宜模型
+const LLM_MODEL_VISION = Deno.env.get('ESHELL_LLM_MODEL_VISION') ?? 'qwen3.5-plus'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -94,7 +97,10 @@ Deno.serve(async (req) => {
     const res = await fetch(`${LLM_BASE.replace(/\/$/, '')}/v1/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${LLM_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: LLM_MODEL, messages: toMessages(instructions, input) })
+      body: JSON.stringify({
+        model: reason === 'parse_vision' ? LLM_MODEL_VISION : LLM_MODEL,
+        messages: toMessages(instructions, input)
+      })
     })
     if (!res.ok) return json({ error: `解析服务返回 ${res.status}` }, 502)
     const completion = (await res.json()) as {
