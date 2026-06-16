@@ -3,9 +3,9 @@ import type { TaskRecord } from '@shared/types'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
 import { api } from '../api'
 import { fmtTime, summaryToast, TYPE_LABELS } from '../labels'
-import ConfidenceBadge from '../components/ConfidenceBadge'
-import TaskDetailModal from '../components/TaskDetailModal'
-import SourceModal from '../components/SourceModal'
+import ConfidenceBadge from './ConfidenceBadge'
+import TaskDetailModal from './TaskDetailModal'
+import SourceModal from './SourceModal'
 import agentAvatar from '../assets/agent-avatar.png'
 
 interface Props {
@@ -47,7 +47,12 @@ function Avatar({ role, initial }: { role: 'user' | 'assistant'; initial: string
   )
 }
 
-export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: Props): React.JSX.Element {
+export default function AssistantChat({
+  tasks,
+  showToast,
+  hotkeyLabel,
+  userName
+}: Props): React.JSX.Element {
   const [msgs, setMsgs] = useState<ChatMsg[]>(store.msgs)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -432,14 +437,14 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
         </div>
       </div>
 
-      <div className="border-t border-slate-200 bg-white px-6 py-3">
-        <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
+      <div className="border-t border-slate-200 bg-white px-4 py-3">
+        <div className="mb-2 flex items-center gap-1.5">
           {screenSense && (
             <button
               title="扫描当前屏幕，自动提取待办"
               disabled={busy}
               onClick={() => void scanScreen()}
-              className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
             >
               扫描屏幕
             </button>
@@ -448,7 +453,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
             title="截图捕获"
             disabled={busy}
             onClick={() => void screenshot()}
-            className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+            className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-40"
           >
             截图
           </button>
@@ -456,10 +461,12 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
             title="读取剪切板"
             disabled={busy}
             onClick={() => void api.captureClipboard()}
-            className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+            className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-40"
           >
             剪贴板
           </button>
+        </div>
+        <div className="flex items-end gap-2">
           <textarea
             ref={textareaRef}
             value={input}
@@ -471,7 +478,7 @@ export default function Assistant({ tasks, showToast, hotkeyLabel, userName }: P
                 void send(input)
               }
             }}
-            placeholder="粘贴通知让我提取事项，或直接问我日程…（Shift+Enter 换行）"
+            placeholder="粘贴通知提取事项，或问我日程…"
             className="max-h-36 min-w-0 flex-1 resize-none rounded-xl border border-slate-200 px-3.5 py-2 text-sm leading-6 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/5"
           />
           <button
