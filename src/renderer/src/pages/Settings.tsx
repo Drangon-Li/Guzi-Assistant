@@ -437,15 +437,15 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         </div>
       </Section>
 
-      <Section title="屏幕感知建议（隐私功能）">
+      <Section title="屏幕感知（持续被动采集）">
         <p className="mb-3 text-xs leading-5 text-slate-400">
-          开启后可手动「扫描当前屏幕」：纸壳助手 在本机识别屏幕上的文字，命中关键词时把文字（非截图）送解析，
-          给出一条待办建议供你确认。截图用完即弃、不保存、不上传。注意：macOS
-          会在你扫描时显示系统录制指示器，这是系统强制行为、无法关闭。首次使用会自动编译本地 OCR 组件（需 Xcode
+          纸壳助手在本机持续感知屏幕上的文字，命中关键词时把文字（非截图）送解析，自动沉淀为记忆与待办建议——
+          被动采集是产品核心，默认开启。截图用完即弃、不保存、不上传，可在下方排除敏感应用。注意：macOS
+          会在采集时显示系统录制指示器，这是系统强制行为、无法关闭。首次使用会自动编译本地 OCR 组件（需 Xcode
           命令行工具）。
         </p>
         <label className="flex items-center justify-between gap-4 text-sm">
-          <span>启用屏幕感知建议</span>
+          <span>屏幕感知</span>
           <input
             type="checkbox"
             checked={settings.screenSenseEnabled}
@@ -453,7 +453,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               const next = e.target.checked
               setSettings({ ...settings, screenSenseEnabled: next })
               await api.saveSettings({ screenSenseEnabled: next })
-              flash(next ? '已开启屏幕感知建议' : '已关闭屏幕感知建议')
+              flash(next ? '已开启屏幕感知' : '已关闭屏幕感知')
             }}
           />
         </label>

@@ -116,13 +116,13 @@ export interface AppSettings {
   model: string
   feishuAppId: string
   feishuAppSecret: string
-  /** 屏幕感知建议：opt-in 开关，默认 false */
+  /** 屏幕感知：核心被动采集总开关，默认 true（用户可显式关闭） */
   screenSenseEnabled: boolean
   /** 触发解析的关键词 */
   screenSenseKeywords: string[]
   /** 扫描屏幕的全局快捷键 accelerator */
   screenSenseHotkey: string
-  /** 持续屏幕监控（#40）：screenSenseEnabled 之下的二级开关，默认 false */
+  /** 持续屏幕监控（#40）：screenSenseEnabled 之下的二级开关，默认 true（被动持续感知） */
   screenSenseContinuous: boolean
   /** 持续监控轮询间隔（秒），默认 5 */
   screenSenseIntervalSec: number

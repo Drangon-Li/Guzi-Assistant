@@ -140,10 +140,11 @@ export function getSettings(): AppSettings {
     model: map.model || env.ESHELL_MODEL || 'gpt-5.5',
     feishuAppId: map.feishuAppId ?? env.ESHELL_FEISHU_APP_ID ?? '',
     feishuAppSecret: map.feishuAppSecret ?? env.ESHELL_FEISHU_APP_SECRET ?? '',
-    screenSenseEnabled: map.screenSenseEnabled === 'true',
+    // 核心被动采集：默认开，仅当用户显式存 'false' 才关
+    screenSenseEnabled: map.screenSenseEnabled !== 'false',
     screenSenseKeywords: parseKeywords(map.screenSenseKeywords),
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',
-    screenSenseContinuous: map.screenSenseContinuous === 'true',
+    screenSenseContinuous: map.screenSenseContinuous !== 'false',
     screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,
     // 排除名单空 = 不排除（不能像关键词那样回退默认词表）
     screenSenseExcludedApps: parseList(map.screenSenseExcludedApps),
