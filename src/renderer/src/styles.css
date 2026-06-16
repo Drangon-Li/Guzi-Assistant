@@ -85,5 +85,18 @@ body {
 .stagger > *:nth-child(7) { animation-delay: 0.26s; }
 .stagger > *:nth-child(8) { animation-delay: 0.30s; }
 
-/* macOS hiddenInset：为交通灯腾出空间 */
-.titlebar-pad { padding-top: 40px; }
+/* macOS hiddenInset：为交通灯腾出空间，并作为窗口拖拽区 */
+.titlebar-pad { padding-top: 40px; -webkit-app-region: drag; }
+
+/* 窗口顶部全宽拖拽带：覆盖主内容区顶部，使整条窗口顶都能拖；
+   高度压在各页面顶部 padding(24px+) 内，只盖留白不挡控件；
+   z-index 低于弹窗(z-50)/拖入遮罩(z-40)，模态打开时让位 */
+.drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  z-index: 30;
+  -webkit-app-region: drag;
+}
