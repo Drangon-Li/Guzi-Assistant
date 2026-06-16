@@ -65,6 +65,10 @@ body {
   from { opacity: 0; transform: translateY(14px) scale(0.97); }
   to { opacity: 1; transform: none; }
 }
+@keyframes card-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(14px) scale(0.97); }
+}
 
 .animate-overlay-in { animation: overlay-in 0.18s var(--ease-spring); }
 .animate-overlay-out { animation: overlay-out 0.16s ease-in forwards; }
@@ -73,6 +77,7 @@ body {
 .animate-page { animation: page-in 0.26s var(--ease-spring); }
 .animate-toast { animation: toast-in 0.2s var(--ease-spring); }
 .animate-card-in { animation: card-in 0.24s var(--ease-spring); }
+.animate-card-out { animation: card-out 0.18s ease-in forwards; }
 
 /* 列表错位进场：父级加 .stagger，子项依次淡入 */
 .stagger > * { animation: item-in 0.18s var(--ease-spring) both; }

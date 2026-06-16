@@ -25,6 +25,9 @@ export default function FloatingAssistant({
   return (
     <>
       {open && (
+        <div className="fixed inset-0 z-30" onClick={() => onOpenChange(false)} aria-hidden />
+      )}
+      {open && (
         <div className="animate-modal-in fixed right-5 bottom-24 z-40 flex h-[min(600px,72vh)] w-[400px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
           <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2.5">
             <div className="flex items-center gap-2">

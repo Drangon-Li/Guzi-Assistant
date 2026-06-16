@@ -21,7 +21,7 @@ export function createMainWindow(): BrowserWindow {
     height: 740,
     minWidth: 880,
     minHeight: 600,
-    title: 'EShell',
+    title: '纸壳助手',
     show: false,
     // 现代 macOS 风格：隐藏标题栏，红黄绿交通灯浮在侧栏上方（与设计稿一致）
     titleBarStyle: 'hiddenInset',

@@ -193,7 +193,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
       <Section title="账户">
         <p className="mb-3 text-xs leading-5 text-slate-400">
-          解析能力由 EShell 云端提供，登录即用，无需配置模型或密钥。
+          解析能力由 纸壳助手 云端提供，登录即用，无需配置模型或密钥。
         </p>
         <AccountSection />
       </Section>
@@ -599,7 +599,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
             {perms && perms.screen !== 'granted' && (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
-                屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 EShell。
+                屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 纸壳助手。
               </div>
             )}
           </div>
@@ -629,7 +629,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
       <Section title="数据管理">
         <p className="mb-3 text-xs leading-5 text-slate-400">
-          所有数据仅保存在本机（用户目录下的 SQLite 数据库），不会自动上传。提交解析时，所选内容会发送至 EShell 云端解析服务。
+          所有数据仅保存在本机（用户目录下的 SQLite 数据库），不会自动上传。提交解析时，所选内容会发送至 纸壳助手 云端解析服务。
         </p>
         <button
           className="rounded-lg border border-red-200 px-4 py-1.5 text-xs text-red-600 hover:bg-red-50"
