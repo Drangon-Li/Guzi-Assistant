@@ -224,6 +224,29 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         </div>
       </Section>
 
+      <Section title="悬浮助手">
+        <label className="flex items-center gap-3 text-sm">
+          <span className="text-slate-500">闲置自动收起</span>
+          <input
+            type="number"
+            min={0}
+            max={600}
+            className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+            value={settings.assistantAutoCloseSec}
+            onChange={(e) =>
+              setSettings({ ...settings, assistantAutoCloseSec: Number(e.target.value) })
+            }
+            onBlur={async (e) => {
+              const v = Math.min(600, Math.max(0, Number(e.target.value) || 0))
+              setSettings({ ...settings, assistantAutoCloseSec: v })
+              await api.saveSettings({ assistantAutoCloseSec: v })
+              flash(v ? `闲置 ${v} 秒自动收起助手` : '已关闭自动收起')
+            }}
+          />
+          <span className="text-xs text-slate-400">秒，0 = 不自动收起</span>
+        </label>
+      </Section>
+
       <Section title="系统集成">
         <div className="flex flex-col gap-3 text-sm">
           <div className="flex items-center justify-between gap-4">
@@ -362,6 +385,26 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               />
             </label>
 
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-slate-500">
+                只监控这些应用（逗号或顿号分隔）
+                <span className="ml-2 text-xs text-slate-400">
+                  留空 = 监控全部；默认只看微信/钉钉/QQ 等聊天应用
+                </span>
+              </span>
+              <input
+                className={input}
+                placeholder="如：微信、钉钉、QQ、飞书"
+                defaultValue={settings.screenSenseAllowedApps.join('、')}
+                onBlur={async (e) => {
+                  const list = splitList(e.target.value)
+                  setSettings({ ...settings, screenSenseAllowedApps: list })
+                  await api.saveSettings({ screenSenseAllowedApps: list })
+                  flash('已保存监控应用名单')
+                }}
+              />
+            </label>
+
             <div className="flex items-center gap-3 text-sm">
               <span className="text-slate-500">扫描快捷键</span>
               <button
@@ -375,6 +418,27 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                 {scanRecording ? '按下新组合键…' : formatHotkey(settings.screenSenseHotkey)}
               </button>
               {scanRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
+            </div>
+
+            <div className="border-t border-slate-100 pt-4">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
+                  检测到日程时弹窗提醒
+                  <span className="ml-2 text-xs text-slate-400">
+                    关闭则完全被动，只在「记忆」里留存供回看
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSensePopup}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    setSettings({ ...settings, screenSensePopup: next })
+                    await api.saveSettings({ screenSensePopup: next })
+                    flash(next ? '检测到日程会弹窗提醒' : '已转为完全被动（只进记忆）')
+                  }}
+                />
+              </label>
             </div>
 
             <div className="border-t border-slate-100 pt-4">

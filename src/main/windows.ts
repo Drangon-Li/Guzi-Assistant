@@ -51,8 +51,8 @@ export function focusMain(route?: string): void {
 export function getPreviewWindow(): BrowserWindow {
   if (previewWin && !previewWin.isDestroyed()) return previewWin
   previewWin = new BrowserWindow({
-    width: 380,
-    height: 260,
+    width: 320,
+    height: 240,
     frame: false,
     transparent: true,
     resizable: false,
@@ -72,7 +72,7 @@ export function getPreviewWindow(): BrowserWindow {
 export function showPreview(payload: unknown): void {
   const win = getPreviewWindow()
   const { workArea } = screen.getPrimaryDisplay()
-  win.setPosition(workArea.x + workArea.width - 396, workArea.y + workArea.height - 276)
+  win.setPosition(workArea.x + workArea.width - 336, workArea.y + workArea.height - 256)
   const send = (): void => {
     win.webContents.send('eshell:preview', payload)
     win.showInactive()
@@ -88,6 +88,39 @@ export function hidePreview(): void {
 /** 预览卡（建议/结果卡）当前是否可见——持续监控用它避免覆盖用户正在看的卡 */
 export function isPreviewVisible(): boolean {
   return !!previewWin && !previewWin.isDestroyed() && previewWin.isVisible()
+}
+
+let debugWin: BrowserWindow | null = null
+
+/** 开发用调试监控面板（独立窗口）：实时显示屏幕感知管线每一步。 */
+export function openDebugWindow(): void {
+  if (debugWin && !debugWin.isDestroyed()) {
+    debugWin.show()
+    debugWin.focus()
+    return
+  }
+  debugWin = new BrowserWindow({
+    width: 460,
+    height: 760,
+    title: '纸壳助手 · 调试监控',
+    backgroundColor: '#0b0b0f',
+    webPreferences: { preload }
+  })
+  debugWin.on('closed', () => {
+    debugWin = null
+  })
+  load(debugWin, '/debug')
+}
+
+/** 调试窗是否开着——主进程据此决定要不要做额外开销（如生成截图缩略图）。 */
+export function debugIsOpen(): boolean {
+  return !!debugWin && !debugWin.isDestroyed()
+}
+
+/** 向调试窗推一条事件（窗没开则忽略，零开销）。 */
+export function debugEvent(stage: string, message: string, extra?: Record<string, unknown>): void {
+  if (debugWin && !debugWin.isDestroyed())
+    debugWin.webContents.send('eshell:debug', { ts: Date.now(), stage, message, ...extra })
 }
 
 export function broadcast(channel: string, payload?: unknown): void {

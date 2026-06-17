@@ -61,13 +61,15 @@ body {
   from { opacity: 0; transform: translate(-50%, 10px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+/* 识别卡（PreviewCard，屏幕右下角独立窗）：从屏幕右侧横向滑入 / 向右滑出。
+   115% > 卡片自身宽度，滑出部分被预览窗右边界裁掉 = 看似滑出屏幕外 */
 @keyframes card-in {
-  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  from { opacity: 0; transform: translateX(115%); }
   to { opacity: 1; transform: none; }
 }
 @keyframes card-out {
   from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 0; transform: translateX(115%); }
 }
 
 .animate-overlay-in { animation: overlay-in 0.18s var(--ease-spring); }
@@ -76,8 +78,19 @@ body {
 .animate-modal-out { animation: modal-out 0.16s ease-in forwards; }
 .animate-page { animation: page-in 0.26s var(--ease-spring); }
 .animate-toast { animation: toast-in 0.2s var(--ease-spring); }
-.animate-card-in { animation: card-in 0.24s var(--ease-spring); }
-.animate-card-out { animation: card-out 0.18s ease-in forwards; }
+.animate-card-in { animation: card-in 0.3s var(--ease-spring); }
+.animate-card-out { animation: card-out 0.24s ease-in forwards; }
+
+/* 任务完成：先保持勾选+划线让用户看到，再淡出+收拢滑走 */
+@keyframes task-done-out {
+  0% { opacity: 1; max-height: 240px; transform: none; }
+  30% { opacity: 1; max-height: 240px; transform: none; }
+  100% { opacity: 0; max-height: 0; transform: translateX(16px); }
+}
+.animate-task-done {
+  overflow: hidden;
+  animation: task-done-out 0.34s var(--ease-spring) forwards;
+}
 
 /* 列表错位进场：父级加 .stagger，子项依次淡入 */
 .stagger > * { animation: item-in 0.18s var(--ease-spring) both; }

@@ -6,6 +6,7 @@ import {
   getSettings,
   getSource,
   getTask,
+  listDetections,
   listTasks,
   saveProfile,
   saveSettings,
@@ -29,7 +30,15 @@ import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/pars
 import { setHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
-import { acceptSuggestion, applyScreenSenseSettings, scanOnce } from './screenwatch'
+import {
+  acceptDetection,
+  acceptLocal,
+  acceptSuggestion,
+  aiParse,
+  applyScreenSenseSettings,
+  dismissDetection,
+  scanOnce
+} from './screenwatch'
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
@@ -160,6 +169,23 @@ export function registerIpc(): void {
   ipcMain.handle('suggestion:accept', (_e, payload: { item: ParsedItem; sourceText: string }) =>
     acceptSuggestion(payload)
   )
+  ipcMain.handle('suggestion:ai-parse', (_e, sourceText: string) => aiParse(sourceText))
+  ipcMain.handle(
+    'suggestion:accept-local',
+    (
+      _e,
+      p: {
+        title: string
+        isoTime: string | null
+        deadline: boolean
+        sourceText: string
+        detectionId?: string
+      }
+    ) => acceptLocal(p)
+  )
+  ipcMain.handle('detections:list', () => listDetections())
+  ipcMain.handle('detections:accept', (_e, id: string) => acceptDetection(id))
+  ipcMain.handle('detections:dismiss', (_e, id: string) => dismissDetection(id))
 
   ipcMain.handle(
     'assistant:chat',

@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import type { MemoryHit, SourceType } from '@shared/types'
+import { useEffect, useState } from 'react'
+import type { DetectionRecord, MemoryHit, SourceType } from '@shared/types'
 import { api } from '../api'
+import { fmtTime } from '../labels'
 import SourceModal from '../components/SourceModal'
 
 const SOURCE_LABELS: Record<SourceType, string> = {
@@ -23,6 +24,20 @@ export default function Memory(): React.JSX.Element {
   const [hits, setHits] = useState<MemoryHit[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [sourceId, setSourceId] = useState<string | null>(null)
+  const [dets, setDets] = useState<DetectionRecord[]>([])
+
+  const loadDets = (): void => void api.listDetections().then(setDets)
+  useEffect(loadDets, [])
+
+  const accept = async (id: string): Promise<void> => {
+    await api.acceptDetection(id)
+    loadDets()
+  }
+  const dismiss = async (id: string): Promise<void> => {
+    await api.dismissDetection(id)
+    loadDets()
+  }
+  const freshCount = dets.filter((d) => d.status === 'new').length
 
   const run = async (): Promise<void> => {
     const q = query.trim()
@@ -46,6 +61,60 @@ export default function Memory(): React.JSX.Element {
           搜索捕获过的历史内容（屏幕 / 剪贴板 / 文件），定位回来源。全部本地，不上传。
         </p>
       </div>
+
+      {dets.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-xs font-medium text-slate-400">
+            屏幕识别历史{freshCount > 0 && ` · ${freshCount} 条待处理`}
+          </h2>
+          <div className="stagger flex flex-col gap-2">
+            {dets.slice(0, 12).map((d) => (
+              <div
+                key={d.id}
+                className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className={`truncate text-sm ${d.status !== 'new' ? 'text-slate-400' : ''}`}>
+                    {d.title}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-slate-400">
+                    {d.timeIso ? (
+                      <span>{fmtTime(d.timeIso)}</span>
+                    ) : (
+                      d.hits.length > 0 && <span>命中 {d.hits.join('、')}</span>
+                    )}
+                    <span>{d.createdAt.slice(5, 16).replace('T', ' ')}</span>
+                  </div>
+                </div>
+                {d.status === 'new' ? (
+                  <>
+                    <button
+                      onClick={() => void dismiss(d.id)}
+                      className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+                    >
+                      忽略
+                    </button>
+                    <button
+                      onClick={() => void accept(d.id)}
+                      className="shrink-0 rounded-lg bg-ink px-3 py-1 text-[11px] text-white hover:bg-black"
+                    >
+                      同意
+                    </button>
+                  </>
+                ) : (
+                  <span
+                    className={`shrink-0 text-[11px] ${
+                      d.status === 'accepted' ? 'text-emerald-600' : 'text-slate-400'
+                    }`}
+                  >
+                    {d.status === 'accepted' ? '✓ 已加入' : '已忽略'}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <input
         className={input}

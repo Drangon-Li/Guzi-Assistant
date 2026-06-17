@@ -29,6 +29,11 @@ export const INVOKE_CHANNELS = [
   'feishu:status',
   'screen:scan',
   'suggestion:accept',
+  'suggestion:ai-parse',
+  'suggestion:accept-local',
+  'detections:list',
+  'detections:accept',
+  'detections:dismiss',
   'assistant:chat',
   'assistant:add',
   'app:focus-main',
@@ -42,7 +47,8 @@ export const EVENT_CHANNELS = [
   'eshell:navigate',
   'eshell:preview',
   'eshell:settings-updated',
-  'eshell:tasks-updated'
+  'eshell:tasks-updated',
+  'eshell:debug'
 ] as const
 
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]

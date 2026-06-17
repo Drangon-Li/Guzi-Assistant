@@ -12,7 +12,7 @@ import {
   isWatchPaused
 } from './screenwatch'
 import { submitExternalFiles } from './capture'
-import { appState, createMainWindow, focusMain } from './windows'
+import { appState, createMainWindow, focusMain, openDebugWindow } from './windows'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { readFileSync } from 'fs'
 import trayIcon from '../../resources/trayTemplate.png?asset'
@@ -35,6 +35,9 @@ function buildTrayMenu(): void {
         click: () => setWatchPaused(!isWatchPaused())
       }
     )
+  }
+  if (!app.isPackaged) {
+    items.push({ type: 'separator' }, { label: '调试监控面板', click: () => openDebugWindow() })
   }
   items.push(
     { type: 'separator' },
