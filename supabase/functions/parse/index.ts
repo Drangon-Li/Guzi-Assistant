@@ -94,13 +94,18 @@ Deno.serve(async (req) => {
       return json({ error: '积分不足', balance: row.grant_balance + row.purchased_balance }, 402)
 
     // 3. 转发上游 relay（OpenAI Chat Completions）。失败不扣（#56 心安）。
+    //    文本/对话走思考型主模型时关闭思考（enable_thinking:false），否则模型会输出一段思考过程
+    //    污染 extractJson；视觉模型不加该 kwarg（避免其 chat 模板不识别）。非思考模型会忽略该字段。
+    const useVision = reason === 'parse_vision'
+    const upstreamBody: Record<string, unknown> = {
+      model: useVision ? LLM_MODEL_VISION : LLM_MODEL,
+      messages: toMessages(instructions, input)
+    }
+    if (!useVision) upstreamBody.chat_template_kwargs = { enable_thinking: false }
     const res = await fetch(`${LLM_BASE.replace(/\/$/, '')}/v1/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${LLM_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: reason === 'parse_vision' ? LLM_MODEL_VISION : LLM_MODEL,
-        messages: toMessages(instructions, input)
-      })
+      body: JSON.stringify(upstreamBody)
     })
     if (!res.ok) return json({ error: `解析服务返回 ${res.status}` }, 502)
     const completion = (await res.json()) as {
