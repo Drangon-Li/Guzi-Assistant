@@ -56,6 +56,19 @@ export interface MemoryHit {
   taskCount: number
 }
 
+/** 屏幕感知本地检测记录：被动留存到「记忆」页回看。status: new=待处理 / accepted=已加入 / dismissed=已忽略 */
+export interface DetectionRecord {
+  id: string
+  title: string
+  timeIso: string | null
+  deadline: boolean
+  sourceText: string
+  hits: string[]
+  app: string | null
+  status: 'new' | 'accepted' | 'dismissed'
+  createdAt: string
+}
+
 export interface TaskRecord {
   id: string
   sourceId: string | null
@@ -132,6 +145,12 @@ export interface AppSettings {
   screenSenseKeepShots: boolean
   /** 截图保留天数（#53），到期自动清；<=0 永久保留。默认 14 */
   screenSenseRetentionDays: number
+  /** 检测到日程时是否主动弹卡；false=完全被动（只进「记忆」历史，不打扰）。默认 true */
+  screenSensePopup: boolean
+  /** 进程级监控允许名单：只在这些 App 前台时才扫描（如 微信/钉钉/QQ）；空=监控全部。默认常见 IM */
+  screenSenseAllowedApps: string[]
+  /** 悬浮助手闲置自动收起秒数；0=不自动收起。默认 60 */
+  assistantAutoCloseSec: number
 }
 
 export interface FeishuStatus {

@@ -4,10 +4,11 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
 import { localNow } from '@shared/parsing'
-import { DEFAULT_SCREEN_KEYWORDS } from '@shared/keywords'
+import { DEFAULT_MONITORED_APPS, DEFAULT_SCREEN_KEYWORDS } from '@shared/keywords'
 import { buildFtsQuery } from '@shared/fts-query'
 import type {
   AppSettings,
+  DetectionRecord,
   MemoryHit,
   Profile,
   SourceRecord,
@@ -55,6 +56,17 @@ export function initDb(): void {
       feedback TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS detections (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      time_iso TEXT,
+      deadline INTEGER NOT NULL DEFAULT 0,
+      source_text TEXT NOT NULL,
+      hits TEXT NOT NULL DEFAULT '[]',
+      app TEXT,
+      status TEXT NOT NULL DEFAULT 'new',
+      created_at TEXT NOT NULL
     );
   `)
   // 老库迁移：早期版本没有 notes 列
@@ -149,7 +161,13 @@ export function getSettings(): AppSettings {
     // 排除名单空 = 不排除（不能像关键词那样回退默认词表）
     screenSenseExcludedApps: parseList(map.screenSenseExcludedApps),
     screenSenseKeepShots: map.screenSenseKeepShots === 'true',
-    screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14
+    screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
+    screenSensePopup: map.screenSensePopup !== 'false',
+    screenSenseAllowedApps:
+      map.screenSenseAllowedApps != null
+        ? parseList(map.screenSenseAllowedApps)
+        : DEFAULT_MONITORED_APPS,
+    assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60
   }
 }
 
@@ -435,8 +453,100 @@ export function bulkUpdateStatus(ids: string[], status: TaskStatus): void {
   run(ids)
 }
 
+// ---------- detections（屏幕感知本地检测历史，被动留存进「记忆」页）----------
+
+interface DetectionRow {
+  id: string
+  title: string
+  time_iso: string | null
+  deadline: number
+  source_text: string
+  hits: string
+  app: string | null
+  status: string
+  created_at: string
+}
+
+function rowToDetection(r: DetectionRow): DetectionRecord {
+  return {
+    id: r.id,
+    title: r.title,
+    timeIso: r.time_iso,
+    deadline: !!r.deadline,
+    sourceText: r.source_text,
+    hits: JSON.parse(r.hits || '[]'),
+    app: r.app,
+    status: r.status as DetectionRecord['status'],
+    createdAt: r.created_at
+  }
+}
+
+/**
+ * 记一条屏幕检测。**跨所有状态**按 标题+时间 去重：只要这条内容记录过（待处理/已忽略/已加入），
+ * 就返回旧记录且 isNew=false —— 调用方据此不再重复弹窗/抓取（修「拒绝后仍重复抓取」）。
+ */
+export function addDetection(input: {
+  title: string
+  timeIso: string | null
+  deadline: boolean
+  sourceText: string
+  hits: string[]
+  app: string | null
+}): { detection: DetectionRecord; isNew: boolean } {
+  const dup = db
+    .prepare("SELECT * FROM detections WHERE title=? AND IFNULL(time_iso,'')=IFNULL(?,'')")
+    .get(input.title, input.timeIso) as DetectionRow | undefined
+  if (dup) return { detection: rowToDetection(dup), isNew: false }
+
+  const rec: DetectionRecord = {
+    id: randomUUID(),
+    title: input.title,
+    timeIso: input.timeIso,
+    deadline: input.deadline,
+    sourceText: input.sourceText,
+    hits: input.hits,
+    app: input.app,
+    status: 'new',
+    createdAt: localNow()
+  }
+  db.prepare(
+    'INSERT INTO detections (id, title, time_iso, deadline, source_text, hits, app, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    rec.id,
+    rec.title,
+    rec.timeIso,
+    rec.deadline ? 1 : 0,
+    rec.sourceText,
+    JSON.stringify(rec.hits),
+    rec.app,
+    rec.status,
+    rec.createdAt
+  )
+  // 历史不无界增长：只保留最近 300 条
+  db.exec(
+    'DELETE FROM detections WHERE id NOT IN (SELECT id FROM detections ORDER BY created_at DESC LIMIT 300)'
+  )
+  return { detection: rec, isNew: true }
+}
+
+export function listDetections(limit = 40): DetectionRecord[] {
+  const rows = db
+    .prepare('SELECT * FROM detections ORDER BY created_at DESC LIMIT ?')
+    .all(limit) as DetectionRow[]
+  return rows.map(rowToDetection)
+}
+
+export function getDetection(id: string): DetectionRecord | null {
+  const row = db.prepare('SELECT * FROM detections WHERE id = ?').get(id) as DetectionRow | undefined
+  return row ? rowToDetection(row) : null
+}
+
+export function setDetectionStatus(id: string, status: DetectionRecord['status']): void {
+  db.prepare('UPDATE detections SET status = ? WHERE id = ?').run(status, id)
+}
+
 export function wipeAll(): void {
-  db.exec('DELETE FROM tasks; DELETE FROM sources; DELETE FROM profile;')
+  db.exec('DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile;')
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')

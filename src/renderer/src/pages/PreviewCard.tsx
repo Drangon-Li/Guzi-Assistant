@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ParseSummary, PendingCapture } from '@shared/types'
 import type { ParsedItem } from '@shared/parsing'
+import type { LocalSchedule } from '@shared/local-extract'
 import { api } from '../api'
 import { fmtTime, SOURCE_LABELS } from '../labels'
+import brandMark from '../assets/agent-avatar.png'
 
 type State =
   | { phase: 'idle' }
@@ -12,6 +14,7 @@ type State =
   | { phase: 'error'; message: string }
   | { phase: 'empty'; message: string }
   | { phase: 'suggestion'; item: ParsedItem; sourceText: string; hits: string[] }
+  | { phase: 'local'; local: LocalSchedule & { sourceText: string; detectionId?: string } }
   | { phase: 'done'; message: string }
 
 const AUTO_SECONDS = 3
@@ -21,6 +24,9 @@ export default function PreviewCard(): React.JSX.Element | null {
   // 解析期间用户再次触发快捷键时，旧提交的结果不能覆盖新预览
   const submitIdRef = useRef('')
   const [closing, setClosing] = useState(false)
+  // 每次新弹出时 +1，作为外层动画 div 的 key：只在卡片「出现」时滑入一次；
+  // 内部状态变化（preview→loading→result）共用同一 key，原地更新、不重放滑入
+  const [seq, setSeq] = useState(0)
 
   // 关闭前先播放淡出动画，再执行真正的隐藏 */
   const fadeOut = (action: () => void): void => {
@@ -29,7 +35,7 @@ export default function PreviewCard(): React.JSX.Element | null {
       setClosing(false)
       setState({ phase: 'idle' })
       action()
-    }, 180)
+    }, 250)
   }
 
   const submit = async (capture: PendingCapture): Promise<void> => {
@@ -54,6 +60,36 @@ export default function PreviewCard(): React.JSX.Element | null {
   }
 
   const close = (): void => fadeOut(() => void api.previewHide())
+
+  // 本地候选 →「AI 精确解析」：上云精修，成功转入 suggestion 卡态原地更新
+  const aiRefine = async (): Promise<void> => {
+    if (state.phase !== 'local') return
+    const sourceText = state.local.sourceText
+    setState({ phase: 'loading', message: '正在 AI 解析…' })
+    try {
+      const r = await api.suggestionAiParse(sourceText)
+      if (r) setState({ phase: 'suggestion', ...r })
+      else setState({ phase: 'empty', message: '未发现明确的待办事项' })
+    } catch (e) {
+      setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
+  // 本地候选 →「同意」：直接用本地结果入库（不上云）
+  const acceptLocalNow = async (): Promise<void> => {
+    if (state.phase !== 'local') return
+    const { title, isoTime, deadline, sourceText, detectionId } = state.local
+    setState({ phase: 'loading', message: '正在加入…' })
+    try {
+      const info = await api.acceptLocal({ title, isoTime, deadline, sourceText, detectionId })
+      setState({
+        phase: 'done',
+        message: info.duplicate ? `「${info.title}」已存在，未重复添加` : `✓ 已加入「${info.title}」`
+      })
+    } catch (e) {
+      setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
+  }
 
   const acceptSuggestion = async (modify: boolean): Promise<void> => {
     if (state.phase !== 'suggestion') return
@@ -89,6 +125,16 @@ export default function PreviewCard(): React.JSX.Element | null {
           }
       submitIdRef.current = ''
       setClosing(false)
+      setSeq((n) => n + 1)
+      const ls = (
+        payload as {
+          localSuggestion?: LocalSchedule & { sourceText: string; detectionId?: string }
+        }
+      ).localSuggestion
+      if (ls) {
+        setState({ phase: 'local', local: ls })
+        return
+      }
       if ('suggestion' in p && p.suggestion) {
         setState({ phase: 'suggestion', ...p.suggestion })
       } else if (p.busy) {
@@ -137,13 +183,14 @@ export default function PreviewCard(): React.JSX.Element | null {
   if (state.phase === 'idle') return null
 
   return (
-    <div className="flex h-screen items-end justify-end p-2">
+    <div className="flex h-screen items-end justify-end overflow-hidden p-2">
       <div
-        key={state.phase}
+        key={seq}
         className={`${closing ? 'animate-card-out' : 'animate-card-in'} flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-2xl`}
       >
         <div className="flex items-center gap-2">
-          <span className="font-semibold">纸壳助手</span>
+          <img src={brandMark} alt="" className="size-4 shrink-0" />
+          <span className="text-xs font-medium text-slate-500">纸壳助手</span>
           {state.phase === 'preview' && (
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
               {SOURCE_LABELS[state.capture.type]}
@@ -154,7 +201,12 @@ export default function PreviewCard(): React.JSX.Element | null {
             onClick={() =>
               fadeOut(() => {
                 if (state.phase === 'preview') void api.previewCancel(state.capture.captureId)
-                else void api.previewHide()
+                else {
+                  // 拒绝本地检测：标记已忽略，之后同内容不再重复弹（修「拒绝后仍重复抓取」）
+                  if (state.phase === 'local' && state.local.detectionId)
+                    void api.dismissDetection(state.local.detectionId)
+                  void api.previewHide()
+                }
               })
             }
           >
@@ -283,24 +335,18 @@ export default function PreviewCard(): React.JSX.Element | null {
         {state.phase === 'suggestion' && (
           <>
             <div className="flex items-start gap-2">
-              <span className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                屏幕识别
+              <span className="mt-0.5 shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-600">
+                AI 已解析
               </span>
               <span className="min-w-0 flex-1 text-sm leading-5 font-medium">{state.item.title}</span>
             </div>
             <div className="flex flex-wrap gap-x-3 text-xs text-slate-500">
-              {state.item.start_time && <span>开始：{fmtTime(state.item.start_time)}</span>}
+              {state.item.start_time && <span>开始 {fmtTime(state.item.start_time)}</span>}
               {state.item.due_time && (
-                <span className="text-red-500">截止：{fmtTime(state.item.due_time)}</span>
+                <span className="text-red-500">截止 {fmtTime(state.item.due_time)}</span>
               )}
-              {state.item.location && <span>地点：{state.item.location}</span>}
+              {state.item.location && <span>{state.item.location}</span>}
             </div>
-            {state.item.belonging_reason && (
-              <div className="text-xs text-slate-400">{state.item.belonging_reason}</div>
-            )}
-            {state.hits.length > 0 && (
-              <div className="text-[11px] text-slate-400">命中：{state.hits.join('、')}</div>
-            )}
             <div className="flex justify-end gap-2">
               <button
                 className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
@@ -317,6 +363,36 @@ export default function PreviewCard(): React.JSX.Element | null {
               <button
                 className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
                 onClick={() => void acceptSuggestion(false)}
+              >
+                同意
+              </button>
+            </div>
+          </>
+        )}
+
+        {state.phase === 'local' && (
+          <>
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-600">
+                检测到日程
+              </span>
+              <span className="min-w-0 flex-1 text-sm leading-5 font-medium">
+                {state.local.title}
+              </span>
+            </div>
+            <div className="text-xs text-slate-500">
+              {state.local.isoTime ? fmtTime(state.local.isoTime) : state.local.timeText}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+                onClick={() => void aiRefine()}
+              >
+                AI 解析
+              </button>
+              <button
+                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                onClick={() => void acceptLocalNow()}
               >
                 同意
               </button>

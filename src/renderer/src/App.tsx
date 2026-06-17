@@ -12,6 +12,9 @@ import Memory from './pages/Memory'
 import Account from './pages/Account'
 import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
+import Debug from './pages/Debug'
+import brandMark from './assets/agent-avatar.png'
+import brandWordmark from './assets/brand-wordmark.png'
 
 type Page = 'timeline' | 'schedule' | 'memory' | 'account' | 'settings'
 
@@ -25,6 +28,7 @@ const NAV: { key: Page; label: string }[] = [
 
 export default function App(): React.JSX.Element {
   if (window.location.hash.includes('/preview')) return <PreviewCard />
+  if (window.location.hash.includes('/debug')) return <Debug />
   return <MainApp />
 }
 
@@ -152,8 +156,11 @@ function MainApp(): React.JSX.Element | null {
       <div className="drag-strip" />
       <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200/60 bg-[#fafafa]">
         <div className="px-5 pt-10 pb-4 titlebar-pad">
-          <div className="text-base font-semibold tracking-tight">纸壳助手</div>
-          <div className="mt-0.5 text-xs text-slate-400">个人事项捕获助手</div>
+          <div className="flex items-center gap-2">
+            <img src={brandMark} alt="" className="size-7 shrink-0" />
+            <img src={brandWordmark} alt="纸壳助手" className="h-5 w-auto" />
+          </div>
+          <div className="mt-1.5 text-xs text-slate-400">个人事项捕获助手</div>
         </div>
         <nav className="stagger flex flex-col gap-1 px-3">
           {NAV.map((item) => (

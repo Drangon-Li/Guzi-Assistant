@@ -248,24 +248,40 @@ function TaskRow({
 }): React.JSX.Element {
   const isDone = task.status === 'done'
   const isOverdue = task.status === 'overdue'
+  const [leaving, setLeaving] = useState(false)
+  const completing = !isDone
+
+  // 勾选后先播完成动画（保持勾选/划线），动画结束再真正改状态，避免任务瞬间消失
+  const toggle = (): void => {
+    if (leaving) return
+    setLeaving(true)
+    const next: TaskStatus = isDone
+      ? task.dueTime || task.startTime
+        ? 'scheduled'
+        : 'not_started'
+      : 'done'
+    window.setTimeout(() => void api.updateTask(task.id, { status: next }), 340)
+  }
+  const checked = leaving ? completing : isDone
+  const strike = isDone || (leaving && completing)
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+    <div
+      className={`flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm ${
+        leaving ? 'animate-task-done' : ''
+      }`}
+    >
       <input
         type="checkbox"
-        checked={isDone}
-        onChange={() =>
-          void api.updateTask(task.id, {
-            status: isDone ? (task.dueTime || task.startTime ? 'scheduled' : 'not_started') : 'done'
-          })
-        }
+        checked={checked}
+        onChange={toggle}
         className="size-4 shrink-0 accent-slate-800"
       />
       <div className="min-w-0 flex-1">
         <button
           onClick={onOpen}
           className={`block w-full truncate text-left text-sm hover:text-slate-900 ${
-            isDone ? 'text-slate-400 line-through' : ''
+            strike ? 'text-slate-400 line-through' : ''
           }`}
         >
           {task.title}

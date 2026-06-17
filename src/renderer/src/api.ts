@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  DetectionRecord,
   FeishuStatus,
   MemoryHit,
   ParseSummary,
@@ -61,6 +62,21 @@ export const api = {
   screenScan: () => inv<ScanResult>('screen:scan'),
   suggestionAccept: (payload: { item: ParsedItem; sourceText: string }) =>
     inv<AddedInfo>('suggestion:accept', payload),
+  suggestionAiParse: (sourceText: string) =>
+    inv<{ item: ParsedItem; sourceText: string; hits: string[] } | null>(
+      'suggestion:ai-parse',
+      sourceText
+    ),
+  acceptLocal: (payload: {
+    title: string
+    isoTime: string | null
+    deadline: boolean
+    sourceText: string
+    detectionId?: string
+  }) => inv<AddedInfo>('suggestion:accept-local', payload),
+  listDetections: () => inv<DetectionRecord[]>('detections:list'),
+  acceptDetection: (id: string) => inv<AddedInfo | null>('detections:accept', id),
+  dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),
