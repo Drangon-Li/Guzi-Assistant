@@ -27,6 +27,8 @@ export default function PreviewCard(): React.JSX.Element | null {
   // 每次新弹出时 +1，作为外层动画 div 的 key：只在卡片「出现」时滑入一次；
   // 内部状态变化（preview→loading→result）共用同一 key，原地更新、不重放滑入
   const [seq, setSeq] = useState(0)
+  // 检测卡/AI 建议卡闲置自动隐藏秒数（设置里可调；0=不自动隐藏）
+  const [autoHideSec, setAutoHideSec] = useState(60)
 
   // 关闭前先播放淡出动画，再执行真正的隐藏 */
   const fadeOut = (action: () => void): void => {
@@ -157,6 +159,14 @@ export default function PreviewCard(): React.JSX.Element | null {
     })
   }, [])
 
+  // 自动隐藏秒数随设置实时更新
+  useEffect(() => {
+    const load = (): void =>
+      void api.getSettings().then((s) => setAutoHideSec(s.screenSenseCardHideSec))
+    load()
+    return api.on('eshell:settings-updated', load)
+  }, [])
+
   useEffect(() => {
     if (state.phase === 'preview' && state.left >= 0) {
       if (state.left === 0) {
@@ -177,8 +187,13 @@ export default function PreviewCard(): React.JSX.Element | null {
       const t = window.setTimeout(close, state.phase === 'done' ? 1800 : 3000)
       return () => window.clearTimeout(t)
     }
+    // 检测卡/AI 建议卡需用户决策：闲置 autoHideSec 秒自动隐藏（仍留在「记忆」历史，不算拒绝）
+    if ((state.phase === 'local' || state.phase === 'suggestion') && autoHideSec > 0) {
+      const t = window.setTimeout(close, autoHideSec * 1000)
+      return () => window.clearTimeout(t)
+    }
     return undefined
-  }, [state])
+  }, [state, autoHideSec])
 
   if (state.phase === 'idle') return null
 

@@ -60,7 +60,10 @@ export function getPreviewWindow(): BrowserWindow {
     skipTaskbar: true,
     show: false,
     hasShadow: false,
-    webPreferences: { preload }
+    // 预览卡是常驻置顶、从不获焦的通知窗（showInactive）。默认后台节流会把不获焦窗口降到极低帧率，
+    // 导致定时器触发的滑出动画被跳帧、看起来"直接消失"（点 ✕ 时有交互才正常播放）。关掉节流，
+    // 让自动隐藏的滑出动画也能完整播放。
+    webPreferences: { preload, backgroundThrottling: false }
   })
   previewWin.setAlwaysOnTop(true, 'screen-saver')
   previewWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })

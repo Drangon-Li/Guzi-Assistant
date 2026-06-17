@@ -147,6 +147,8 @@ export interface AppSettings {
   screenSenseRetentionDays: number
   /** 检测到日程时是否主动弹卡；false=完全被动（只进「记忆」历史，不打扰）。默认 true */
   screenSensePopup: boolean
+  /** 检测卡/AI 建议卡闲置自动隐藏秒数；0=不自动隐藏（一直挂着）。默认 60 */
+  screenSenseCardHideSec: number
   /** 进程级监控允许名单：只在这些 App 前台时才扫描（如 微信/钉钉/QQ）；空=监控全部。默认常见 IM */
   screenSenseAllowedApps: string[]
   /** 悬浮助手闲置自动收起秒数；0=不自动收起。默认 60 */

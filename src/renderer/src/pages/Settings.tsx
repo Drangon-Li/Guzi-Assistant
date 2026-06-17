@@ -441,6 +441,29 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               </label>
             </div>
 
+            {settings.screenSensePopup && (
+              <label className="flex items-center gap-3 pl-1 text-sm">
+                <span className="text-slate-500">弹窗无操作自动隐藏</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={600}
+                  className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                  value={settings.screenSenseCardHideSec}
+                  onChange={(e) =>
+                    setSettings({ ...settings, screenSenseCardHideSec: Number(e.target.value) })
+                  }
+                  onBlur={async (e) => {
+                    const v = Math.min(600, Math.max(0, Number(e.target.value) || 0))
+                    setSettings({ ...settings, screenSenseCardHideSec: v })
+                    await api.saveSettings({ screenSenseCardHideSec: v })
+                    flash(v ? `弹窗 ${v} 秒无操作自动隐藏` : '弹窗将一直显示')
+                  }}
+                />
+                <span className="text-xs text-slate-400">秒，0 = 不自动隐藏</span>
+              </label>
+            )}
+
             <div className="border-t border-slate-100 pt-4">
               <label className="flex items-center justify-between gap-4 text-sm">
                 <span>
