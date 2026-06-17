@@ -223,6 +223,7 @@ let ticking = false
 let lastHash: bigint | null = null
 let lastTextHash = ''
 let lastDebugApp: string | null | undefined = undefined // 调试日志：仅前台 App 变化时记一次，避免刷屏
+let previewBlockLogged = false // 调试日志：预览卡占用导致跳过只记一次，卡关掉后重置
 const cooldown = new Map<string, number>()
 let trayRefresh: (() => void) | null = null
 
@@ -265,7 +266,15 @@ function isOwnApp(frontApp: string | null): boolean {
 /** 一轮静默监控；全程不打扰用户，只有真发现待办才弹建议卡 */
 async function watchTick(): Promise<void> {
   if (ticking || watchPaused) return
-  if (isPreviewVisible()) return // 别覆盖用户正在看的卡
+  if (isPreviewVisible()) {
+    // 别覆盖用户正在看的卡；卡片一直开着会让监控看似"卡死"，调试面板里明确提示一次
+    if (!previewBlockLogged) {
+      debugEvent('skip', '预览卡显示中，监控暂停（关掉右下角卡片后自动恢复）')
+      previewBlockLogged = true
+    }
+    return
+  }
+  previewBlockLogged = false
   ticking = true
   let png: string | null = null
   try {
@@ -290,9 +299,16 @@ async function watchTick(): Promise<void> {
       return
     }
     if (screenSenseAllowedApps.length && !isAppExcluded(frontApp, screenSenseAllowedApps)) {
-      if (appChanged) debugEvent('skip', '不在监控名单，跳过')
+      if (appChanged)
+        debugEvent(
+          'skip',
+          frontApp ? `「${frontApp}」不在监控名单，跳过` : '前台应用检测失败，按名单跳过'
+        )
       return
     }
+    // 命中监控名单（进程级"检测到相关进程"）——调试面板据此确认进程门已放行
+    if (appChanged && screenSenseAllowedApps.length)
+      debugEvent('frontapp', `命中监控名单：${frontApp}，开始处理`)
 
     png = await captureScreenSilently()
     if (!png) {

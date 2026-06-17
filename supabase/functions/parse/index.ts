@@ -7,26 +7,58 @@
  *
  * 复用 server/billing/credits.ts(#63) 的纯积分逻辑（Deno 可直接 import 纯 TS）。
  *
- * ⚙️ 上游 relay = OpenAI **Chat Completions**（`/v1/chat/completions`，yunwu.ai 聚合，Edge 可达的公网
- * HTTPS）。本函数做适配层：把客户端的 Responses 风格请求（{instructions, input}）转成 chat messages，
- * 再把回复包成 `{output_text}` —— 让客户端 extractText 原样可用（客户端 / 共享解析零改动）。
+ * ⚙️ 上游 relay = OpenAI **Chat Completions**（`/v1/chat/completions`）。本函数做适配层：把客户端的
+ * Responses 风格请求（{instructions, input}）转成 chat messages，回复包成 `{output_text}` ——
+ * 客户端 extractText 原样可用（客户端 / 共享解析零改动）。
+ *
+ * 上游为「主用 + 兜底」：主用 #85 自部署 A100 站（省钱），掉线/超时/空响应自动切 yunwu 兜底。
+ * ⚠️ A100 是 HTTP（非 HTTPS）公网 IP：key 经公网明文转发，属内部服务端调用、仓库私有，按 #85 接受此风险。
  *
  * 部署：supabase functions deploy parse
  * 所需密钥（supabase secrets set）：
- *   ESHELL_LLM_BASE         = https://yunwu.ai
- *   ESHELL_LLM_KEY          = <relay key>
- *   ESHELL_LLM_MODEL        = deepseek-v4-flash   // 文本 / 对话
- *   ESHELL_LLM_MODEL_VISION = qwen3.5-plus        // 含图（parse_vision）走多模态
+ *   主用（A100，#85）：
+ *     ESHELL_LLM_BASE         = http://<A100 公网地址>        // 不含 /v1，本函数自动补
+ *     ESHELL_LLM_KEY          = <团队共享 key>
+ *     ESHELL_LLM_MODEL        = Qwen3.5-122B-A10B-GPTQ-Int4   // 文本/对话（思考型，自动关思考）
+ *     ESHELL_LLM_MODEL_VISION = Qwen3-Omni-30B-A3B-Instruct   // 含图（parse_vision）
+ *   兜底（yunwu，可选；不配 base/key 则无兜底）：
+ *     ESHELL_LLM_FALLBACK_BASE         = https://yunwu.ai
+ *     ESHELL_LLM_FALLBACK_KEY          = <yunwu relay key>
+ *     ESHELL_LLM_FALLBACK_MODEL        = deepseek-v4-flash
+ *     ESHELL_LLM_FALLBACK_MODEL_VISION = qwen3.5-plus
  *   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 由平台注入
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { creditCost, type BillableAction } from '../../../server/billing/credits.ts'
 
-const LLM_BASE = Deno.env.get('ESHELL_LLM_BASE') ?? ''
-const LLM_KEY = Deno.env.get('ESHELL_LLM_KEY') ?? ''
-const LLM_MODEL = Deno.env.get('ESHELL_LLM_MODEL') ?? 'deepseek-v4-flash'
-// 含图请求（parse_vision）走多模态模型；文本/对话用上面的便宜模型
-const LLM_MODEL_VISION = Deno.env.get('ESHELL_LLM_MODEL_VISION') ?? 'qwen3.5-plus'
+/** 一个上游 relay 配置（OpenAI Chat Completions 兼容）。base/key 走 secrets，未配置即视为不可用。 */
+interface Upstream {
+  base: string
+  key: string
+  model: string // 文本 / 对话
+  modelVision: string // 含图（parse_vision）走多模态
+  noThinkText: boolean // 文本模型是思考型时，传 enable_thinking:false 拿干净输出
+}
+
+// 主用：#85 自部署 A100 站（OpenAI 兼容 newapi）。旗舰文本模型是思考型 → 默认关思考。
+const PRIMARY: Upstream = {
+  base: Deno.env.get('ESHELL_LLM_BASE') ?? '',
+  key: Deno.env.get('ESHELL_LLM_KEY') ?? '',
+  model: Deno.env.get('ESHELL_LLM_MODEL') ?? 'Qwen3.5-122B-A10B-GPTQ-Int4',
+  modelVision: Deno.env.get('ESHELL_LLM_MODEL_VISION') ?? 'Qwen3-Omni-30B-A3B-Instruct',
+  noThinkText: Deno.env.get('ESHELL_LLM_NO_THINK') !== 'false'
+}
+// 兜底：yunwu 聚合（A100 单点掉线时自动切；未配 base/key 则跳过兜底）。yunwu 模型非思考型 → 默认不关思考。
+const FALLBACK: Upstream = {
+  base: Deno.env.get('ESHELL_LLM_FALLBACK_BASE') ?? '',
+  key: Deno.env.get('ESHELL_LLM_FALLBACK_KEY') ?? '',
+  model: Deno.env.get('ESHELL_LLM_FALLBACK_MODEL') ?? 'deepseek-v4-flash',
+  modelVision: Deno.env.get('ESHELL_LLM_FALLBACK_MODEL_VISION') ?? 'qwen3.5-plus',
+  noThinkText: Deno.env.get('ESHELL_LLM_FALLBACK_NO_THINK') === 'true'
+}
+
+const PRIMARY_TIMEOUT_MS = 45_000 // A100 没响应就快速切兜底（客户端总超时 120s）
+const FALLBACK_TIMEOUT_MS = 60_000
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -58,6 +90,42 @@ function toMessages(instructions: string, input: RTurn[]): unknown[] {
     })
   }
   return messages
+}
+
+/** 调一个上游 relay，成功返回文本；不可用/超时/失败/空响应一律返回 null（交由调用方切兜底）。 */
+async function callUpstream(
+  up: Upstream,
+  isVision: boolean,
+  instructions: string,
+  input: RTurn[],
+  timeoutMs: number
+): Promise<string | null> {
+  if (!up.base || !up.key) return null
+  const body: Record<string, unknown> = {
+    model: isVision ? up.modelVision : up.model,
+    messages: toMessages(instructions, input)
+  }
+  // 思考型文本模型：关思考拿干净 JSON；多模态/非思考模型不传（个别模板会因未知 kwarg 报错）
+  if (!isVision && up.noThinkText) body.chat_template_kwargs = { enable_thinking: false }
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${up.base.replace(/\/$/, '')}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${up.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    })
+    if (!res.ok) return null
+    const completion = (await res.json().catch(() => null)) as {
+      choices?: { message?: { content?: string } }[]
+    } | null
+    return completion?.choices?.[0]?.message?.content || null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 Deno.serve(async (req) => {
@@ -93,21 +161,11 @@ Deno.serve(async (req) => {
     if (affordable < cost)
       return json({ error: '积分不足', balance: row.grant_balance + row.purchased_balance }, 402)
 
-    // 3. 转发上游 relay（OpenAI Chat Completions）。失败不扣（#56 心安）。
-    const res = await fetch(`${LLM_BASE.replace(/\/$/, '')}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${LLM_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: reason === 'parse_vision' ? LLM_MODEL_VISION : LLM_MODEL,
-        messages: toMessages(instructions, input)
-      })
-    })
-    if (!res.ok) return json({ error: `解析服务返回 ${res.status}` }, 502)
-    const completion = (await res.json()) as {
-      choices?: { message?: { content?: string } }[]
-    }
-    const text = completion?.choices?.[0]?.message?.content ?? ''
-    if (!text) return json({ error: '解析服务空响应' }, 502)
+    // 3. 转发上游 relay：主用 A100，掉线/超时/空响应自动切 yunwu 兜底。失败不扣（#56 心安）。
+    const isVision = reason === 'parse_vision'
+    let text = await callUpstream(PRIMARY, isVision, instructions, input, PRIMARY_TIMEOUT_MS)
+    if (!text) text = await callUpstream(FALLBACK, isVision, instructions, input, FALLBACK_TIMEOUT_MS)
+    if (!text) return json({ error: '解析服务暂时不可用，请稍后重试' }, 502)
 
     // 4. 成功后原子扣费（deduct_credits：for update 行锁，含月度重置 + 写流水，防并发超扣）
     const { data: charge } = await admin.rpc('deduct_credits', {
