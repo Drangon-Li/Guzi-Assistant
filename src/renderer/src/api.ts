@@ -93,6 +93,12 @@ export const api = {
   /** 关闭充值支付窗口（支付成功 / 取消） */
   closePayment: () => inv<void>('payment:close'),
 
+  petGetPrefs: () => inv<{ enabled: boolean; scale: number; paused: boolean }>('pet:get-prefs'),
+  petSetEnabled: (v: boolean) => inv<void>('pet:set-enabled', v),
+  petSetScale: (v: number) => inv<void>('pet:set-scale', v),
+  petSetPaused: (v: boolean) => inv<void>('pet:set-paused', v),
+  petResetPosition: () => inv<void>('pet:reset-position'),
+
   on: (channel: string, cb: (payload: unknown) => void) => window.eshell.on(channel, cb)
 }
 
