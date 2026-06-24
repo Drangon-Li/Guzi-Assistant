@@ -18,14 +18,6 @@ export interface PetPrefs {
   gravity: boolean
 }
 
-export const PET_SCALE_OPTIONS: readonly { label: string; value: PetScaleValue }[] = [
-  { label: '极小', value: 0.6 },
-  { label: '小', value: 0.8 },
-  { label: '中', value: 1 },
-  { label: '大', value: 1.25 },
-  { label: '超大', value: 1.6 }
-]
-
 const DEFAULTS: PetPrefs = {
   enabled: true,
   scale: 1,

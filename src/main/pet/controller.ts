@@ -1,4 +1,4 @@
-// 桌宠控制器：EShell 事件层驱动桌宠的唯一调用面。包 pet-window + 气泡仲裁器。
+// 桌宠控制器：EShell 事件层驱动桌宠的唯一调用面。
 // 移植/精简自 openpets default-pet-controller.ts（MIT，见 ./THIRD_PARTY_NOTICES.md）。
 import {
   hidePet,
@@ -10,31 +10,24 @@ import {
   setPetScale,
   showPet
 } from './pet-window'
-import { PetBubbleArbiter, type BubblePriority } from './bubble-arbiter'
 import {
   defaultPetSprite,
   resolveReactionSpriteState,
   type PetReaction,
-  type SpriteStateDefinition,
-  type UserSelectableAnimationState
+  type SpriteStateDefinition
 } from './reaction-mapping'
 import { pickReactionMessage } from './reaction-messages'
 import { getPetPrefs, savePetPrefs, type PetScaleValue } from './state'
 
-let arbiter: PetBubbleArbiter | null = null
 let lastReaction: PetReaction = 'idle'
 let revertTimer: ReturnType<typeof setTimeout> | null = null
+let sayTimer: ReturnType<typeof setTimeout> | null = null
+let sayToken = 0
 
-function getArbiter(): PetBubbleArbiter {
-  if (!arbiter) {
-    arbiter = new PetBubbleArbiter({
-      present: (slot, content) => {
-        if (slot !== 'transient') return
-        setPetBubble(content ? (content.bubble.text ?? null) : null, lastReaction)
-      }
-    })
-  }
-  return arbiter
+// 桌宠停用或暂停时，事件不打扰（暂停 = 冻结安静；停用 = 隐藏）。
+function quiet(): boolean {
+  const p = getPetPrefs()
+  return p.paused || !p.enabled
 }
 
 function spriteIterations(reaction: PetReaction): number | 'infinite' {
@@ -49,6 +42,7 @@ function spriteDurationMs(reaction: PetReaction): number {
 
 /** 播放一个 reaction 动画；有限次数动画播完自动回 idle；可附带一句自动台词。 */
 export function applyExternalPetReaction(reaction: PetReaction, opts: { showMessage?: boolean } = {}): void {
+  if (quiet()) return
   lastReaction = reaction
   setPetReactionState(reaction)
   if (revertTimer) {
@@ -67,45 +61,32 @@ export function applyExternalPetReaction(reaction: PetReaction, opts: { showMess
   if (opts.showMessage !== false) applyExternalPetSay(pickReactionMessage(reaction))
 }
 
-/** 显示一句气泡（经仲裁器定时清除）。可同时切换 reaction。 */
-export function applyExternalPetSay(
-  message: string,
-  reaction?: PetReaction,
-  opts: { priority?: BubblePriority; durationMs?: number } = {}
-): void {
+/** 显示一句气泡，到时清除。reaction 直接随气泡传入（决定气泡色调），不读全局态——避免并发事件串色。 */
+export function applyExternalPetSay(message: string, reaction?: PetReaction, opts: { durationMs?: number } = {}): void {
+  if (quiet()) return
   if (reaction) {
     lastReaction = reaction
     setPetReactionState(reaction)
   }
-  getArbiter().show(
-    'event',
-    { text: message, priority: opts.priority ?? 'normal', durationMs: opts.durationMs ?? 4200 },
-    { onDismiss: () => {} }
-  )
+  setPetBubble(message, reaction ?? lastReaction)
+  const token = ++sayToken
+  if (sayTimer) clearTimeout(sayTimer)
+  sayTimer = setTimeout(() => {
+    if (token === sayToken) setPetBubble(null)
+  }, opts.durationMs ?? 4200)
+  sayTimer.unref?.()
 }
 
 export function setPetPausedState(paused: boolean): void {
   savePetPrefs({ paused })
   setPetPaused(paused)
 }
-
 export function getPetPausedState(): boolean {
   return getPetPrefs().paused
 }
-
 export function setPetScaleValue(scale: PetScaleValue): void {
   setPetScale(scale)
 }
-
-/** 改某个 reaction 的动画覆盖：存偏好并即时重放当前 reaction（覆盖在运行时解析，无需重载）。 */
-export function setPetReactionOverride(reaction: PetReaction, animation: UserSelectableAnimationState | null): void {
-  const overrides = { ...getPetPrefs().reactionOverrides }
-  if (animation === null) delete overrides[reaction]
-  else overrides[reaction] = animation
-  savePetPrefs({ reactionOverrides: overrides })
-  setPetReactionState(lastReaction)
-}
-
 export function setPetEnabled(enabled: boolean): void {
   savePetPrefs({ enabled })
   if (enabled) showPet()

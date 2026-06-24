@@ -16,13 +16,9 @@ import {
 } from './reaction-mapping'
 import { getPetPrefs, savePetPrefs, type PetScaleValue } from './state'
 import { petPreloadPath, petUserDataDir } from './paths'
-import { registerPet, setIsPetWindowDragging, unregisterPet } from './motion-engine'
 
-const PET_HANDLE = 'default'
 const PET_WIN_WIDTH = 340
 const PET_WIN_HEIGHT = 420
-
-const petWindowDragging = new WeakMap<BrowserWindow, boolean>()
 
 type PetRecord = {
   reaction: PetReaction
@@ -37,10 +33,6 @@ let ipcInstalled = false
 // 拖拽状态（单例桌宠）
 let dragging = false
 let dragOffset: { dx: number; dy: number } | null = null
-
-export function isPetWindowDragging(win: BrowserWindow): boolean {
-  return petWindowDragging.get(win) === true
-}
 
 function accessor(): BrowserWindow | null {
   return currentPet && !currentPet.isDestroyed() ? currentPet : null
@@ -77,16 +69,13 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
 
   currentPet = win
   records.set(win, { reaction: 'idle', bubbleText: null })
-  setIsPetWindowDragging(isPetWindowDragging)
   installIpc()
   installMotionStatePublisher(win)
-  registerPet(PET_HANDLE, accessor)
 
   win.webContents.on('did-finish-load', () => {
     if (!win.isDestroyed()) win.setIgnoreMouseEvents(true, { forward: true })
   })
   win.on('closed', () => {
-    unregisterPet(PET_HANDLE)
     if (currentPet === win) currentPet = null
   })
 
@@ -187,7 +176,6 @@ function installIpc(): void {
     const [wx, wy] = currentPet!.getPosition()
     dragOffset = { dx: wx - p.screenX, dy: wy - p.screenY }
     dragging = true
-    petWindowDragging.set(currentPet!, true)
   })
   ipcMain.on('openpets:pet-drag-move', (e, p: { screenX: number; screenY: number }) => {
     if (!fromPet(e) || !dragging || !dragOffset) return
@@ -197,7 +185,6 @@ function installIpc(): void {
     if (!fromPet(e)) return
     dragging = false
     dragOffset = null
-    petWindowDragging.set(currentPet!, false)
     persistPosition(currentPet!)
   })
   ipcMain.on('openpets:pet-clicked', (e) => {
