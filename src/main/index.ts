@@ -13,6 +13,8 @@ import {
 } from './screenwatch'
 import { submitExternalFiles } from './capture'
 import { appState, createMainWindow, focusMain, openDebugWindow } from './windows'
+import { createPetWindow } from './pet/pet-window'
+import { showPet, hidePet, isPetVisible, getPetPausedState, setPetPausedState } from './pet/controller'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { readFileSync } from 'fs'
 import trayIcon from '../../resources/trayTemplate.png?asset'
@@ -36,6 +38,24 @@ function buildTrayMenu(): void {
       }
     )
   }
+  items.push(
+    { type: 'separator' },
+    {
+      label: isPetVisible() ? '隐藏桌宠' : '显示桌宠',
+      click: () => {
+        if (isPetVisible()) hidePet()
+        else showPet()
+        buildTrayMenu()
+      }
+    },
+    {
+      label: getPetPausedState() ? '恢复桌宠' : '暂停桌宠',
+      click: () => {
+        setPetPausedState(!getPetPausedState())
+        buildTrayMenu()
+      }
+    }
+  )
   if (!app.isPackaged) {
     items.push({ type: 'separator' }, { label: '调试监控面板', click: () => openDebugWindow() })
   }
@@ -74,6 +94,7 @@ if (!app.requestSingleInstanceLock()) {
     initDb()
     registerIpc()
     createMainWindow()
+    createPetWindow({ onClick: () => focusMain('assistant') })
     createTray()
     setTrayRefresh(buildTrayMenu) // 监控启停/暂停时刷新托盘菜单
     initHotkey(getSettings().hotkey, triggerClipboardCapture)

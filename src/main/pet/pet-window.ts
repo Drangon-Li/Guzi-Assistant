@@ -91,7 +91,7 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
   })
 
   renderInto(win)
-  if (!prefs.paused && prefs.enabled) win.showInactive()
+  if (prefs.enabled) win.showInactive() // 暂停态仍显示（变暗冻结），仅 enabled 控制显隐
   return win
 }
 
