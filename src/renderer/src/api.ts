@@ -98,6 +98,8 @@ export const api = {
   petSetScale: (v: number) => inv<void>('pet:set-scale', v),
   petSetPaused: (v: boolean) => inv<void>('pet:set-paused', v),
   petResetPosition: () => inv<void>('pet:reset-position'),
+  petChatHide: () => inv<void>('pet:chat-hide'),
+  themeGet: () => inv<boolean>('theme:get'),
 
   on: (channel: string, cb: (payload: unknown) => void) => window.eshell.on(channel, cb)
 }

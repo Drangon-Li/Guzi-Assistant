@@ -41,7 +41,7 @@ export default function EditTaskModal({
   }
 
   return (
-    <Modal panelClass="w-[480px] rounded-xl bg-white p-5 shadow-2xl" onClose={onClose}>
+    <Modal panelClass="w-[480px] rounded-xl bg-surface p-5 shadow-2xl" onClose={onClose}>
       {(close) => (
         <>
         <h3 className="mb-4 text-base font-semibold">{heading}</h3>

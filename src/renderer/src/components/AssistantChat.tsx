@@ -13,6 +13,8 @@ interface Props {
   showToast: (msg: string) => void
   hotkeyLabel: string
   userName: string
+  /** 外部注入一条消息并自动发送（如桌宠拖入文件）：display 为气泡显示文本，content 为发给助手的完整内容。nonce 变化触发一次。 */
+  injected?: { content: string; display: string; nonce: number } | null
 }
 
 type AddState = 'added' | 'duplicate'
@@ -21,6 +23,8 @@ interface ChatMsg {
   id: number
   role: 'user' | 'assistant'
   text: string
+  /** 气泡显示用文本（缺省=text）；用于「拖入文件」时显示短标签而非整篇内容 */
+  displayText?: string
   error?: boolean
   candidates?: { ctx: CandidateContext; added: Record<number, AddState> }
   /** 完全重复被拦下后，提供「仍要加入」的强制添加入口 */
@@ -51,7 +55,8 @@ export default function AssistantChat({
   tasks,
   showToast,
   hotkeyLabel,
-  userName
+  userName,
+  injected
 }: Props): React.JSX.Element {
   const [msgs, setMsgs] = useState<ChatMsg[]>(store.msgs)
   const [input, setInput] = useState('')
@@ -93,11 +98,11 @@ export default function AssistantChat({
     return null
   }
 
-  const send = async (raw: string): Promise<void> => {
+  const send = async (raw: string, displayText?: string): Promise<void> => {
     const value = raw.trim()
     if (!value || busy) return
     setInput('')
-    update([...store.msgs, { id: store.nextId++, role: 'user', text: value }])
+    update([...store.msgs, { id: store.nextId++, role: 'user', text: value, displayText }])
     setBusy(true)
     const ctx = activeCandidates()
     const history: ChatHistoryItem[] = store.msgs
@@ -146,6 +151,16 @@ export default function AssistantChat({
     }
     update([...store.msgs, reply, ...dupMsgs])
   }
+
+  // 外部注入消息（桌宠拖入文件）：nonce 变化时自动发送一次
+  const injectedNonce = useRef(0)
+  useEffect(() => {
+    if (injected && injected.nonce !== injectedNonce.current) {
+      injectedNonce.current = injected.nonce
+      void send(injected.content, injected.display)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [injected])
 
   const forceAddNow = async (m: ChatMsg): Promise<void> => {
     if (!m.forceAdd || m.forceAdd.used) return
@@ -231,7 +246,7 @@ export default function AssistantChat({
             <div className="flex gap-3">
               <Avatar role="assistant" initial="纸" />
               <div className="flex max-w-[82%] flex-col gap-3">
-                <div className="rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-3 text-sm leading-6">
+                <div className="rounded-2xl rounded-tl-sm bg-elevated px-4 py-3 text-sm leading-6">
                   你好，我是纸壳助手。我会自动留意你设备上的通知、消息和聊天记录，从中帮你拎出该办的事，主动提给你确认；你也可以直接问我日程安排。
                   <span className="mt-1 block text-xs text-slate-400">
                     （需要时也能手动把内容发我：复制后按 {hotkeyLabel}）
@@ -255,8 +270,8 @@ export default function AssistantChat({
           {msgs.map((m) =>
             m.role === 'user' ? (
               <div key={m.id} className="flex justify-end gap-3">
-                <div className="max-w-[82%] rounded-2xl rounded-tr-sm bg-[#eef3fa] px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-slate-800 shadow-sm">
-                  {m.text}
+                <div className="max-w-[82%] rounded-2xl rounded-tr-sm bg-userbubble px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-slate-800 shadow-sm">
+                  {m.displayText ?? m.text}
                 </div>
                 <Avatar role="user" initial={userName.slice(0, 1) || '我'} />
               </div>
@@ -266,7 +281,7 @@ export default function AssistantChat({
                 <div className="flex max-w-[82%] min-w-0 flex-col gap-2">
                   <div
                     className={`rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap ${
-                      m.error ? 'border border-red-200 bg-red-50 text-red-600' : 'bg-[#f5f4f3]'
+                      m.error ? 'border border-red-200 bg-red-50 text-red-600' : 'bg-elevated'
                     }`}
                   >
                     {m.text}
@@ -286,10 +301,10 @@ export default function AssistantChat({
                       return (
                         <div
                           key={idx}
-                          className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+                          className="rounded-xl border border-slate-200 bg-surface p-3 shadow-sm"
                         >
                           <div className="flex items-start gap-2">
-                            <span className="mt-0.5 shrink-0 rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
+                            <span className="mt-0.5 shrink-0 rounded bg-surface px-1.5 py-0.5 text-[11px] text-slate-500">
                               {TYPE_LABELS[item.item_type]}
                             </span>
                             <span className="min-w-0 flex-1 text-sm leading-5 font-medium">{item.title}</span>
@@ -343,13 +358,13 @@ export default function AssistantChat({
             <div className="flex gap-3">
               <Avatar role="assistant" initial="纸" />
               <div className="flex max-w-[82%] min-w-0 flex-col gap-2">
-                <div className="rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-2.5 text-sm leading-6">
+                <div className="rounded-2xl rounded-tl-sm bg-elevated px-4 py-2.5 text-sm leading-6">
                   我从你之前提交的内容里发现了 {pending.length} 个待确认事项：
                 </div>
                 {pending.map((t) => (
-                  <div key={t.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <div key={t.id} className="rounded-xl border border-slate-200 bg-surface p-3 shadow-sm">
                     <div className="flex items-start gap-2">
-                      <span className="mt-0.5 shrink-0 rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
+                      <span className="mt-0.5 shrink-0 rounded bg-surface px-1.5 py-0.5 text-[11px] text-slate-500">
                         {TYPE_LABELS[t.itemType]}
                       </span>
                       <button
@@ -421,7 +436,7 @@ export default function AssistantChat({
           {busy && (
             <div className="flex gap-3">
               <Avatar role="assistant" initial="纸" />
-              <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm bg-[#f5f4f3] px-4 py-3">
+              <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm bg-elevated px-4 py-3">
                 {[0, 150, 300].map((delay) => (
                   <span
                     key={delay}
@@ -437,7 +452,7 @@ export default function AssistantChat({
         </div>
       </div>
 
-      <div className="border-t border-slate-200 bg-white px-4 py-3">
+      <div className="border-t border-slate-200 bg-surface px-4 py-3">
         <div className="mb-2 flex items-center gap-1.5">
           {screenSense && (
             <button

@@ -86,7 +86,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
   const due = current.dueTime ?? current.startTime
 
   return (
-    <Modal panelClass="flex max-h-[84vh] w-[580px] flex-col rounded-xl bg-white shadow-2xl" onClose={onClose}>
+    <Modal panelClass="flex max-h-[84vh] w-[580px] flex-col rounded-xl bg-surface shadow-2xl" onClose={onClose}>
       {(close) => (
         <>
           <div className="flex items-start gap-2 border-b border-slate-100 p-5 pb-4">
@@ -206,7 +206,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   {current.belongsToUser !== 'no' && (
                     <button
                       onClick={() => void markNotMine()}
-                      className="mt-2 rounded-md border border-slate-300 px-2.5 py-1 text-[11px] text-slate-600 hover:border-slate-400 hover:bg-white"
+                      className="mt-2 rounded-md border border-slate-300 px-2.5 py-1 text-[11px] text-slate-600 hover:border-slate-400 hover:bg-surface"
                     >
                       不是我的事
                     </button>

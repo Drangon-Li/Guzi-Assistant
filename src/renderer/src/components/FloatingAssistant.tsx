@@ -62,7 +62,7 @@ export default function FloatingAssistant({
           onMouseMove={bumpIdle}
           onMouseDown={bumpIdle}
           onKeyDown={bumpIdle}
-          className={`${open ? 'animate-modal-in' : 'animate-modal-out'} fixed right-5 bottom-24 z-40 flex h-[min(600px,72vh)] w-[400px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl`}
+          className={`${open ? 'animate-modal-in' : 'animate-modal-out'} fixed right-5 bottom-24 z-40 flex h-[min(600px,72vh)] w-[400px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-surface shadow-2xl`}
         >
           <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2.5">
             <div className="flex items-center gap-2">

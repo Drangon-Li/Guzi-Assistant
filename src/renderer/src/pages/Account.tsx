@@ -20,7 +20,7 @@ function splitList(s: string): string[] {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
       <h2 className="mb-4 text-sm font-semibold">{title}</h2>
       {children}
     </section>
@@ -163,7 +163,7 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
       {note && (
         <div
           key={note}
-          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg"
+          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2 text-sm text-white shadow-lg"
         >
           {note}
         </div>

@@ -2,7 +2,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { petUserDataDir } from './paths'
-import type { ReactionAnimationOverrides } from './reaction-mapping'
 
 export type PetScaleValue = number // 0.6 | 0.8 | 1 | 1.25 | 1.6
 
@@ -10,7 +9,6 @@ export interface PetPrefs {
   enabled: boolean
   scale: PetScaleValue
   paused: boolean
-  reactionOverrides: ReactionAnimationOverrides
   /** 最近一次位置（扁平），以及按显示器键的位置（多显示器恢复）。 */
   position: { x: number; y: number } | null
   perMonitor: Record<string, { x: number; y: number }>
@@ -20,9 +18,8 @@ export interface PetPrefs {
 
 const DEFAULTS: PetPrefs = {
   enabled: true,
-  scale: 0.65,
+  scale: 0.3,
   paused: false,
-  reactionOverrides: {},
   position: null,
   perMonitor: {},
   crossDisplay: false,
@@ -39,7 +36,7 @@ export function getPetPrefs(): PetPrefs {
   if (cache) return cache
   try {
     const raw = JSON.parse(readFileSync(prefsFile(), 'utf8')) as Partial<PetPrefs>
-    cache = { ...DEFAULTS, ...raw, reactionOverrides: { ...raw.reactionOverrides }, perMonitor: { ...raw.perMonitor } }
+    cache = { ...DEFAULTS, ...raw, perMonitor: { ...raw.perMonitor } }
   } catch {
     cache = { ...DEFAULTS }
   }

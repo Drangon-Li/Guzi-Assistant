@@ -160,6 +160,17 @@ async function extractFromFile(filePath: string): Promise<{ text?: string; image
   throw new Error(`暂不支持 ${ext || '该'} 格式，请使用图片、PDF、docx、txt`)
 }
 
+/** 桌宠拖入文件 → 抽纯文本（txt/md/pdf/docx）；图片或无文本返回 null（交回现有捕获管线）。 */
+export async function extractPetDropText(filePath: string): Promise<{ name: string; text: string } | null> {
+  try {
+    const r = await extractFromFile(filePath)
+    if (r.text && r.text.trim()) return { name: basename(filePath), text: r.text }
+    return null
+  } catch {
+    return null
+  }
+}
+
 // ---------- 解析入库 ----------
 
 export const HINTS: Record<string, string> = {
@@ -301,7 +312,7 @@ export async function submitExternalFiles(paths: string[]): Promise<void> {
   const errors = results.filter((r) => r.error)
   if (errors.length && !merged.related && !merged.duplicates) merged.error = errors[0].error!
   showPreview({ summary: merged })
-  if (merged.autoAdded > 0 || merged.related > 0) applyExternalPetReaction('success', { showMessage: false })
+  if (merged.autoAdded > 0 || merged.related > 0) applyExternalPetReaction('success')
 }
 
 /** 单次提交文件数上限：每个文件一次解析调用（最长 120s），无上限会耗尽 API 配额并长时间占连接 */

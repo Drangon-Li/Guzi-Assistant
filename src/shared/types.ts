@@ -153,6 +153,8 @@ export interface AppSettings {
   screenSenseAllowedApps: string[]
   /** 悬浮助手闲置自动收起秒数；0=不自动收起。默认 60 */
   assistantAutoCloseSec: number
+  /** 外观主题：跟随系统 / 浅色 / 深色。默认 system */
+  theme: 'system' | 'light' | 'dark'
 }
 
 export interface FeishuStatus {

@@ -44,7 +44,9 @@ export const INVOKE_CHANNELS = [
   'pet:set-enabled',
   'pet:set-scale',
   'pet:set-paused',
-  'pet:reset-position'
+  'pet:reset-position',
+  'pet:chat-hide',
+  'theme:get'
 ] as const
 
 /** 主进程 → 渲染层的事件通道（对应 broadcast / webContents.send 与渲染层 on） */
@@ -53,7 +55,9 @@ export const EVENT_CHANNELS = [
   'eshell:preview',
   'eshell:settings-updated',
   'eshell:tasks-updated',
-  'eshell:debug'
+  'eshell:debug',
+  'eshell:pet-chat-drop',
+  'eshell:theme'
 ] as const
 
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]
