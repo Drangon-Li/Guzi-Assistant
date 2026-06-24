@@ -20,7 +20,7 @@ export interface PetPrefs {
 
 const DEFAULTS: PetPrefs = {
   enabled: true,
-  scale: 1,
+  scale: 0.65,
   paused: false,
   reactionOverrides: {},
   position: null,
