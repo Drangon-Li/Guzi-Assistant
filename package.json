@@ -35,7 +35,8 @@
     "test:shotret": "node test/shot-retention-smoke.mjs",
     "test:chpay": "node test/chpay-smoke.mjs",
     "test:petreaction": "node test/pet-reaction-smoke.mjs",
-    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs && node test/ics-smoke.mjs && node test/parse-smoke.mjs && node test/labels-smoke.mjs && node test/ipc-channels-smoke.mjs && node test/daily-brief-smoke.mjs && node test/belonging-hints-smoke.mjs && node test/task-filters-smoke.mjs && node test/phash-smoke.mjs && node test/safe-path-smoke.mjs && node test/fts-query-smoke.mjs && node test/chat-layout-smoke.mjs && node test/belonging-learn-smoke.mjs && node test/app-exclude-smoke.mjs && node test/billing-credits-smoke.mjs && node test/shot-retention-smoke.mjs && node test/chpay-smoke.mjs && node test/local-extract-smoke.mjs && node test/pet-reaction-smoke.mjs"
+    "test:petbubble": "node test/pet-bubble-smoke.mjs",
+    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs && node test/ics-smoke.mjs && node test/parse-smoke.mjs && node test/labels-smoke.mjs && node test/ipc-channels-smoke.mjs && node test/daily-brief-smoke.mjs && node test/belonging-hints-smoke.mjs && node test/task-filters-smoke.mjs && node test/phash-smoke.mjs && node test/safe-path-smoke.mjs && node test/fts-query-smoke.mjs && node test/chat-layout-smoke.mjs && node test/belonging-learn-smoke.mjs && node test/app-exclude-smoke.mjs && node test/billing-credits-smoke.mjs && node test/shot-retention-smoke.mjs && node test/chpay-smoke.mjs && node test/local-extract-smoke.mjs && node test/pet-reaction-smoke.mjs && node test/pet-bubble-smoke.mjs"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.66.1",
