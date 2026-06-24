@@ -184,7 +184,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               }}
               className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
                 (settings?.theme ?? 'system') === t.v
-                  ? 'border-slate-300 bg-slate-50'
+                  ? 'border-slate-400 bg-elevated'
                   : 'border-slate-200 hover:border-slate-300'
               }`}
             >
@@ -205,7 +205,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               }}
               className={`rounded-xl border px-4 py-2.5 text-left ${
                 profile.confirmMode === m.value
-                  ? 'border-slate-300 bg-slate-50'
+                  ? 'border-slate-400 bg-elevated'
                   : 'border-slate-200 hover:border-slate-300'
               }`}
             >
@@ -223,7 +223,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             onClick={() => setRecording(!recording)}
             className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
               recording
-                ? 'animate-pulse border-slate-400 bg-slate-50 text-slate-700'
+                ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
                 : 'border-slate-300 hover:border-slate-400'
             }`}
           >
@@ -243,7 +243,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               onClick={() => void applyHotkey(acc)}
               className={`rounded-lg border px-2 py-1 ${
                 settings.hotkey === acc
-                  ? 'border-slate-300 bg-slate-50 text-slate-700'
+                  ? 'border-slate-400 bg-elevated text-slate-700'
                   : 'border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}
             >
@@ -444,7 +444,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                 onClick={() => setScanRecording(!scanRecording)}
                 className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
                   scanRecording
-                    ? 'animate-pulse border-slate-400 bg-slate-50 text-slate-700'
+                    ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
                     : 'border-slate-300 hover:border-slate-400'
                 }`}
               >
