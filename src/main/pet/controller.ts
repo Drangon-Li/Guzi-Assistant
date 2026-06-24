@@ -15,6 +15,7 @@ import {
   defaultPetSprite,
   resolveReactionSpriteState,
   type PetReaction,
+  type SpriteStateDefinition,
   type UserSelectableAnimationState
 } from './reaction-mapping'
 import { pickReactionMessage } from './reaction-messages'
@@ -38,7 +39,8 @@ function getArbiter(): PetBubbleArbiter {
 
 function spriteIterations(reaction: PetReaction): number | 'infinite' {
   const sprite = resolveReactionSpriteState(reaction, getPetPrefs().reactionOverrides)
-  return defaultPetSprite.states[sprite].iterations ?? 'infinite'
+  const def: SpriteStateDefinition = defaultPetSprite.states[sprite]
+  return def.iterations ?? 'infinite'
 }
 function spriteDurationMs(reaction: PetReaction): number {
   const sprite = resolveReactionSpriteState(reaction, getPetPrefs().reactionOverrides)
