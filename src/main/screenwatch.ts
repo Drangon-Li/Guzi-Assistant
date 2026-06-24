@@ -15,6 +15,7 @@ import {
   taskExists
 } from './db'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
+import { applyExternalPetSay } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
 import { getFrontmostApp } from './frontapp'
 import {
@@ -97,6 +98,7 @@ export async function scanOnce(): Promise<ScanResult> {
       app: null
     })
     showPreview({ localSuggestion: { ...local, sourceText: text, detectionId: detection.id } })
+    applyExternalPetSay('发现一个日程~', 'waiting')
     return { status: 'suggested', message: `检测到可能的日程：${local.title}` }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
@@ -378,6 +380,7 @@ async function watchTick(): Promise<void> {
     }
     debugEvent('popup', `弹出检测卡：「${local.title}」`)
     showPreview({ localSuggestion: { ...local, sourceText: text, detectionId: detection.id } })
+    applyExternalPetSay('发现一个日程~', 'waiting')
   } catch {
     // 持续监控全程静默：截图/OCR/解析/无 endpoint 等任何失败都不打扰
   } finally {

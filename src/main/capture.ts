@@ -10,6 +10,7 @@ import { detectSensitive } from './sensitive'
 import { createSource, createTask, deleteSourceRow, getProfile, taskExists } from './db'
 import { parseToItems, type ParsedItem } from './parser'
 import { broadcast, showPreview } from './windows'
+import { applyExternalPetReaction } from './pet/controller'
 import type { ParseSummary, PendingCapture, SourceType, TaskStatus } from '@shared/types'
 
 interface PendingPayload {
@@ -300,6 +301,7 @@ export async function submitExternalFiles(paths: string[]): Promise<void> {
   const errors = results.filter((r) => r.error)
   if (errors.length && !merged.related && !merged.duplicates) merged.error = errors[0].error!
   showPreview({ summary: merged })
+  if (merged.autoAdded > 0 || merged.related > 0) applyExternalPetReaction('success', { showMessage: false })
 }
 
 /** 单次提交文件数上限：每个文件一次解析调用（最长 120s），无上限会耗尽 API 配额并长时间占连接 */

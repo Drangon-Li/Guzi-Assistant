@@ -14,7 +14,14 @@ import {
 import { submitExternalFiles } from './capture'
 import { appState, createMainWindow, focusMain, openDebugWindow } from './windows'
 import { createPetWindow } from './pet/pet-window'
-import { showPet, hidePet, isPetVisible, getPetPausedState, setPetPausedState } from './pet/controller'
+import {
+  showPet,
+  hidePet,
+  isPetVisible,
+  getPetPausedState,
+  setPetPausedState,
+  applyExternalPetReaction
+} from './pet/controller'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { readFileSync } from 'fs'
 import trayIcon from '../../resources/trayTemplate.png?asset'
@@ -94,7 +101,12 @@ if (!app.requestSingleInstanceLock()) {
     initDb()
     registerIpc()
     createMainWindow()
-    createPetWindow({ onClick: () => focusMain('assistant') })
+    createPetWindow({
+      onClick: () => {
+        focusMain('assistant')
+        applyExternalPetReaction('waving', { showMessage: false })
+      }
+    })
     createTray()
     setTrayRefresh(buildTrayMenu) // 监控启停/暂停时刷新托盘菜单
     initHotkey(getSettings().hotkey, triggerClipboardCapture)

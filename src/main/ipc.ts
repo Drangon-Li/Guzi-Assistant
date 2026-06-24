@@ -43,6 +43,7 @@ import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
+import { applyExternalPetReaction } from './pet/controller'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
 const STATUSES: TaskStatus[] = [
@@ -113,6 +114,7 @@ export function registerIpc(): void {
   ipcMain.handle('tasks:update', (_e, id: string, patch: Partial<TaskRecord>) => {
     if (patch.status && !STATUSES.includes(patch.status)) return
     updateTask(id, patch)
+    if (patch.status === 'done') applyExternalPetReaction('success')
     // #15：用户把任务改判为「不是我的」→ 从其文本提取高精度信号，沉淀个人归属词典
     if (patch.belongsToUser === 'no') {
       const task = getTask(id)
