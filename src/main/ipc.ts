@@ -43,7 +43,14 @@ import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
 import { broadcast, focusMain, hidePreview, showPreview } from './windows'
-import { applyExternalPetReaction } from './pet/controller'
+import {
+  applyExternalPetReaction,
+  setPetEnabled,
+  setPetScaleValue,
+  setPetPausedState,
+  resetPetPosition
+} from './pet/controller'
+import { getPetPrefs } from './pet/state'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
 const STATUSES: TaskStatus[] = [
@@ -135,6 +142,16 @@ export function registerIpc(): void {
   ipcMain.handle('source:get', (_e, id: string) => getSource(id))
   ipcMain.handle('memory:search', (_e, query: string) => searchSources(query))
   ipcMain.handle('memory:read-shot', (_e, id: string) => readShotDataUrl(id))
+
+  // 桌宠设置（设置页用）
+  ipcMain.handle('pet:get-prefs', () => {
+    const p = getPetPrefs()
+    return { enabled: p.enabled, scale: p.scale, paused: p.paused }
+  })
+  ipcMain.handle('pet:set-enabled', (_e, enabled: boolean) => setPetEnabled(enabled))
+  ipcMain.handle('pet:set-scale', (_e, scale: number) => setPetScaleValue(scale))
+  ipcMain.handle('pet:set-paused', (_e, paused: boolean) => setPetPausedState(paused))
+  ipcMain.handle('pet:reset-position', () => resetPetPosition())
   ipcMain.handle('source:delete', (_e, id: string) => {
     deleteSourceContent(id)
     deleteShot(id) // 删来源原文时一并删其加密截图

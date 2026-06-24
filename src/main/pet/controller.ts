@@ -106,4 +106,10 @@ export function setPetReactionOverride(reaction: PetReaction, animation: UserSel
   setPetReactionState(lastReaction)
 }
 
+export function setPetEnabled(enabled: boolean): void {
+  savePetPrefs({ enabled })
+  if (enabled) showPet()
+  else hidePet()
+}
+
 export { showPet, hidePet, resetPetPosition, isPetVisible }

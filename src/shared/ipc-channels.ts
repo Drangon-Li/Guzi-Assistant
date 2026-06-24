@@ -39,7 +39,12 @@ export const INVOKE_CHANNELS = [
   'app:focus-main',
   'task:export-ics',
   'payment:open',
-  'payment:close'
+  'payment:close',
+  'pet:get-prefs',
+  'pet:set-enabled',
+  'pet:set-scale',
+  'pet:set-paused',
+  'pet:reset-position'
 ] as const
 
 /** 主进程 → 渲染层的事件通道（对应 broadcast / webContents.send 与渲染层 on） */

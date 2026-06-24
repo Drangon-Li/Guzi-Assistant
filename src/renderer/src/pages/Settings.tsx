@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AppSettings, FeishuStatus, PermissionStatus, Profile } from '@shared/types'
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
+import PetSettings from '../components/PetSettings'
 
 interface Props {
   onProfileChange: (p: Profile) => void
@@ -245,6 +246,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           />
           <span className="text-xs text-slate-400">秒，0 = 不自动收起</span>
         </label>
+      </Section>
+
+      <Section title="桌宠">
+        <PetSettings />
       </Section>
 
       <Section title="系统集成">
