@@ -1,4 +1,4 @@
-import { app, Menu, nativeImage, Tray, type MenuItemConstructorOptions } from 'electron'
+import { app, Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions } from 'electron'
 import { initDb, getSettings } from './db'
 import { registerIpc, triggerClipboardCapture } from './ipc'
 import { initHotkey, stopHotkey } from './hotkey'
@@ -14,13 +14,13 @@ import {
 import { submitExternalFiles } from './capture'
 import { appState, createMainWindow, focusMain, openDebugWindow } from './windows'
 import { createPetWindow } from './pet/pet-window'
+import { togglePetChat, createPetChatWindow } from './pet/pet-chat-window'
 import {
   showPet,
   hidePet,
   isPetVisible,
   getPetPausedState,
-  setPetPausedState,
-  applyExternalPetReaction
+  setPetPausedState
 } from './pet/controller'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { readFileSync } from 'fs'
@@ -99,14 +99,13 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     initDb()
+    nativeTheme.themeSource = getSettings().theme // 应用主题设置：驱动渲染层 prefers-color-scheme + 桌宠/窗口深浅色
     registerIpc()
     createMainWindow()
     createPetWindow({
-      onClick: () => {
-        focusMain('assistant')
-        applyExternalPetReaction('waving', { showMessage: false })
-      }
+      onClick: () => togglePetChat()
     })
+    createPetChatWindow() // 预创建桌宠对话窗口（隐藏），点击/拖文件即时可用
     createTray()
     setTrayRefresh(buildTrayMenu) // 监控启停/暂停时刷新托盘菜单
     initHotkey(getSettings().hotkey, triggerClipboardCapture)

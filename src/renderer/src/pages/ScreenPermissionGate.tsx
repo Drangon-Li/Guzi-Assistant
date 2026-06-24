@@ -36,7 +36,7 @@ export default function ScreenPermissionGate({ onDone }: Props): React.JSX.Eleme
 
   return (
     <div className="flex h-full items-center justify-center bg-slate-100">
-      <div className="w-[520px] rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+      <div className="w-[520px] rounded-2xl border border-slate-200 bg-surface p-8 shadow-sm">
         <div className="text-xl font-semibold">开启屏幕感知</div>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           纸壳助手 会持续感知你屏幕上的文字，自动把通知、聊天、邮件里「该你做的事」沉淀成待办——这是它的核心。

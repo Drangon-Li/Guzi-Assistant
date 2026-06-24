@@ -1,13 +1,13 @@
 # 第三方代码与资产声明 — 桌宠（pet）
 
-`src/main/pet/` 下的桌宠运行时移植/改编自 **openpets**，并随附其 spritesheet 资产。
+`src/main/pet/` 下的桌宠**运行时逻辑**移植/改编自 **openpets**。
 
 - 项目：openpets — https://github.com/alvinunreal/openpets
 - 许可：MIT License（见下）
-- 资产：`resources/pet/default-pet-spritesheet.webp` 取自 openpets `apps/desktop/assets/default-pet-spritesheet.webp`，同受其仓库 MIT 覆盖（仓库内无单独署名/第三方授权）。
+- 美术：桌宠为本项目自有品牌标（`resources/pet/pet-mark.png`，由 `resources/brand-logo.png` 裁出），不含任何 openpets 资产；原 openpets 雪碧图（"Professor Hoot" 猫头鹰）已移除。
 - 未引入：NotoColorEmoji.ttf（OFL 1.1）——本项目不打包，气泡不使用 emoji 字形。
 
-移植时对其 `app-state` / `i18n` / 插件宿主等做了改写以接入 EShell；运动引擎、显示器 clamp、reaction 映射、气泡仲裁等逻辑保留自 openpets。
+现仅保留自 openpets 的：透明置顶宠物窗口、点击穿透 hit-test、手动拖拽、气泡通知 这套脚手架。动画 / 精灵图渲染 / 运动引擎 / reaction→动画映射 / 显示器 clamp 等均已移除——桌宠是一张静态图标，事件只通过气泡通知。
 
 ---
 

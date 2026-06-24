@@ -1,0 +1,43 @@
+/* 深色主题变量覆盖 —— 纯 CSS（不含 Tailwind 指令）。<html class="dark"> 时生效；.dark 由 main.tsx
+   据「用户设置 + nativeTheme」切换。覆盖语义 token + 翻转 slate 色阶。
+   用 !important：Tailwind v4 的 @theme 变量在 @layer 内、注入顺序又使普通 :root.dark 被盖过，
+   实测唯有 !important 能稳定胜出（仅 .dark 命中时生效，不影响浅色）。 */
+:root.dark {
+  --color-canvas: #161719 !important;
+  --color-surface: #1e1f23 !important;
+  --color-elevated: #27282d !important;
+  --color-userbubble: #2b3340 !important;
+  --color-line: #33343b !important;
+  --color-fg: #ececef !important;
+  --color-ink: #3f3f47 !important;
+
+  --color-slate-50: #1d2026 !important;
+  --color-slate-100: #262b33 !important;
+  --color-slate-200: #333a45 !important;
+  --color-slate-300: #475569 !important;
+  --color-slate-400: #8b96a8 !important;
+  --color-slate-500: #aab4c4 !important;
+  --color-slate-600: #c2cad6 !important;
+  --color-slate-700: #d6dce4 !important;
+  --color-slate-800: #e7ebf1 !important;
+  --color-slate-900: #f3f5f9 !important;
+
+  /* 强调色 chip：浅色 -50/-100 背景在深色卡上是刺眼亮块；改深色调，配套 -600/700/800 文字提亮以保证可读。
+     独立彩色文字（如 text-red-500 截止时间）红/绿在深底本就清晰，不动。 */
+  --color-amber-50: #2a2109 !important;
+  --color-amber-100: #3a2e12 !important;
+  --color-amber-600: #fbbf24 !important;
+  --color-amber-700: #fcd34d !important;
+  --color-amber-800: #fde68a !important;
+  --color-emerald-50: #0e2a1f !important;
+  --color-emerald-600: #34d399 !important;
+  --color-emerald-800: #6ee7b7 !important;
+  --color-red-50: #2c1417 !important;
+  --color-red-600: #f87171 !important;
+}
+
+/* 品牌字标是黑色 PNG，深色下反相为白字（橙色 logo 图标不受影响，不加此 class）。 */
+:root.dark .brand-wordmark {
+  filter: invert(1);
+}
+

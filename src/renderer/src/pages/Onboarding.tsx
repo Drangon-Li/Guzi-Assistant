@@ -45,7 +45,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
 
   return (
     <div className="flex h-full items-center justify-center bg-slate-100">
-      <div className="w-[520px] rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+      <div className="w-[520px] rounded-2xl border border-slate-200 bg-surface p-8 shadow-sm">
         <div className="text-xl font-semibold">欢迎使用 纸壳助手</div>
         <p className="mt-1 text-xs leading-5 text-slate-400">
           纸壳助手 需要一份最小档案来判断「哪些事是你的事」。约 2 分钟完成，所有选填项都可以跳过。

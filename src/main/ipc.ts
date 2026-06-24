@@ -1,4 +1,4 @@
-import { ipcMain, shell, systemPreferences } from 'electron'
+import { ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
 import {
   bulkUpdateStatus,
   deleteSourceContent,
@@ -42,7 +42,7 @@ import {
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
-import { broadcast, focusMain, hidePreview, showPreview } from './windows'
+import { broadcast, broadcastTheme, focusMain, hidePreview, showPreview } from './windows'
 import {
   applyExternalPetReaction,
   setPetEnabled,
@@ -51,6 +51,7 @@ import {
   resetPetPosition
 } from './pet/controller'
 import { getPetPrefs } from './pet/state'
+import { hidePetChat } from './pet/pet-chat-window'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
 const STATUSES: TaskStatus[] = [
@@ -78,6 +79,10 @@ export function registerIpc(): void {
   )
 
   ipcMain.handle('settings:get', () => getSettings())
+  // 当前解析后的深浅色（渲染窗口启动时拉取一次）
+  ipcMain.handle('theme:get', () => nativeTheme.shouldUseDarkColors)
+  // 系统外观变化（设置为「跟随系统」时）：广播给所有渲染窗口切 .dark（桌宠由 pet-window 自己的 nativeTheme 监听重渲染）
+  nativeTheme.on('updated', () => broadcastTheme())
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {
     let ok = true
     // 快捷键先注册成功再落库，避免把无效组合持久化导致下次启动无快捷键
@@ -86,6 +91,11 @@ export function registerIpc(): void {
       if (!ok) delete patch.hotkey
     }
     saveSettings(patch)
+    // 主题：设 themeSource（驱动桌宠/窗口 shouldUseDarkColors）+ 主动广播给所有渲染窗口切 .dark
+    if (patch.theme !== undefined) {
+      nativeTheme.themeSource = patch.theme
+      broadcastTheme()
+    }
     if (patch.feishuAppId !== undefined || patch.feishuAppSecret !== undefined) ensureFeishu()
     // 持续监控开关/间隔改动也要即时重启 watcher，否则要等下次改 enabled 才生效
     if (
@@ -152,6 +162,7 @@ export function registerIpc(): void {
   ipcMain.handle('pet:set-scale', (_e, scale: number) => setPetScaleValue(scale))
   ipcMain.handle('pet:set-paused', (_e, paused: boolean) => setPetPausedState(paused))
   ipcMain.handle('pet:reset-position', () => resetPetPosition())
+  ipcMain.handle('pet:chat-hide', () => hidePetChat())
   ipcMain.handle('source:delete', (_e, id: string) => {
     deleteSourceContent(id)
     deleteShot(id) // 删来源原文时一并删其加密截图

@@ -62,7 +62,7 @@ function splitList(s: string): string[] {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
       <h2 className="mb-4 text-sm font-semibold">{title}</h2>
       {children}
     </section>
@@ -166,6 +166,34 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 pb-16">
       <h1 className="text-lg font-semibold">设置</h1>
 
+      <Section title="外观">
+        <div className="flex gap-2">
+          {(
+            [
+              { v: 'system', label: '跟随系统' },
+              { v: 'light', label: '浅色' },
+              { v: 'dark', label: '深色' }
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.v}
+              onClick={() => {
+                void api.saveSettings({ theme: t.v })
+                setSettings((s) => (s ? { ...s, theme: t.v } : s))
+                flash('外观已更新')
+              }}
+              className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
+                (settings?.theme ?? 'system') === t.v
+                  ? 'border-slate-400 bg-elevated'
+                  : 'border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </Section>
+
       <Section title="确认模式">
         <div className="flex flex-col gap-2">
           {CONFIRM_MODES.map((m) => (
@@ -177,7 +205,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               }}
               className={`rounded-xl border px-4 py-2.5 text-left ${
                 profile.confirmMode === m.value
-                  ? 'border-slate-300 bg-slate-50'
+                  ? 'border-slate-400 bg-elevated'
                   : 'border-slate-200 hover:border-slate-300'
               }`}
             >
@@ -195,7 +223,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             onClick={() => setRecording(!recording)}
             className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
               recording
-                ? 'animate-pulse border-slate-400 bg-slate-50 text-slate-700'
+                ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
                 : 'border-slate-300 hover:border-slate-400'
             }`}
           >
@@ -215,7 +243,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               onClick={() => void applyHotkey(acc)}
               className={`rounded-lg border px-2 py-1 ${
                 settings.hotkey === acc
-                  ? 'border-slate-300 bg-slate-50 text-slate-700'
+                  ? 'border-slate-400 bg-elevated text-slate-700'
                   : 'border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}
             >
@@ -416,7 +444,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                 onClick={() => setScanRecording(!scanRecording)}
                 className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
                   scanRecording
-                    ? 'animate-pulse border-slate-400 bg-slate-50 text-slate-700'
+                    ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
                     : 'border-slate-300 hover:border-slate-400'
                 }`}
               >
@@ -622,7 +650,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       {note && (
         <div
           key={note}
-          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg"
+          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2 text-sm text-white shadow-lg"
         >
           {note}
         </div>

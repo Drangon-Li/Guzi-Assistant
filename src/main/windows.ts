@@ -1,14 +1,15 @@
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, nativeTheme, screen } from 'electron'
 import { join } from 'path'
+import { getPetBadgeBounds } from './pet/pet-window'
 
 export const appState = { quitting: false }
 
 let mainWin: BrowserWindow | null = null
 let previewWin: BrowserWindow | null = null
 
-const preload = join(__dirname, '../preload/index.js')
+export const preload = join(__dirname, '../preload/index.js')
 
-function load(win: BrowserWindow, hash: string): void {
+export function load(win: BrowserWindow, hash: string): void {
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (!app.isPackaged && devUrl) win.loadURL(`${devUrl}#${hash}`)
   else win.loadFile(join(__dirname, '../renderer/index.html'), { hash })
@@ -26,7 +27,7 @@ export function createMainWindow(): BrowserWindow {
     // 现代 macOS 风格：隐藏标题栏，红黄绿交通灯浮在侧栏上方（与设计稿一致）
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 18 },
-    backgroundColor: '#ffffff',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#161719' : '#ffffff',
     webPreferences: { preload }
   })
   mainWin.on('ready-to-show', () => mainWin?.show())
@@ -71,17 +72,48 @@ export function getPreviewWindow(): BrowserWindow {
   return previewWin
 }
 
-/** 在屏幕右下角弹出预览卡，不抢当前应用焦点 */
+/** 弹出预览/通知卡，不抢焦点。桌宠可见时贴到桌宠图标旁（气泡感），否则回退右下角默认位置。 */
 export function showPreview(payload: unknown): void {
   const win = getPreviewWindow()
-  const { workArea } = screen.getPrimaryDisplay()
-  win.setPosition(workArea.x + workArea.width - 336, workArea.y + workArea.height - 256)
+  const petMode = positionPreview(win)
+  const enriched =
+    payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>), petMode } : payload
   const send = (): void => {
-    win.webContents.send('eshell:preview', payload)
+    win.webContents.send('eshell:preview', enriched)
     win.showInactive()
   }
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
   else send()
+}
+
+/** 定位通知卡；返回是否已贴到桌宠旁（true=桌宠模式，渲染层据此隐藏冗余品牌行）。 */
+function positionPreview(win: BrowserWindow): boolean {
+  if (anchorWindowNearPet(win, 320, 240)) return true // 桌宠可见：贴图标旁
+  const { workArea } = screen.getPrimaryDisplay()
+  win.setPosition(workArea.x + workArea.width - 336, workArea.y + workArea.height - 256)
+  return false
+}
+
+/** 把窗口贴到桌宠图标旁（左侧，放不下→右侧），夹进可见工作区。桌宠不可见返回 false。
+ *  预览卡与桌宠对话框共用此定位逻辑。 */
+export function anchorWindowNearPet(win: BrowserWindow, w: number, h: number, gap = 12): boolean {
+  const badge = getPetBadgeBounds()
+  if (!badge) return false
+  const wa = screen.getDisplayNearestPoint({ x: badge.x + badge.width / 2, y: badge.y + badge.height / 2 }).workArea
+  let x = badge.x - w - gap
+  if (x < wa.x + 8) x = badge.x + badge.width + gap
+  x = Math.min(Math.max(x, wa.x + 8), wa.x + wa.width - w - 8)
+  let y = badge.y + badge.height - h
+  y = Math.min(Math.max(y, wa.y + 8), wa.y + wa.height - h - 8)
+  win.setPosition(Math.round(x), Math.round(y))
+  return true
+}
+
+/** 广播当前深浅色给所有渲染窗口 + 同步主窗原生背景色（避免主题切换时窗框底色滞后/闪烁）。 */
+export function broadcastTheme(): void {
+  const dark = nativeTheme.shouldUseDarkColors
+  if (mainWin && !mainWin.isDestroyed()) mainWin.setBackgroundColor(dark ? '#161719' : '#ffffff')
+  broadcast('eshell:theme', { dark })
 }
 
 export function hidePreview(): void {

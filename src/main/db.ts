@@ -169,7 +169,8 @@ export function getSettings(): AppSettings {
       map.screenSenseAllowedApps != null
         ? parseList(map.screenSenseAllowedApps)
         : DEFAULT_MONITORED_APPS,
-    assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60
+    assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
+    theme: map.theme === 'light' || map.theme === 'dark' ? map.theme : 'system'
   }
 }
 

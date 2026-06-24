@@ -119,7 +119,7 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
               onClick={() => setMode(key)}
               className={`rounded-md px-3 py-1 ${
                 mode === key
-                  ? 'bg-white text-slate-900 font-medium shadow-sm'
+                  ? 'bg-surface text-slate-900 font-medium shadow-sm'
                   : 'text-slate-400 hover:text-slate-700'
               }`}
             >
@@ -149,7 +149,7 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
               <button
                 key={t.id}
                 onClick={() => setDetail(t)}
-                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left shadow-sm"
+                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-4 py-2.5 text-left shadow-sm"
               >
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">「{t.title}」</span>
                 <span
@@ -238,7 +238,7 @@ function TimelineSection({
     <section className={`relative pb-6 pl-6 ${danger ? 'mt-6' : ''}`}>
       <div className="absolute top-1.5 bottom-0 left-[5px] w-px bg-slate-200" />
       <div
-        className={`absolute top-1.5 left-0 size-[11px] rounded-full border-2 bg-white ${
+        className={`absolute top-1.5 left-0 size-[11px] rounded-full border-2 bg-surface ${
           danger ? 'border-[#c0584e]' : 'border-slate-300'
         }`}
       />
@@ -253,7 +253,7 @@ function TimelineSection({
             <button
               key={t.id}
               onClick={() => onOpen(t)}
-              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left shadow-sm hover:border-slate-300"
+              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-4 py-2.5 text-left shadow-sm hover:border-slate-300"
             >
               <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-500">
                 {TYPE_LABELS[t.itemType]}

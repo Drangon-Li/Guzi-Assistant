@@ -13,6 +13,7 @@ import Account from './pages/Account'
 import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
 import Debug from './pages/Debug'
+import PetChat from './pages/PetChat'
 import brandMark from './assets/agent-avatar.png'
 import brandWordmark from './assets/brand-wordmark.png'
 
@@ -29,6 +30,7 @@ const NAV: { key: Page; label: string }[] = [
 export default function App(): React.JSX.Element {
   if (window.location.hash.includes('/preview')) return <PreviewCard />
   if (window.location.hash.includes('/debug')) return <Debug />
+  if (window.location.hash.includes('/petchat')) return <PetChat />
   return <MainApp />
 }
 
@@ -122,14 +124,14 @@ function MainApp(): React.JSX.Element | null {
 
   if (profile === undefined)
     return (
-      <div className="flex h-full items-center justify-center bg-white">
+      <div className="flex h-full items-center justify-center bg-surface">
         <div className="size-6 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
       </div>
     )
   if (profile === null) return <Onboarding onDone={setProfile} />
   if (screenPerm === undefined)
     return (
-      <div className="flex h-full items-center justify-center bg-white">
+      <div className="flex h-full items-center justify-center bg-surface">
         <div className="size-6 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
       </div>
     )
@@ -138,7 +140,7 @@ function MainApp(): React.JSX.Element | null {
 
   return (
     <div
-      className="flex h-full bg-[#fafafa] text-slate-800"
+      className="flex h-full bg-canvas text-slate-800"
       onDragEnter={(e) => {
         e.preventDefault()
         dragDepth.current++
@@ -154,11 +156,11 @@ function MainApp(): React.JSX.Element | null {
       onDrop={handleDrop}
     >
       <div className="drag-strip" />
-      <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200/60 bg-[#fafafa]">
+      <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200/60 bg-canvas">
         <div className="px-5 pt-10 pb-4 titlebar-pad">
           <div className="flex items-center gap-2">
             <img src={brandMark} alt="" className="size-7 shrink-0" />
-            <img src={brandWordmark} alt="纸壳助手" className="h-5 w-auto" />
+            <img src={brandWordmark} alt="纸壳助手" className="brand-wordmark h-5 w-auto" />
           </div>
           <div className="mt-1.5 text-xs text-slate-400">个人事项捕获助手</div>
         </div>
@@ -206,8 +208,8 @@ function MainApp(): React.JSX.Element | null {
       />
 
       {dragging && (
-        <div className="animate-overlay-in pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-slate-900/5 backdrop-blur-[1px]">
-          <div className="animate-modal-in rounded-xl border-2 border-dashed border-slate-300 bg-white px-8 py-6 text-slate-600 shadow-lg">
+        <div className="animate-overlay-in pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-[#0f172a]/5 backdrop-blur-[1px]">
+          <div className="animate-modal-in rounded-xl border-2 border-dashed border-slate-300 bg-surface px-8 py-6 text-slate-600 shadow-lg">
             松开以提交文件（图片 / PDF / docx / txt）
           </div>
         </div>
@@ -216,7 +218,7 @@ function MainApp(): React.JSX.Element | null {
       {toast && (
         <div
           key={toast}
-          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm text-white shadow-lg"
+          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg"
         >
           {toast}
         </div>

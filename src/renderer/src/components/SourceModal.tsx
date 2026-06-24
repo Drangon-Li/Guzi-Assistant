@@ -27,7 +27,7 @@ export default function SourceModal({ sourceId, onClose }: Props): React.JSX.Ele
 
   return (
     <Modal
-      panelClass="flex max-h-[80vh] w-[560px] flex-col rounded-xl bg-white p-5 shadow-2xl"
+      panelClass="flex max-h-[80vh] w-[560px] flex-col rounded-xl bg-surface p-5 shadow-2xl"
       onClose={onClose}
     >
       {(close) => (

@@ -11,7 +11,17 @@
   --color-ink: #1d1d22;
   /* Bloome 动效缓动 */
   --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 语义色 token（亮色默认；深色见下方 @media）。新增 UI 用这些，别再写死 bg-white/bg-[#fafafa]。
+     bg-canvas 页面底 / bg-surface 卡片面 / bg-elevated 次级填充(气泡等) / bg-userbubble 用户气泡 / border-line 边框 / text-fg 主文本 */
+  --color-canvas: #fafafa;
+  --color-surface: #ffffff;
+  --color-elevated: #f5f4f3;
+  --color-userbubble: #eef3fa;
+  --color-line: #e6e8ec;
+  --color-fg: #23232a;
 }
+
+/* 深色主题变量覆盖见 theme.css（独立纯 CSS，避免被 Tailwind v4 的 @theme 处理剥离）。 */
 
 html,
 body,
@@ -23,7 +33,7 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   background: transparent;
-  color: #23232a;
+  color: var(--color-fg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

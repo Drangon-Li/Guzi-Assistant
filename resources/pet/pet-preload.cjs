@@ -1,20 +1,7 @@
 // 桌宠窗口 preload —— 移植/精简自 openpets pet-preload.cjs（MIT，见 src/main/pet/THIRD_PARTY_NOTICES.md）。
-// 保留：点击穿透 hit-test、手动拖拽、点击桌宠、reaction/motion/内容状态切换。
-// 去掉：音频、TTS、sprite/scale override、插件气泡 action/input、文件拖放、hover/dblclick。
-const { ipcRenderer } = require('electron')
-
-const allowedMotionStates = new Set(['idle', 'run-left', 'run-right'])
-const allowedReactionStates = new Set([
-  'idle',
-  'running-right',
-  'running-left',
-  'waving',
-  'jumping',
-  'failed',
-  'waiting',
-  'running',
-  'review'
-])
+// 保留：点击穿透 hit-test、手动拖拽、点击桌宠、气泡内容替换、文件拖放到桌宠。
+// 去掉：动画 reaction/motion 状态、音频、TTS、override、插件气泡 action/input、hover/dblclick。
+const { ipcRenderer, webUtils } = require('electron')
 
 let lastInteractiveHit = null
 let dragging = false
@@ -25,26 +12,10 @@ const applyWhenReady = (fn) => {
   else fn()
 }
 
-ipcRenderer.on('openpets:pet-motion', (_event, state) => {
-  if (!allowedMotionStates.has(state)) return
-  applyWhenReady(() => {
-    document.documentElement.dataset.motionState = state
-  })
-})
-
-ipcRenderer.on('openpets:pet-reaction-state', (_event, state) => {
-  if (!allowedReactionStates.has(state)) return
-  applyWhenReady(() => {
-    document.documentElement.dataset.reactionState = state
-  })
-})
-
-// 内容整体替换（含气泡）：主进程重生成 bodyHtml，这里换 innerHTML + reaction 态。
+// 内容整体替换（含气泡）：主进程重生成 bodyHtml，这里换 innerHTML。
 ipcRenderer.on('openpets:pet-content-state', (_event, state) => {
   if (!state || typeof state.bodyHtml !== 'string' || state.bodyHtml.length > 64 * 1024) return
-  if (!allowedReactionStates.has(state.reactionState)) return
   applyWhenReady(() => {
-    document.documentElement.dataset.reactionState = state.reactionState
     document.body.innerHTML = state.bodyHtml
   })
 })
@@ -118,6 +89,37 @@ const installMouseInterop = () => {
     },
     { passive: true }
   )
+
+  // 文件从 Finder 拖到桌宠上：拖拽期间让窗口可接收 drop（非穿透）+ 高亮反馈，drop 后把路径交给主进程。
+  const onDragOver = (event) => {
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+    document.documentElement.classList.add('pet-drag-over')
+    setInteractiveHit(true, 'drag')
+  }
+  document.addEventListener('dragenter', onDragOver)
+  document.addEventListener('dragover', onDragOver)
+  document.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget) return // 仍在窗口内子元素间移动，不算离开
+    document.documentElement.classList.remove('pet-drag-over')
+    setInteractiveHit(false, 'drag')
+  })
+  document.addEventListener('drop', (event) => {
+    event.preventDefault()
+    document.documentElement.classList.remove('pet-drag-over')
+    const files = Array.from((event.dataTransfer && event.dataTransfer.files) || [])
+    const paths = files
+      .map((f) => {
+        try {
+          return webUtils.getPathForFile(f)
+        } catch {
+          return ''
+        }
+      })
+      .filter(Boolean)
+    if (paths.length) ipcRenderer.send('openpets:pet-drop-files', paths)
+    setInteractiveHit(false, 'drag')
+  })
 
   setInteractiveHit(false, 'ready')
   ipcRenderer.send('openpets:pet-ready')

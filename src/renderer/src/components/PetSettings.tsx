@@ -2,17 +2,17 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 
 const SCALE_OPTIONS = [
-  { label: '极小', value: 0.5 },
-  { label: '小', value: 0.65 },
-  { label: '中', value: 0.8 },
-  { label: '大', value: 1 },
-  { label: '超大', value: 1.25 }
+  { label: '迷你', value: 0.3 },
+  { label: '小', value: 0.4 },
+  { label: '中', value: 0.5 },
+  { label: '大', value: 0.65 },
+  { label: '特大', value: 0.85 }
 ]
 
 /** 设置页「桌宠」分区：显隐、大小、暂停、重置位置。 */
 export default function PetSettings(): React.JSX.Element {
   const [enabled, setEnabled] = useState(true)
-  const [scale, setScale] = useState(1)
+  const [scale, setScale] = useState(0.3) // 与 state.ts 默认一致，避免拉取前显示错档
   const [paused, setPaused] = useState(false)
 
   useEffect(() => {

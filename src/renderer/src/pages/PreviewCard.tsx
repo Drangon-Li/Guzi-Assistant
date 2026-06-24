@@ -29,6 +29,8 @@ export default function PreviewCard(): React.JSX.Element | null {
   const [seq, setSeq] = useState(0)
   // 检测卡/AI 建议卡闲置自动隐藏秒数（设置里可调；0=不自动隐藏）
   const [autoHideSec, setAutoHideSec] = useState(60)
+  // 桌宠模式：卡片贴在桌宠旁，隐藏顶部冗余的「纸壳助手」品牌行（桌宠已在旁边）
+  const [petMode, setPetMode] = useState(false)
 
   // 关闭前先播放淡出动画，再执行真正的隐藏 */
   const fadeOut = (action: () => void): void => {
@@ -128,6 +130,7 @@ export default function PreviewCard(): React.JSX.Element | null {
       submitIdRef.current = ''
       setClosing(false)
       setSeq((n) => n + 1)
+      setPetMode(!!(payload as { petMode?: boolean }).petMode)
       const ls = (
         payload as {
           localSuggestion?: LocalSchedule & { sourceText: string; detectionId?: string }
@@ -201,11 +204,15 @@ export default function PreviewCard(): React.JSX.Element | null {
     <div className="flex h-screen items-end justify-end overflow-hidden p-2">
       <div
         key={seq}
-        className={`${closing ? 'animate-card-out' : 'animate-card-in'} flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-2xl`}
+        className={`${closing ? 'animate-card-out' : 'animate-card-in'} flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-surface p-4 text-sm shadow-2xl`}
       >
         <div className="flex items-center gap-2">
-          <img src={brandMark} alt="" className="size-4 shrink-0" />
-          <span className="text-xs font-medium text-slate-500">纸壳助手</span>
+          {!petMode && (
+            <>
+              <img src={brandMark} alt="" className="size-4 shrink-0" />
+              <span className="text-xs font-medium text-slate-500">纸壳助手</span>
+            </>
+          )}
           {state.phase === 'preview' && (
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
               {SOURCE_LABELS[state.capture.type]}
@@ -399,6 +406,19 @@ export default function PreviewCard(): React.JSX.Element | null {
               {state.local.isoTime ? fmtTime(state.local.isoTime) : state.local.timeText}
             </div>
             <div className="flex justify-end gap-2">
+              <button
+                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                onClick={() =>
+                  fadeOut(() => {
+                    // 拒绝：标记该检测已忽略，之后同内容不再重复弹
+                    if (state.phase === 'local' && state.local.detectionId)
+                      void api.dismissDetection(state.local.detectionId)
+                    void api.previewHide()
+                  })
+                }
+              >
+                拒绝
+              </button>
               <button
                 className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
                 onClick={() => void aiRefine()}
