@@ -106,6 +106,7 @@ export async function scanOnce(): Promise<ScanResult> {
       showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
       return { status: 'empty', message: '屏幕上没有识别到文字' }
     }
+    debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
 
     // 本地优先：本地小模型即时精筛，低置信自动升级 VLM
     const hit = await detectAndMaybeRefine(text)
