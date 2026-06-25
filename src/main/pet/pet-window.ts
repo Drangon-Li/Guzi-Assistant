@@ -139,6 +139,12 @@ export function setPetBubble(text: string | null, reaction?: PetReaction): void 
   })
 }
 
+/** 扫描/解析中：桌宠显示 Siri 式旋转光环（切 class，不重渲染）。 */
+export function setPetScanning(on: boolean): void {
+  const win = accessor()
+  if (win) win.webContents.send('openpets:pet-scanning', on)
+}
+
 export function setPetScale(scale: PetScaleValue): void {
   savePetPrefs({ scale })
   const win = accessor()
@@ -332,7 +338,12 @@ function windowCss(paused: boolean, scale: PetScaleValue, isDark: boolean): stri
     .bubble.is-busy { border-color: rgba(59, 130, 246, 0.4); }
     .bubble.is-info { border-color: rgba(56, 189, 248, 0.4); }
     @keyframes bubble-in { from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.96); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
-    @media (prefers-reduced-motion: reduce) { .bubble, .pet-shell { animation: none !important; } }
+    /* 扫描/解析中：Siri 式旋转锥形光环 + 呼吸光晕（环挂在徽章外缘） */
+    html.pet-scanning .pet-shell { animation: scan-breathe 1.8s ease-in-out infinite; }
+    html.pet-scanning .pet-shell::before { content: ""; position: absolute; inset: -5px; border-radius: 50%; background: conic-gradient(from 0deg, #f59e0b, #fbbf24, #fb7185, #a78bfa, #38bdf8, #34d399, #f59e0b); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px)); mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px)); filter: blur(0.4px); opacity: 0.92; z-index: -1; animation: scan-spin 1s linear infinite; }
+    @keyframes scan-spin { to { transform: rotate(1turn); } }
+    @keyframes scan-breathe { 0%, 100% { filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.2)); transform: scale(1); } 50% { filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.2)) drop-shadow(0 0 9px rgba(251, 146, 60, 0.55)); transform: scale(1.03); } }
+    @media (prefers-reduced-motion: reduce) { .bubble, .pet-shell, html.pet-scanning .pet-shell::before { animation: none !important; } }
   `
 }
 

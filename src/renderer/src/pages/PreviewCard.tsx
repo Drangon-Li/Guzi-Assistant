@@ -217,6 +217,8 @@ export default function PreviewCard(): React.JSX.Element | null {
   }, [state, autoHideSec])
 
   if (state.phase === 'idle') return null
+  // 桌宠模式下：扫描/解析的 loading 由桌宠 Siri 光环表达，不弹空卡
+  if (state.phase === 'loading' && petMode) return null
 
   return (
     <div className="flex h-screen items-end justify-end overflow-hidden p-2">

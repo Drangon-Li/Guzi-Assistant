@@ -7,6 +7,7 @@ import {
   setPetBubble,
   setPetPaused,
   setPetScale,
+  setPetScanning as setPetScanningWin,
   showPet
 } from './pet-window'
 import { type PetReaction } from './reaction-mapping'
@@ -41,6 +42,12 @@ export function applyExternalPetSay(message: string, reaction?: PetReaction, opt
     if (token === sayToken) setPetBubble(null)
   }, opts.durationMs ?? 4200)
   sayTimer.unref?.()
+}
+
+/** 扫描/解析中显示桌宠光环；停用或暂停时不亮（off 总是放行，确保能清掉）。 */
+export function setPetScanning(on: boolean): void {
+  if (on && quiet()) return
+  setPetScanningWin(on)
 }
 
 export function setPetPausedState(paused: boolean): void {

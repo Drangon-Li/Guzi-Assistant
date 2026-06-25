@@ -16,7 +16,7 @@ import {
   taskExists
 } from './db'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
-import { applyExternalPetSay } from './pet/controller'
+import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
 import { getFrontmostApp } from './frontapp'
 import {
@@ -79,8 +79,10 @@ async function ocrTextForParse(png: string): Promise<string> {
 
 /** 扫描一次当前屏幕：截图 → 本地 OCR → 本地模型精筛（按需 VLM）→ 右下角弹建议卡 */
 export async function scanOnce(): Promise<ScanResult> {
-  // 触发后立刻弹"正在扫描"加载卡，否则截图/OCR/解析这几秒里用户不知道 纸壳助手 在工作
-  showPreview({ busy: '正在扫描屏幕…' })
+  // 桌宠可见时用 Siri 式光环表达"正在扫描"；否则退回加载卡（让用户知道在工作）
+  const petGlow = isPetVisible()
+  if (petGlow) setPetScanning(true)
+  else showPreview({ busy: '正在扫描屏幕…' })
   debugEvent('tick', '手动扫描屏幕')
   try {
     const png = await captureScreenSilently()
@@ -140,6 +142,8 @@ export async function scanOnce(): Promise<ScanResult> {
     const message = e instanceof Error ? e.message : String(e)
     showPreview({ summary: emptySummary(message) })
     return { status: 'error', message }
+  } finally {
+    setPetScanning(false)
   }
 }
 
@@ -187,13 +191,18 @@ export async function aiParse(
   sourceText: string
 ): Promise<{ item: ParsedItem; sourceText: string; hits: string[] } | null> {
   debugEvent('cloud', '云端 AI 解析中…')
+  setPetScanning(true)
   const tc = Date.now()
-  const items = await parseToItems({ text: sourceText, hint: HINTS.screen_scan })
-  debugEvent('timing', `云端解析耗时 ${Date.now() - tc}ms`)
-  const best = pickBest(items)
-  debugEvent('cloud', best ? `云端解析完成：「${best.title}」` : '云端解析完成：未发现明确事项')
-  if (!best) return null
-  return { item: best, sourceText, hits: [] }
+  try {
+    const items = await parseToItems({ text: sourceText, hint: HINTS.screen_scan })
+    debugEvent('timing', `云端解析耗时 ${Date.now() - tc}ms`)
+    const best = pickBest(items)
+    debugEvent('cloud', best ? `云端解析完成：「${best.title}」` : '云端解析完成：未发现明确事项')
+    if (!best) return null
+    return { item: best, sourceText, hits: [] }
+  } finally {
+    setPetScanning(false)
+  }
 }
 
 /** 本地抽取 → ParsedItem。同意本地候选/历史共用。 */
