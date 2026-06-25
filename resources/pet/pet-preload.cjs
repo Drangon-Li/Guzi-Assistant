@@ -12,6 +12,16 @@ const applyWhenReady = (fn) => {
   else fn()
 }
 
+// 点击桌宠的一次性放大回弹：remove+回流+add 让连点也能重新触发动画。
+// 类残留无害（动画停在 scale(1)），且每次新消息会整体重渲染 .pet-shell 抹掉它。
+const playClickPop = () => {
+  const shell = document.querySelector('.pet-shell')
+  if (!shell) return
+  shell.classList.remove('is-clicked')
+  void shell.offsetWidth
+  shell.classList.add('is-clicked')
+}
+
 // 内容整体替换（含气泡）：主进程重生成 bodyHtml，这里换 innerHTML。
 ipcRenderer.on('openpets:pet-content-state', (_event, state) => {
   if (!state || typeof state.bodyHtml !== 'string' || state.bodyHtml.length > 64 * 1024) return
@@ -49,6 +59,7 @@ const installMouseInterop = () => {
     const target = event.target
     if (!(target instanceof Element) || !target.closest('.pet-hitbox, .pet-shell')) return
     if (Date.now() < suppressClickUntil) return
+    playClickPop()
     ipcRenderer.send('openpets:pet-clicked')
   })
 

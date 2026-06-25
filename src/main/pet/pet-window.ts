@@ -27,6 +27,10 @@ let ipcInstalled = false
 let dragging = false
 let dragOffset: { dx: number; dy: number } | null = null
 
+// 主进程光标轮询：决定桌宠窗口是否穿透（见 syncInteractivity）。
+let cursorPoll: ReturnType<typeof setInterval> | null = null
+let lastInteractiveWant: boolean | null = null
+
 function accessor(): BrowserWindow | null {
   return currentPet && !currentPet.isDestroyed() ? currentPet : null
 }
@@ -57,8 +61,10 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
     hasShadow: false,
     webPreferences: { preload: petPreloadPath(), backgroundThrottling: false }
   })
-  win.setAlwaysOnTop(true, 'screen-saver')
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  // 用普通置顶层级（构造器 alwaysOnTop:true = floating，已浮在普通窗口之上）。
+  // 不用 'screen-saver' 超高层级 + setVisibleOnAllWorkspaces：那会让 macOS 把本窗当「面板窗」、
+  // 不注册为拖放目标，导致拖文件到桌宠的 dragover/drop 永远不触发（实测定位）。
+  // 代价：桌宠不再显示于全屏 App 之上 / 所有工作区。
 
   currentPet = win
   records.set(win, { reaction: 'idle', bubbleText: null })
@@ -69,8 +75,14 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
   })
   win.on('closed', () => {
     if (currentPet === win) currentPet = null
+    if (cursorPoll) {
+      clearInterval(cursorPoll)
+      cursorPoll = null
+    }
+    lastInteractiveWant = null
   })
 
+  if (!cursorPoll) cursorPoll = setInterval(syncInteractivity, 100)
   renderInto(win)
   if (prefs.enabled) win.showInactive() // 暂停态仍显示（变暗），仅 enabled 控制显隐
   return win
@@ -156,6 +168,29 @@ function defaultPosition(): { x: number; y: number } {
   }
 }
 
+function cursorOverBadge(): boolean {
+  const b = getPetBadgeBounds()
+  if (!b) return false
+  const p = screen.getCursorScreenPoint()
+  // 圆形热区：贴合可见圆徽章（外接正方形的内切圆 + 3px 便于边缘拾取）。
+  // 用方形 bounds 会把四角空白也变成可点/可拖入区，与圆形视觉不一致。
+  const cx = b.x + b.width / 2
+  const cy = b.y + b.height / 2
+  const r = b.width / 2 + 3
+  return (p.x - cx) ** 2 + (p.y - cy) ** 2 <= r * r
+}
+
+// OS 文件拖拽期间没有 mousemove 触发渲染层 hit-test，靠主进程轮询光标：进入徽章就临时关穿透，
+// 使拖拽/drop（以及点击/拖动桌宠）能落到窗口；离开且非拖动中恢复穿透，不挡屏幕右下角。
+function syncInteractivity(): void {
+  const win = accessor()
+  if (!win) return
+  const want = dragging || cursorOverBadge()
+  if (want === lastInteractiveWant) return
+  lastInteractiveWant = want
+  win.setIgnoreMouseEvents(!want, { forward: true })
+}
+
 function installIpc(): void {
   if (ipcInstalled) return
   ipcInstalled = true
@@ -163,10 +198,6 @@ function installIpc(): void {
   const fromPet = (e: Electron.IpcMainEvent): boolean =>
     !!currentPet && !currentPet.isDestroyed() && e.sender === currentPet.webContents
 
-  ipcMain.on('openpets:pet-hit-test', (e, interactive: boolean) => {
-    if (!fromPet(e)) return
-    currentPet!.setIgnoreMouseEvents(!interactive, { forward: true })
-  })
   ipcMain.on('openpets:pet-drag-start', (e, p: { screenX: number; screenY: number }) => {
     if (!fromPet(e)) return
     const [wx, wy] = currentPet!.getPosition()
@@ -284,11 +315,14 @@ function windowCss(paused: boolean, scale: PetScaleValue, isDark: boolean): stri
     body { pointer-events: none; }
     .stage { width: 100%; height: 100%; position: relative; box-sizing: border-box; overflow: visible; }
     .pet-hitbox { position: absolute; left: 50%; bottom: ${Math.max(0, petBottom - hitPadding)}px; z-index: 1; width: ${diameter + hitPadding * 2}px; height: ${diameter + hitPadding * 2}px; display: grid; place-items: center; transform: translateX(-50%); pointer-events: auto; -webkit-app-region: no-drag; cursor: grab; }
-    .pet-shell { position: relative; width: ${diameter}px; height: ${diameter}px; border-radius: 50%; display: grid; place-items: center; background: ${badgeBg}; box-shadow: inset 0 0 0 1px ${badgeRing}; opacity: var(--pet-opacity); filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.20)) drop-shadow(0 1px 3px rgba(15, 23, 42, 0.12)); transition: opacity 180ms cubic-bezier(0.2, 0, 0, 1); pointer-events: auto; -webkit-app-region: no-drag; cursor: grab; }
+    .pet-shell { position: relative; width: ${diameter}px; height: ${diameter}px; border-radius: 50%; display: grid; place-items: center; background: ${badgeBg}; box-shadow: inset 0 0 0 1px ${badgeRing}; opacity: var(--pet-opacity); filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.20)) drop-shadow(0 1px 3px rgba(15, 23, 42, 0.12)); transition: opacity 180ms cubic-bezier(0.2, 0, 0, 1), transform 140ms cubic-bezier(0.2, 0.7, 0.3, 1); pointer-events: auto; -webkit-app-region: no-drag; cursor: grab; }
     .mark { display: block; width: 56%; height: 56%; object-fit: contain; -webkit-user-drag: none; user-select: none; pointer-events: none; }
     .pet-shell.is-alert { animation: mark-pop 460ms cubic-bezier(0.2, 0.7, 0.3, 1) 1; transform-origin: 50% 50%; }
-    html.pet-drag-over .pet-shell { box-shadow: inset 0 0 0 2px #e2893a, 0 0 0 4px rgba(226, 137, 58, 0.25); transform: scale(1.06); transition: transform 120ms ease; }
+    .pet-shell.is-clicked { animation: click-pop 280ms cubic-bezier(0.2, 0.7, 0.3, 1) 1; transform-origin: 50% 50%; }
+    html.pet-drag-over .pet-shell { box-shadow: inset 0 0 0 2px #e2893a, 0 0 0 5px rgba(226, 137, 58, 0.22); transform: scale(1.06); animation: drag-pulse 1000ms ease-in-out infinite; }
     @keyframes mark-pop { 0% { transform: scale(1); } 30% { transform: scale(1.12); } 55% { transform: scale(0.96); } 78% { transform: scale(1.03); } 100% { transform: scale(1); } }
+    @keyframes click-pop { 0% { transform: scale(1); } 35% { transform: scale(1.15); } 100% { transform: scale(1); } }
+    @keyframes drag-pulse { 0%, 100% { transform: scale(1.045); box-shadow: inset 0 0 0 2px #e2893a, 0 0 0 4px rgba(226, 137, 58, 0.16); } 50% { transform: scale(1.105); box-shadow: inset 0 0 0 2px #e2893a, 0 0 0 10px rgba(226, 137, 58, 0.34); } }
     .bubble { position: absolute; left: 50%; bottom: ${bubbleBottom}px; z-index: 4; box-sizing: border-box; display: inline-flex; flex-direction: column; width: fit-content; min-width: 80px; max-width: min(220px, calc(100vw - 18px)); padding: 9px 12px; background: ${bubbleBg}; color: ${bubbleFg}; font: 700 12px/16px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; text-align: left; border: 1px solid ${bubbleBorder}; border-radius: 14px; box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16), 0 2px 5px rgba(15, 23, 42, 0.12); white-space: normal; overflow-wrap: break-word; pointer-events: auto; -webkit-app-region: no-drag; transform: translateX(-50%); transform-origin: 64% 100%; animation: bubble-in 180ms cubic-bezier(0.2, 0, 0, 1); }
     .bubble::after { content: ""; position: absolute; left: 64%; bottom: -7px; width: 12px; height: 12px; background: inherit; border-right: 1px solid ${bubbleTail}; border-bottom: 1px solid ${bubbleTail}; border-bottom-right-radius: 3px; transform: translateX(-50%) rotate(45deg); }
     .bubble-text { display: -webkit-box; min-width: 0; overflow: hidden; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow-wrap: break-word; }
