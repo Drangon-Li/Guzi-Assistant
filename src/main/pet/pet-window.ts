@@ -21,6 +21,7 @@ const records = new WeakMap<BrowserWindow, PetRecord>()
 
 let currentPet: BrowserWindow | null = null
 let onClickHandler: (() => void) | null = null
+let onDblClickHandler: (() => void) | null = null
 let ipcInstalled = false
 
 // 拖拽状态（单例桌宠）
@@ -37,11 +38,13 @@ function accessor(): BrowserWindow | null {
 
 export interface CreatePetOptions {
   onClick: () => void
+  onDblClick: () => void
 }
 
 export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
   if (currentPet && !currentPet.isDestroyed()) return currentPet
   onClickHandler = opts.onClick
+  onDblClickHandler = opts.onDblClick
 
   const prefs = getPetPrefs()
   const pos = prefs.position ?? defaultPosition()
@@ -223,6 +226,10 @@ function installIpc(): void {
   ipcMain.on('openpets:pet-clicked', (e) => {
     if (!fromPet(e)) return
     onClickHandler?.()
+  })
+  ipcMain.on('openpets:pet-dblclicked', (e) => {
+    if (!fromPet(e)) return
+    onDblClickHandler?.()
   })
   ipcMain.on('openpets:pet-ready', () => {
     /* 渲染层就绪：当前无需额外动作，hit-test 已接管穿透。 */
