@@ -1,4 +1,3 @@
-import { existsSync } from 'fs'
 import { getLlama, LlamaChatSession, createModelDownloader } from 'node-llama-cpp'
 import type { Llama, LlamaModel, LlamaJsonSchemaGrammar } from 'node-llama-cpp'
 import {
@@ -26,7 +25,7 @@ let extractChain: Promise<unknown> = Promise.resolve()
 
 export function getLocalModelStatus(): LocalModelStatus {
   if (state === 'downloading') return { state, progress: lastProgress }
-  if ((state === 'absent' || state === 'unloaded') && existsSync(modelPath()) && !model) {
+  if ((state === 'absent' || state === 'unloaded') && modelPath() && !model) {
     return { state: state === 'absent' ? 'ready' : 'unloaded' }
   }
   return { state, error: errMsg }
@@ -39,7 +38,7 @@ async function ensureLlama(): Promise<Llama> {
 
 /** 首次开启按需下载（带进度）。node-llama-cpp 仅校验文件大小；SHA 固定作为后续 hardening。 */
 export async function downloadLocalModel(onProgress: (p: number) => void): Promise<void> {
-  if (existsSync(modelPath())) {
+  if (modelPath()) {
     state = 'ready'
     return
   }
@@ -69,12 +68,13 @@ export async function ensureLoaded(): Promise<void> {
     lastUsed = Date.now()
     return
   }
-  if (!existsSync(modelPath())) throw new Error('本地模型尚未下载')
+  const mp = modelPath()
+  if (!mp) throw new Error('本地模型尚未下载')
   state = 'loading'
   errMsg = undefined
   try {
     const l = await ensureLlama()
-    model = await l.loadModel({ modelPath: modelPath() })
+    model = await l.loadModel({ modelPath: mp })
     grammar = await l.createGrammarForJsonSchema(EXTRACTION_JSON_SCHEMA)
     const warm = await model.createContext({ contextSize: CONTEXT_SIZE })
     try {
@@ -101,7 +101,7 @@ export async function unloadLocalModel(): Promise<void> {
   if (model) await model.dispose() // 级联 dispose 其 context
   model = null
   grammar = null
-  if (state !== 'error') state = existsSync(modelPath()) ? 'unloaded' : 'absent'
+  if (state !== 'error') state = modelPath() ? 'unloaded' : 'absent'
 }
 
 /** 一次抽取：串行排队（同一时刻仅一个），每次新建 context（KV 用完即弃），model 常驻。失败/解析不出返回 []。 */
