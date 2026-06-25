@@ -10,6 +10,7 @@ import {
   SYSTEM_PROMPT,
   buildExtractionPrompt
 } from '../src/shared/local-model-schema.ts'
+import { resolveLocalDate, correctIsoDate } from '../src/shared/local-time.ts'
 
 let pass = 0
 let fail = 0
@@ -163,6 +164,27 @@ check(
 check(
   '不同时间不合并',
   dedupeExtractions([mk('会', '2026-06-26T09:00', 0.9), mk('会', '2026-06-27T09:00', 0.9)]).length === 2
+)
+
+// ---- 确定性日期解析 + 纠错（now = 2026-06-25 周四）----
+const TNOW = new Date('2026-06-25T10:00:00')
+const ymd = (o) => (o ? `${o.y}-${o.mo}-${o.d}` : null)
+check('明天 → 06-26', ymd(resolveLocalDate('明天上午开会', TNOW)) === '2026-6-26')
+check('下周一 → 06-29', ymd(resolveLocalDate('下周一交方案', TNOW)) === '2026-6-29')
+check('后天 → 06-27', ymd(resolveLocalDate('后天答辩', TNOW)) === '2026-6-27')
+check('6月30日 → 06-30', ymd(resolveLocalDate('考试 6月30日', TNOW)) === '2026-6-30')
+check('显式 ISO', ymd(resolveLocalDate('于 2026-07-05 参加', TNOW)) === '2026-7-5')
+check('无日期 → null', resolveLocalDate('看一下是否一致', TNOW) === null)
+check('中文数字日期解析器搞不定 → null', resolveLocalDate('六月八号', TNOW) === null)
+check(
+  '纠正下周一错算的日期、保留钟点',
+  correctIsoDate('2026-07-01T15:00', '下周一下午三点开会', TNOW) === '2026-06-29T15:00'
+)
+check('日期一致不动', correctIsoDate('2026-06-26T09:00', '明天开会', TNOW) === '2026-06-26T09:00')
+check('模型无时间不臆造', correctIsoDate(null, '下周一', TNOW) === null)
+check(
+  '解析器搞不定则保留模型值',
+  correctIsoDate('2026-06-26T09:00', '六月八号开会', TNOW) === '2026-06-26T09:00'
 )
 
 // ---- prompt ----

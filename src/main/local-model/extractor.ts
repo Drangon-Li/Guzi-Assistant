@@ -9,6 +9,7 @@ import {
   chunkForExtraction,
   dedupeExtractions
 } from '@shared/local-model-schema'
+import { correctIsoDate } from '@shared/local-time'
 import type { LocalExtraction, LocalModelState, LocalModelStatus } from '@shared/types'
 import { MODEL_URI, modelDir, modelPath } from './paths'
 
@@ -179,10 +180,13 @@ async function doExtract(text: string, selfNames?: string[]): Promise<LocalExtra
           maxTokens: MAX_TOKENS
         })
         try {
-          all.push(...coerceExtractions(g.parse(res), now))
+          const items = coerceExtractions(g.parse(res), now)
+          for (const it of items) it.isoTime = correctIsoDate(it.isoTime, chunk, now) // 确定性日期纠错
+          all.push(...items)
         } catch {
           /* won't-stop 截断成残缺 JSON → 跳过该块 */
         }
+
       } finally {
         await ctx.dispose()
       }
