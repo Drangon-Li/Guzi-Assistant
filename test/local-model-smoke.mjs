@@ -55,6 +55,33 @@ const noDate = coerceExtractions([
 ])
 check('无日期 → strong=false', noDate[0].strong === false)
 
+// ---- coerce：非法日历日期（2026-13-45）→ isoTime null、strong false（不编造）----
+const badDate = coerceExtractions([
+  {
+    title: '坏日期',
+    isoTime: '2026-13-45T99:99',
+    deadline: false,
+    belongsToUser: 'yes',
+    hits: [],
+    confidence: 0.9,
+    needsVlm: false
+  }
+])
+check('非法日期 → isoTime null', badDate[0].isoTime === null)
+check('非法日期 → strong false', badDate[0].strong === false)
+const goodDate = coerceExtractions([
+  {
+    title: '好日期',
+    isoTime: '2026-02-28T09:30',
+    deadline: false,
+    belongsToUser: 'yes',
+    hits: [],
+    confidence: 0.9,
+    needsVlm: false
+  }
+])
+check('合法日期保留 + strong', goodDate[0].isoTime === '2026-02-28T09:30' && goodDate[0].strong === true)
+
 // ---- coerce：脏数据丢弃 + 置信度夹紧 + 缺字段补默认 ----
 check('非数组 → []', coerceExtractions(null).length === 0)
 check('空数组 → []', coerceExtractions([]).length === 0)

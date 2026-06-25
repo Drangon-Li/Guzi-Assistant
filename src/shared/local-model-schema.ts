@@ -29,9 +29,17 @@ const clamp01 = (n: unknown): number => {
   return x < 0 ? 0 : x > 1 ? 1 : x
 }
 
-/** ISO 含日期（YYYY-MM-DDTHH:mm）才算 strong。模型应输出完整 ISO 或 null。 */
-function hasDate(iso: string | null): boolean {
-  return !!iso && ISO_RE.test(iso)
+/** 校验并归一化 ISO：格式对 + 真实日历日期（拒 2026-13-45 / 99:99）→ 返回 YYYY-MM-DDTHH:mm，否则 null。 */
+function validIso(s: unknown): string | null {
+  if (typeof s !== 'string' || !ISO_RE.test(s)) return null
+  const iso = s.slice(0, 16)
+  const [datePart, timePart] = iso.split('T')
+  const [y, mo, d] = datePart.split('-').map(Number)
+  const [hh, mm] = timePart.split(':').map(Number)
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || hh > 23 || mm > 59) return null
+  const probe = new Date(y, mo - 1, d)
+  if (probe.getFullYear() !== y || probe.getMonth() !== mo - 1 || probe.getDate() !== d) return null
+  return iso
 }
 
 /** 把模型解析出的原始 JSON 强转成干净的 LocalExtraction[]，丢弃无 title 的脏项。绝不编造时间。 */
@@ -43,7 +51,7 @@ export function coerceExtractions(raw: unknown, _now: Date = new Date()): LocalE
     const o = r as Record<string, unknown>
     const title = typeof o.title === 'string' ? o.title.trim() : ''
     if (!title) continue
-    const iso = typeof o.isoTime === 'string' && ISO_RE.test(o.isoTime) ? o.isoTime.slice(0, 16) : null
+    const iso = validIso(o.isoTime)
     const belongs = BELONGS.includes(o.belongsToUser as Belongs)
       ? (o.belongsToUser as Belongs)
       : 'uncertain'
@@ -56,7 +64,7 @@ export function coerceExtractions(raw: unknown, _now: Date = new Date()): LocalE
       hits,
       confidence: clamp01(o.confidence),
       needsVlm: o.needsVlm === true || o.needsVlm === 1,
-      strong: hasDate(iso)
+      strong: iso !== null
     })
   }
   return out

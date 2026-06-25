@@ -374,6 +374,7 @@ async function watchTick(): Promise<void> {
       debugEvent('record', '同内容冷却中，跳过')
       return
     }
+    cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
 
     // 本地小模型精筛 + 低置信自动升级 VLM
     const hit = await detectAndMaybeRefine(text)
@@ -381,7 +382,6 @@ async function watchTick(): Promise<void> {
       debugEvent('detect', '本地模型未发现明确待办')
       return
     }
-    cooldown.set(th, now + COOLDOWN_MS)
     const { extraction } = hit
     debugEvent(
       'detect',

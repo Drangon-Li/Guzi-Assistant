@@ -19,8 +19,13 @@ let grammar: LlamaJsonSchemaGrammar<typeof EXTRACTION_JSON_SCHEMA> | null = null
 let state: LocalModelState = 'absent'
 let errMsg: string | undefined
 let lastUsed = 0
+let lastProgress = 0
+// 串行化抽取：同一时刻只跑一个 extract；卸载会等在途抽取结束，避免 dispose 撞上正在推理的 model。
+let inflight = 0
+let extractChain: Promise<unknown> = Promise.resolve()
 
 export function getLocalModelStatus(): LocalModelStatus {
+  if (state === 'downloading') return { state, progress: lastProgress }
   if ((state === 'absent' || state === 'unloaded') && existsSync(modelPath()) && !model) {
     return { state: state === 'absent' ? 'ready' : 'unloaded' }
   }
@@ -44,8 +49,10 @@ export async function downloadLocalModel(onProgress: (p: number) => void): Promi
     const downloader = await createModelDownloader({
       modelUri: MODEL_URI,
       dirPath: modelDir(),
-      onProgress: ({ totalSize, downloadedSize }) =>
-        onProgress(totalSize ? downloadedSize / totalSize : 0)
+      onProgress: ({ totalSize, downloadedSize }) => {
+        lastProgress = totalSize ? downloadedSize / totalSize : 0
+        onProgress(lastProgress)
+      }
     })
     await downloader.download()
     state = 'ready'
@@ -56,7 +63,7 @@ export async function downloadLocalModel(onProgress: (p: number) => void): Promi
   }
 }
 
-/** lazy load + 一次 warmup 推理消化 mmap 首次延迟。 */
+/** lazy load + 一次 warmup 推理消化 mmap 首次延迟。warmup/加载任何抛出都 dispose 干净，不泄漏原生句柄。 */
 export async function ensureLoaded(): Promise<void> {
   if (model) {
     lastUsed = Date.now()
@@ -70,62 +77,81 @@ export async function ensureLoaded(): Promise<void> {
     model = await l.loadModel({ modelPath: modelPath() })
     grammar = await l.createGrammarForJsonSchema(EXTRACTION_JSON_SCHEMA)
     const warm = await model.createContext({ contextSize: CONTEXT_SIZE })
-    const s = new LlamaChatSession({ contextSequence: warm.getSequence() })
-    await s.prompt('hi', { maxTokens: 1 })
-    await warm.dispose()
+    try {
+      const s = new LlamaChatSession({ contextSequence: warm.getSequence() })
+      await s.prompt('hi', { maxTokens: 1 })
+    } finally {
+      await warm.dispose()
+    }
     state = 'ready'
     lastUsed = Date.now()
   } catch (e) {
     state = 'error'
     errMsg = e instanceof Error ? e.message : String(e)
+    if (model) await model.dispose().catch(() => {}) // 别让加载失败的 model 泄漏（下面要置 null）
     model = null
     grammar = null
     throw e
   }
 }
 
-/** 关功能 / idle 调：dispose 释放权重+KV，归还统一内存。必须 await，别等 GC。 */
+/** 关功能 / idle 调：先等在途抽取结束再 dispose（防撞上推理），释放权重+KV、归还统一内存。必须 await。 */
 export async function unloadLocalModel(): Promise<void> {
+  await extractChain.catch(() => {})
   if (model) await model.dispose() // 级联 dispose 其 context
   model = null
   grammar = null
   if (state !== 'error') state = existsSync(modelPath()) ? 'unloaded' : 'absent'
 }
 
-/** 一次抽取：每次新建 context（KV 用完即弃），model 常驻。失败/解析不出返回 []。 */
+/** 一次抽取：串行排队（同一时刻仅一个），每次新建 context（KV 用完即弃），model 常驻。失败/解析不出返回 []。 */
 export async function extract(text: string, selfNames?: string[]): Promise<LocalExtraction[]> {
   if (!text.trim()) return []
+  const run = extractChain.then(
+    () => doExtract(text, selfNames),
+    () => doExtract(text, selfNames)
+  )
+  extractChain = run.catch(() => {}) // 链上忽略错误，避免一次失败卡死后续；调用方仍拿到 run 的 reject
+  return run
+}
+
+async function doExtract(text: string, selfNames?: string[]): Promise<LocalExtraction[]> {
   await ensureLoaded()
+  inflight++
   lastUsed = Date.now()
-  const ctx = await model!.createContext({ contextSize: CONTEXT_SIZE })
+  const m = model! // 串行化 + unload 等在途，doExtract 期间 model/grammar 不会被置 null
+  const g = grammar!
+  const ctx = await m.createContext({ contextSize: CONTEXT_SIZE })
   try {
     const session = new LlamaChatSession({
       contextSequence: ctx.getSequence(),
       systemPrompt: SYSTEM_PROMPT
     })
     const res = await session.prompt(buildExtractionPrompt(text, { now: new Date(), selfNames }), {
-      grammar: grammar!,
+      grammar: g,
       maxTokens: MAX_TOKENS
     })
     let parsed: unknown
     try {
-      parsed = grammar!.parse(res)
+      parsed = g.parse(res)
     } catch {
       return [] // won't-stop 截断成残缺 JSON → 当作无日程
     }
     return coerceExtractions(parsed)
   } finally {
     await ctx.dispose()
+    inflight--
+    lastUsed = Date.now()
   }
 }
 
 let idleTimer: ReturnType<typeof setInterval> | null = null
-/** idle 自动卸载：超 ms 未用就卸模型释放内存。screenwatch 在开启功能时启动。 */
+/** idle 自动卸载：超 ms 未用且无在途抽取就卸模型释放内存。screenwatch 在开启功能时启动。 */
 export function startIdleSweep(idleMs: number): void {
   stopIdleSweep()
   idleTimer = setInterval(
     () => {
-      if (model && Date.now() - lastUsed > idleMs) void unloadLocalModel()
+      if (model && inflight === 0 && Date.now() - lastUsed > idleMs) void unloadLocalModel()
     },
     Math.max(60_000, idleMs / 2)
   )
