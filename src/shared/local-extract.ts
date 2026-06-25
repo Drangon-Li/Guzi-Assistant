@@ -38,7 +38,7 @@ export interface LocalSchedule {
 
 // 日期线索:相对日 / 星期 / X月X日(号) / YYYY-MM-DD / X月X / X/X
 const DATE_RE =
-  /(今天|今日|明天|明日|后天|大后天|(?:周|星期|礼拜)\s*[一二三四五六日天]|\d{4}\s*-\s*\d{1,2}\s*-\s*\d{1,2}|\d{1,2}\s*月\s*\d{1,2}\s*[日号]?|\d{1,2}\s*\/\s*\d{1,2})/
+  /(今天|今日|明天|明日|后天|大后天|(?:下下|下|本|这)?\s*(?:周|星期|礼拜)\s*[一二三四五六日天]|\d{4}\s*-\s*\d{1,2}\s*-\s*\d{1,2}|\d{1,2}\s*月\s*\d{1,2}\s*[日号]?|\d{1,2}\s*\/\s*\d{1,2})/
 // 钟点:HH:MM / (上午下午…)X点(半|X分);X 支持阿拉伯或中文(三点/十一点)
 const CLOCK_RE =
   /((?:上午|下午|中午|晚上|凌晨)?\s*\d{1,2}\s*[:：]\s*\d{2}|(?:上午|下午|中午|晚上|凌晨)?\s*(?:\d{1,2}|十[一二]?|[一两二三四五六七八九])\s*点(?:\s*半|\s*\d{1,2}\s*分)?)/
@@ -70,16 +70,32 @@ function resolveDate(s: string, now: Date): YMD | null {
       return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate() }
     }
   }
-  const wd = t.match(/^(?:周|星期|礼拜)([一二三四五六日天])$/)
+  const wd = t.match(/^(下下|下|本|这)?(?:周|星期|礼拜)([一二三四五六日天])$/)
   if (wd) {
-    const target = WEEKDAY[wd[1]] // 1..7 (周一..周日)
+    const prefix = wd[1]
+    const target = WEEKDAY[wd[2]] // 1..7 (周一..周日)
     const todayJs = today.getDay() === 0 ? 7 : today.getDay()
-    const ahead = (target - todayJs + 7) % 7 // 含今天(0)
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + ahead)
+    let offset: number
+    if (!prefix) {
+      offset = (target - todayJs + 7) % 7 // 裸「周X」：本周内最近一次，含今天(0)
+    } else {
+      // 本/这/下/下下：按自然周(周一为首)绝对定位，避免「下周一」落到本周
+      const weeks = prefix === '下' ? 1 : prefix === '下下' ? 2 : 0
+      offset = -(todayJs - 1) + weeks * 7 + (target - 1)
+    }
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset)
     return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate() }
   }
   const iso = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
-  if (iso) return { y: +iso[1], mo: +iso[2], d: +iso[3] }
+  if (iso) {
+    const y = +iso[1]
+    const mo = +iso[2]
+    const d = +iso[3]
+    // 校验真实日历日期，拒绝 2026-13-45 / 2026-02-30 之类（否则会拼出非法 isoTime）
+    const probe = new Date(y, mo - 1, d)
+    if (probe.getFullYear() !== y || probe.getMonth() !== mo - 1 || probe.getDate() !== d) return null
+    return { y, mo, d }
+  }
   // X月X日(号) 或 X/X —— 用当年;若已过去则次年
   const md = t.match(/^(\d{1,2})(?:月|\/)(\d{1,2})[日号]?$/)
   if (md) {

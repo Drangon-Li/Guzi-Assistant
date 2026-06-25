@@ -34,6 +34,18 @@ check('  明天十点 → 2026-06-17 10:00', e?.isoTime === '2026-06-17T10:00')
 const w = det('3点开个会签到一下')
 check('仅钟点 → 命中但弱信号', !!w && w.strong === false)
 
+// 回归：下周X / 下下周X 前缀按自然周定位（NOW=周二 2026-06-16），不再落到本周/今天
+const nw1 = det('下周一上午十点 产品评审会议')
+check('下周一 → 2026-06-22 10:00', nw1?.isoTime === '2026-06-22T10:00')
+const nw3 = det('下周三 项目评审会议')
+check('下周三 → 2026-06-24', nw3?.isoTime?.slice(0, 10) === '2026-06-24')
+const nnw = det('下下周三 项目评审会议')
+check('下下周三 → 2026-07-01', nnw?.isoTime?.slice(0, 10) === '2026-07-01')
+
+// 回归：非法 ISO 日期不再拼出非法 isoTime（交给 AI，而非 2026-13-45T…）
+const bad = det('截止 2026-13-45 前提交材料')
+check('非法ISO日期 → isoTime 为 null', bad === null || bad.isoTime === null)
+
 // 不命中
 check('无关键词 → null', det('下午三点喝杯咖啡') === null)
 check('有关键词无时间 → null', det('记得提交那份报告') === null)
