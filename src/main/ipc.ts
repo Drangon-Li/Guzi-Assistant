@@ -1,4 +1,4 @@
-import { ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
+import { dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
 import {
   bulkUpdateStatus,
   deleteSourceContent,
@@ -39,7 +39,7 @@ import {
   dismissDetection,
   scanOnce
 } from './screenwatch'
-import { downloadLocalModel, getLocalModelStatus } from './local-model/extractor'
+import { downloadLocalModel, getLocalModelStatus, importLocalModel } from './local-model/extractor'
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
@@ -212,7 +212,22 @@ export function registerIpc(): void {
 
   ipcMain.handle('localmodel:status', () => getLocalModelStatus())
   ipcMain.handle('localmodel:download', async () => {
-    await downloadLocalModel((p) => broadcast('eshell:localmodel-progress', { progress: p }))
+    const { localModelEndpoint } = getSettings()
+    await downloadLocalModel(
+      (p) => broadcast('eshell:localmodel-progress', { progress: p }),
+      localModelEndpoint || undefined
+    )
+    applyScreenSenseSettings()
+    return getLocalModelStatus()
+  })
+  ipcMain.handle('localmodel:import', async () => {
+    const r = await dialog.showOpenDialog({
+      title: '选择本地模型文件（.gguf）',
+      filters: [{ name: 'GGUF 模型', extensions: ['gguf'] }],
+      properties: ['openFile']
+    })
+    if (r.canceled || !r.filePaths[0]) return getLocalModelStatus()
+    await importLocalModel(r.filePaths[0])
     applyScreenSenseSettings()
     return getLocalModelStatus()
   })

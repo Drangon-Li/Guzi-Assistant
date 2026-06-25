@@ -444,32 +444,69 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               {settings.screenSenseLocalModel &&
                 modelStatus &&
                 !['ready', 'unloaded'].includes(modelStatus.state) && (
-                  <div className="text-xs">
+                  <div className="flex flex-col gap-2 text-xs">
                     {modelStatus.state === 'downloading' ? (
                       <span className="text-amber-600">下载中… {Math.round(dlProgress * 100)}%</span>
                     ) : modelStatus.state === 'loading' ? (
                       <span className="text-slate-500">加载中…</span>
-                    ) : modelStatus.state === 'error' ? (
-                      <span className="text-red-500">模型出错：{modelStatus.error}</span>
                     ) : (
-                      <button
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
-                        onClick={async () => {
-                          setModelStatus({ state: 'downloading', progress: 0 })
-                          try {
-                            const st = await api.downloadLocalModel()
-                            setModelStatus(st)
-                            flash('模型已就绪')
-                          } catch (err) {
-                            setModelStatus({
-                              state: 'error',
-                              error: err instanceof Error ? err.message : String(err)
-                            })
-                          }
-                        }}
-                      >
-                        下载模型（约 1.3GB）
-                      </button>
+                      <>
+                        {modelStatus.state === 'error' && (
+                          <span className="text-red-500">模型出错：{modelStatus.error}</span>
+                        )}
+                        <label className="flex flex-col gap-1">
+                          <span className="text-slate-400">
+                            下载源（留空=官方；国内可填 https://hf-mirror.com 免代理）
+                          </span>
+                          <input
+                            className={input}
+                            placeholder="https://hf-mirror.com"
+                            defaultValue={settings.localModelEndpoint}
+                            onBlur={async (e) => {
+                              const v = e.target.value.trim()
+                              setSettings({ ...settings, localModelEndpoint: v })
+                              await api.saveSettings({ localModelEndpoint: v })
+                            }}
+                          />
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
+                            onClick={async () => {
+                              setModelStatus({ state: 'downloading', progress: 0 })
+                              try {
+                                const st = await api.downloadLocalModel()
+                                setModelStatus(st)
+                                flash('模型已就绪')
+                              } catch (err) {
+                                setModelStatus({
+                                  state: 'error',
+                                  error: err instanceof Error ? err.message : String(err)
+                                })
+                              }
+                            }}
+                          >
+                            一键下载（约 1.3GB）
+                          </button>
+                          <button
+                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
+                            onClick={async () => {
+                              try {
+                                const st = await api.importLocalModel()
+                                setModelStatus(st)
+                                if (['ready', 'unloaded'].includes(st.state)) flash('模型已导入')
+                              } catch (err) {
+                                setModelStatus({
+                                  state: 'error',
+                                  error: err instanceof Error ? err.message : String(err)
+                                })
+                              }
+                            }}
+                          >
+                            导入本地文件
+                          </button>
+                        </div>
+                      </>
                     )}
                   </div>
                 )}

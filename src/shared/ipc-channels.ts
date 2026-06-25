@@ -36,6 +36,7 @@ export const INVOKE_CHANNELS = [
   'detections:dismiss',
   'localmodel:status',
   'localmodel:download',
+  'localmodel:import',
   'assistant:chat',
   'assistant:add',
   'app:focus-main',

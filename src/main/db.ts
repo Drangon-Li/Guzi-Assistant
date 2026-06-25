@@ -155,6 +155,7 @@ export function getSettings(): AppSettings {
     // 核心被动采集：默认开，仅当用户显式存 'false' 才关
     screenSenseEnabled: map.screenSenseEnabled !== 'false',
     screenSenseLocalModel: map.screenSenseLocalModel === 'true',
+    localModelEndpoint: map.localModelEndpoint ?? '',
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',
     screenSenseContinuous: map.screenSenseContinuous !== 'false',
     screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,

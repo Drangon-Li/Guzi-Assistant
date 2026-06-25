@@ -133,6 +133,8 @@ export interface AppSettings {
   screenSenseEnabled: boolean
   /** 本地小模型屏幕感知总开关；关闭=停监控+卸模型省内存。默认 false（opt-in，要下模型） */
   screenSenseLocalModel: boolean
+  /** 本地模型下载源（HF endpoint）；留空=官方 huggingface.co，国内可填 https://hf-mirror.com 免代理。默认空 */
+  localModelEndpoint: string
   /** 扫描屏幕的全局快捷键 accelerator */
   screenSenseHotkey: string
   /** 持续屏幕监控（#40）：screenSenseEnabled 之下的二级开关，默认 true（被动持续感知） */

@@ -1,3 +1,5 @@
+import { copyFile, mkdir, readdir, rm } from 'fs/promises'
+import { basename, join } from 'path'
 import type { Llama, LlamaModel, LlamaJsonSchemaGrammar } from 'node-llama-cpp'
 import {
   EXTRACTION_JSON_SCHEMA,
@@ -46,8 +48,11 @@ async function ensureLlama(): Promise<Llama> {
   return llama
 }
 
-/** 首次开启按需下载（带进度）。node-llama-cpp 仅校验文件大小；SHA 固定作为后续 hardening。 */
-export async function downloadLocalModel(onProgress: (p: number) => void): Promise<void> {
+/** 首次开启按需下载（带进度）。endpoint 可传 HF 镜像（如 hf-mirror.com）免代理；留空走官方。 */
+export async function downloadLocalModel(
+  onProgress: (p: number) => void,
+  endpoint?: string
+): Promise<void> {
   if (modelPath()) {
     state = 'ready'
     return
@@ -56,9 +61,17 @@ export async function downloadLocalModel(onProgress: (p: number) => void): Promi
   errMsg = undefined
   try {
     const { createModelDownloader } = await nlcMod()
+    // 自定义下载源（HF 镜像）：补全 https:// 与结尾斜杠
+    const hf = endpoint?.trim()
+      ? endpoint
+          .trim()
+          .replace(/^(?!https?:\/\/)/, 'https://')
+          .replace(/\/?$/, '/')
+      : undefined
     const downloader = await createModelDownloader({
       modelUri: MODEL_URI,
       dirPath: modelDir(),
+      ...(hf ? { endpoints: { huggingFace: hf } } : {}),
       onProgress: ({ totalSize, downloadedSize }) => {
         lastProgress = totalSize ? downloadedSize / totalSize : 0
         onProgress(lastProgress)
@@ -71,6 +84,20 @@ export async function downloadLocalModel(onProgress: (p: number) => void): Promi
     errMsg = e instanceof Error ? e.message : String(e)
     throw e
   }
+}
+
+/** 导入用户已下好的 .gguf：先卸载在用模型，清掉旧文件，拷进模型目录。绕开一切网络/代理。 */
+export async function importLocalModel(srcPath: string): Promise<void> {
+  if (!srcPath.toLowerCase().endsWith('.gguf')) throw new Error('请选择 .gguf 模型文件')
+  await unloadLocalModel()
+  const dir = modelDir()
+  await mkdir(dir, { recursive: true })
+  for (const f of await readdir(dir)) {
+    if (f.toLowerCase().endsWith('.gguf')) await rm(join(dir, f)).catch(() => {})
+  }
+  await copyFile(srcPath, join(dir, basename(srcPath)))
+  state = 'ready'
+  errMsg = undefined
 }
 
 /** lazy load + 一次 warmup 推理消化 mmap 首次延迟。warmup/加载任何抛出都 dispose 干净，不泄漏原生句柄。 */

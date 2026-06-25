@@ -76,6 +76,7 @@ export const api = {
 
   localModelStatus: () => inv<LocalModelStatus>('localmodel:status'),
   downloadLocalModel: () => inv<LocalModelStatus>('localmodel:download'),
+  importLocalModel: () => inv<LocalModelStatus>('localmodel:import'),
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),
