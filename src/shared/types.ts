@@ -131,8 +131,10 @@ export interface AppSettings {
   feishuAppSecret: string
   /** 屏幕感知：核心被动采集总开关，默认 true（用户可显式关闭） */
   screenSenseEnabled: boolean
-  /** 触发解析的关键词 */
-  screenSenseKeywords: string[]
+  /** 本地小模型屏幕感知总开关；关闭=停监控+卸模型省内存。默认 false（opt-in，要下模型） */
+  screenSenseLocalModel: boolean
+  /** 本地模型下载源（HF endpoint）；留空=官方 huggingface.co，国内可填 https://hf-mirror.com 免代理。默认空 */
+  localModelEndpoint: string
   /** 扫描屏幕的全局快捷键 accelerator */
   screenSenseHotkey: string
   /** 持续屏幕监控（#40）：screenSenseEnabled 之下的二级开关，默认 true（被动持续感知） */
@@ -149,8 +151,6 @@ export interface AppSettings {
   screenSensePopup: boolean
   /** 检测卡/AI 建议卡闲置自动隐藏秒数；0=不自动隐藏（一直挂着）。默认 60 */
   screenSenseCardHideSec: number
-  /** 进程级监控允许名单：只在这些 App 前台时才扫描（如 微信/钉钉/QQ）；空=监控全部。默认常见 IM */
-  screenSenseAllowedApps: string[]
   /** 悬浮助手闲置自动收起秒数；0=不自动收起。默认 60 */
   assistantAutoCloseSec: number
   /** 外观主题：跟随系统 / 浅色 / 深色。默认 system */
@@ -165,4 +165,28 @@ export interface FeishuStatus {
 export interface ScanResult {
   status: 'suggested' | 'empty' | 'error'
   message: string
+}
+
+/** 本地小模型单次抽取结果（替代旧 LocalSchedule）。strong 由 coerce 派生，模型不输出。 */
+export interface LocalExtraction {
+  title: string
+  /** YYYY-MM-DDTHH:mm；解不出为 null（绝不编造） */
+  isoTime: string | null
+  deadline: boolean
+  belongsToUser: Belongs
+  /** 命中信号词（填 DetectionRecord.hits） */
+  hits: string[]
+  confidence: number
+  /** 模型自判：要不要上云 VLM 复核 */
+  needsVlm: boolean
+  /** 派生：解析出了具体日期时间 → 决定是否主动弹卡 */
+  strong: boolean
+}
+
+export type LocalModelState = 'absent' | 'downloading' | 'loading' | 'ready' | 'unloaded' | 'error'
+export interface LocalModelStatus {
+  state: LocalModelState
+  /** downloading 时 0..1 */
+  progress?: number
+  error?: string
 }

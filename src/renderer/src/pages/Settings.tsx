@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import type { AppSettings, FeishuStatus, PermissionStatus, Profile } from '@shared/types'
+import type {
+  AppSettings,
+  FeishuStatus,
+  LocalModelStatus,
+  PermissionStatus,
+  Profile
+} from '@shared/types'
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
 import PetSettings from '../components/PetSettings'
@@ -78,6 +84,8 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [scanRecording, setScanRecording] = useState(false)
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
+  const [modelStatus, setModelStatus] = useState<LocalModelStatus | null>(null)
+  const [dlProgress, setDlProgress] = useState(0)
 
   const loadPerms = (): void => {
     void api.permissions().then(setPerms)
@@ -89,6 +97,15 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     void api.quickActionStatus().then(setQaInstalled)
     void api.feishuStatus().then(setFeishu)
     loadPerms()
+  }, [])
+
+  useEffect(() => {
+    void api.localModelStatus().then(setModelStatus)
+    return api.on('eshell:localmodel-progress', (p) => {
+      const prog = (p as { progress?: number }).progress ?? 0
+      setDlProgress(prog)
+      if (prog >= 1) void api.localModelStatus().then(setModelStatus)
+    })
   }, [])
 
   const flash = (msg: string): void => {
@@ -404,39 +421,96 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
         {settings.screenSenseEnabled && (
           <div className="mt-4 flex flex-col gap-4">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-slate-500">触发关键词（逗号或顿号分隔）</span>
-              <input
-                className={input}
-                defaultValue={settings.screenSenseKeywords.join('、')}
-                onBlur={async (e) => {
-                  const list = splitList(e.target.value)
-                  setSettings({ ...settings, screenSenseKeywords: list })
-                  await api.saveSettings({ screenSenseKeywords: list })
-                  flash('关键词已保存')
-                }}
-              />
-            </label>
-
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-slate-500">
-                只监控这些应用（逗号或顿号分隔）
-                <span className="ml-2 text-xs text-slate-400">
-                  留空 = 监控全部；默认只看微信/钉钉/QQ 等聊天应用
+            <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-elevated/40 p-3">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span className="flex flex-col">
+                  <span>本地智能检测</span>
+                  <span className="text-xs text-slate-400">
+                    用设备端小模型（约 1.3GB）识别日程，离线、免费；关闭可释放内存
+                  </span>
                 </span>
-              </span>
-              <input
-                className={input}
-                placeholder="如：微信、钉钉、QQ、飞书"
-                defaultValue={settings.screenSenseAllowedApps.join('、')}
-                onBlur={async (e) => {
-                  const list = splitList(e.target.value)
-                  setSettings({ ...settings, screenSenseAllowedApps: list })
-                  await api.saveSettings({ screenSenseAllowedApps: list })
-                  flash('已保存监控应用名单')
-                }}
-              />
-            </label>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSenseLocalModel}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    setSettings({ ...settings, screenSenseLocalModel: next })
+                    await api.saveSettings({ screenSenseLocalModel: next })
+                    if (next) void api.localModelStatus().then(setModelStatus)
+                    flash(next ? '已开启本地智能检测' : '已关闭并释放内存')
+                  }}
+                />
+              </label>
+              {settings.screenSenseLocalModel &&
+                modelStatus &&
+                !['ready', 'unloaded'].includes(modelStatus.state) && (
+                  <div className="flex flex-col gap-2 text-xs">
+                    {modelStatus.state === 'downloading' ? (
+                      <span className="text-amber-600">下载中… {Math.round(dlProgress * 100)}%</span>
+                    ) : modelStatus.state === 'loading' ? (
+                      <span className="text-slate-500">加载中…</span>
+                    ) : (
+                      <>
+                        {modelStatus.state === 'error' && (
+                          <span className="text-red-500">模型出错：{modelStatus.error}</span>
+                        )}
+                        <label className="flex flex-col gap-1">
+                          <span className="text-slate-400">
+                            下载源（留空=官方；国内可填 https://hf-mirror.com 免代理）
+                          </span>
+                          <input
+                            className={input}
+                            placeholder="https://hf-mirror.com"
+                            defaultValue={settings.localModelEndpoint}
+                            onBlur={async (e) => {
+                              const v = e.target.value.trim()
+                              setSettings({ ...settings, localModelEndpoint: v })
+                              await api.saveSettings({ localModelEndpoint: v })
+                            }}
+                          />
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
+                            onClick={async () => {
+                              setModelStatus({ state: 'downloading', progress: 0 })
+                              try {
+                                const st = await api.downloadLocalModel()
+                                setModelStatus(st)
+                                flash('模型已就绪')
+                              } catch (err) {
+                                setModelStatus({
+                                  state: 'error',
+                                  error: err instanceof Error ? err.message : String(err)
+                                })
+                              }
+                            }}
+                          >
+                            一键下载（约 1.3GB）
+                          </button>
+                          <button
+                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
+                            onClick={async () => {
+                              try {
+                                const st = await api.importLocalModel()
+                                setModelStatus(st)
+                                if (['ready', 'unloaded'].includes(st.state)) flash('模型已导入')
+                              } catch (err) {
+                                setModelStatus({
+                                  state: 'error',
+                                  error: err instanceof Error ? err.message : String(err)
+                                })
+                              }
+                            }}
+                          >
+                            导入本地文件
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+            </div>
 
             <div className="flex items-center gap-3 text-sm">
               <span className="text-slate-500">扫描快捷键</span>

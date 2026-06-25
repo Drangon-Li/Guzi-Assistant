@@ -1,4 +1,5 @@
 import { app, BrowserWindow, nativeTheme, screen } from 'electron'
+import { appendFileSync } from 'fs'
 import { join } from 'path'
 import { getPetBadgeBounds } from './pet/pet-window'
 
@@ -156,6 +157,16 @@ export function debugIsOpen(): boolean {
 export function debugEvent(stage: string, message: string, extra?: Record<string, unknown>): void {
   if (debugWin && !debugWin.isDestroyed())
     debugWin.webContents.send('eshell:debug', { ts: Date.now(), stage, message, ...extra })
+  // 诊断：同时落盘到 userData/screen-sense-debug.log（排除带大图的 screenshot），便于离线排查
+  try {
+    if (stage !== 'screenshot')
+      appendFileSync(
+        join(app.getPath('userData'), 'screen-sense-debug.log'),
+        `[${new Date().toISOString()}] ${stage}: ${message}\n`
+      )
+  } catch {
+    /* 日志失败不影响主流程 */
+  }
 }
 
 export function broadcast(channel: string, payload?: unknown): void {

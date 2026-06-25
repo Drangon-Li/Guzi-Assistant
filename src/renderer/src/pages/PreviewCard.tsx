@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ParseSummary, PendingCapture } from '@shared/types'
 import type { ParsedItem } from '@shared/parsing'
-import type { LocalSchedule } from '@shared/local-extract'
+import type { LocalExtraction } from '@shared/types'
 import { api } from '../api'
 import { fmtTime, SOURCE_LABELS } from '../labels'
 import brandMark from '../assets/agent-avatar.png'
@@ -14,7 +14,11 @@ type State =
   | { phase: 'error'; message: string }
   | { phase: 'empty'; message: string }
   | { phase: 'suggestion'; item: ParsedItem; sourceText: string; hits: string[] }
-  | { phase: 'local'; local: LocalSchedule & { sourceText: string; detectionId?: string } }
+  | {
+      phase: 'local'
+      local: LocalExtraction & { item: ParsedItem; sourceText: string; detectionId?: string }
+    }
+  | { phase: 'nohit'; sourceText: string }
   | { phase: 'done'; message: string }
 
 const AUTO_SECONDS = 3
@@ -67,8 +71,13 @@ export default function PreviewCard(): React.JSX.Element | null {
 
   // 本地候选 →「AI 精确解析」：上云精修，成功转入 suggestion 卡态原地更新
   const aiRefine = async (): Promise<void> => {
-    if (state.phase !== 'local') return
-    const sourceText = state.local.sourceText
+    const sourceText =
+      state.phase === 'local'
+        ? state.local.sourceText
+        : state.phase === 'nohit'
+          ? state.sourceText
+          : null
+    if (sourceText == null) return
     setState({ phase: 'loading', message: '正在 AI 解析…' })
     try {
       const r = await api.suggestionAiParse(sourceText)
@@ -82,10 +91,10 @@ export default function PreviewCard(): React.JSX.Element | null {
   // 本地候选 →「同意」：直接用本地结果入库（不上云）
   const acceptLocalNow = async (): Promise<void> => {
     if (state.phase !== 'local') return
-    const { title, isoTime, deadline, sourceText, detectionId } = state.local
+    const { item, sourceText, detectionId } = state.local
     setState({ phase: 'loading', message: '正在加入…' })
     try {
-      const info = await api.acceptLocal({ title, isoTime, deadline, sourceText, detectionId })
+      const info = await api.acceptLocal({ item, sourceText, detectionId })
       setState({
         phase: 'done',
         message: info.duplicate ? `「${info.title}」已存在，未重复添加` : `✓ 已加入「${info.title}」`
@@ -133,11 +142,20 @@ export default function PreviewCard(): React.JSX.Element | null {
       setPetMode(!!(payload as { petMode?: boolean }).petMode)
       const ls = (
         payload as {
-          localSuggestion?: LocalSchedule & { sourceText: string; detectionId?: string }
+          localSuggestion?: LocalExtraction & {
+            item: ParsedItem
+            sourceText: string
+            detectionId?: string
+          }
         }
       ).localSuggestion
       if (ls) {
         setState({ phase: 'local', local: ls })
+        return
+      }
+      const nh = (payload as { noLocalHit?: { sourceText: string } }).noLocalHit
+      if (nh) {
+        setState({ phase: 'nohit', sourceText: nh.sourceText })
         return
       }
       if ('suggestion' in p && p.suggestion) {
@@ -199,6 +217,8 @@ export default function PreviewCard(): React.JSX.Element | null {
   }, [state, autoHideSec])
 
   if (state.phase === 'idle') return null
+  // 桌宠模式下：扫描/解析的 loading 由桌宠 Siri 光环表达，不弹空卡
+  if (state.phase === 'loading' && petMode) return null
 
   return (
     <div className="flex h-screen items-end justify-end overflow-hidden p-2">
@@ -403,7 +423,7 @@ export default function PreviewCard(): React.JSX.Element | null {
               </span>
             </div>
             <div className="text-xs text-slate-500">
-              {state.local.isoTime ? fmtTime(state.local.isoTime) : state.local.timeText}
+              {state.local.isoTime ? fmtTime(state.local.isoTime) : '未识别到具体时间'}
             </div>
             <div className="flex justify-end gap-2">
               <button
@@ -430,6 +450,33 @@ export default function PreviewCard(): React.JSX.Element | null {
                 onClick={() => void acceptLocalNow()}
               >
                 同意
+              </button>
+            </div>
+          </>
+        )}
+
+        {state.phase === 'nohit' && (
+          <>
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+                未发现明确日程
+              </span>
+              <span className="min-w-0 flex-1 text-sm leading-5 text-slate-500">
+                本地没抽到，可让 AI 精确解析这段内容
+              </span>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                onClick={() => close()}
+              >
+                关闭
+              </button>
+              <button
+                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                onClick={() => void aiRefine()}
+              >
+                AI 解析
               </button>
             </div>
           </>

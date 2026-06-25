@@ -4,7 +4,6 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
 import { localNow } from '@shared/parsing'
-import { DEFAULT_MONITORED_APPS, DEFAULT_SCREEN_KEYWORDS } from '@shared/keywords'
 import { buildFtsQuery } from '@shared/fts-query'
 import type {
   AppSettings,
@@ -154,7 +153,8 @@ export function getSettings(): AppSettings {
     feishuAppSecret: map.feishuAppSecret ?? env.ESHELL_FEISHU_APP_SECRET ?? '',
     // 核心被动采集：默认开，仅当用户显式存 'false' 才关
     screenSenseEnabled: map.screenSenseEnabled !== 'false',
-    screenSenseKeywords: parseKeywords(map.screenSenseKeywords),
+    screenSenseLocalModel: map.screenSenseLocalModel === 'true',
+    localModelEndpoint: map.localModelEndpoint ?? '',
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',
     screenSenseContinuous: map.screenSenseContinuous !== 'false',
     screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,
@@ -165,10 +165,6 @@ export function getSettings(): AppSettings {
     screenSensePopup: map.screenSensePopup !== 'false',
     screenSenseCardHideSec:
       map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 60,
-    screenSenseAllowedApps:
-      map.screenSenseAllowedApps != null
-        ? parseList(map.screenSenseAllowedApps)
-        : DEFAULT_MONITORED_APPS,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
     theme: map.theme === 'light' || map.theme === 'dark' ? map.theme : 'system'
   }
@@ -180,15 +176,6 @@ function parseList(raw: string | undefined): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-}
-
-/** 逗号存储的关键词字符串 → 数组；空则用默认词表 */
-function parseKeywords(raw: string | undefined): string[] {
-  const list = (raw ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  return list.length ? list : DEFAULT_SCREEN_KEYWORDS
 }
 
 export function saveSettings(patch: Partial<AppSettings>): void {

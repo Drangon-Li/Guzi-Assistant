@@ -9,13 +9,14 @@ import {
   createTask,
   deleteSourceRow,
   getDetection,
+  getProfile,
   getSettings,
   getSource,
   setDetectionStatus,
   taskExists
 } from './db'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
-import { applyExternalPetSay } from './pet/controller'
+import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
 import { getFrontmostApp } from './frontapp'
 import {
@@ -25,18 +26,43 @@ import {
   listShotIds,
   sweepTempShots
 } from './shotvault'
-import { matchKeywords } from '@shared/keywords'
-import { detectLocalSchedule } from '@shared/local-extract'
+import { extract, unloadLocalModel, startIdleSweep, stopIdleSweep } from './local-model/extractor'
+import { pickBestExtraction, shouldEscalate } from '@shared/local-model-schema'
 import { pickBest } from '@shared/suggest'
 import { isAppExcluded } from '@shared/app-exclude'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript } from '@shared/chat-layout'
 import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
-import type { ParseSummary, ScanResult, TaskStatus } from '@shared/types'
+import type { LocalExtraction, ParseSummary, ScanResult, TaskStatus } from '@shared/types'
 
 function emptySummary(error: string | null): ParseSummary {
   return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
+}
+
+/** 本地置信度低于此值（或模型自判 needsVlm）→ 自动上云 VLM 复核。 */
+const CONF_MIN = 0.6
+
+/**
+ * OCR 文本 → 本地小模型精筛 → 选最优；低置信/缺信息则自动上 VLM 复核（升级失败回退本地）。
+ * 返回可入库的 ParsedItem（refined=是否经 VLM）与展示用 extraction；无明确待办返回 null。
+ */
+async function detectAndMaybeRefine(
+  text: string
+): Promise<{ extraction: LocalExtraction; item: ParsedItem; refined: boolean } | null> {
+  const profile = getProfile()
+  const selfNames = profile ? [profile.name, ...(profile.nicknames ?? [])].filter(Boolean) : []
+  const best = pickBestExtraction(await extract(text, selfNames))
+  if (!best) return null
+  if (shouldEscalate(best, CONF_MIN)) {
+    try {
+      const refinedBest = pickBest(await parseToItems({ text, hint: HINTS.screen_scan }))
+      if (refinedBest) return { extraction: best, item: refinedBest, refined: true }
+    } catch {
+      // 升级失败（未登录/无档案/网络）→ 回退本地结论
+    }
+  }
+  return { extraction: best, item: buildLocalItem(best), refined: false }
 }
 
 /** OCR 文本；若像聊天界面（#54），前置「谁说的」转写作归属信号，保留全文。 */
@@ -51,10 +77,12 @@ async function ocrTextForParse(png: string): Promise<string> {
   return text
 }
 
-/** 扫描一次当前屏幕：截图 → 本地 OCR → 解析 → 选最优 → 右下角弹建议卡 */
+/** 扫描一次当前屏幕：截图 → 本地 OCR → 本地模型精筛（按需 VLM）→ 右下角弹建议卡 */
 export async function scanOnce(): Promise<ScanResult> {
-  // 触发后立刻弹"正在扫描"加载卡，否则截图/OCR/解析这几秒里用户不知道 纸壳助手 在工作
-  showPreview({ busy: '正在扫描屏幕…' })
+  // 桌宠可见时用 Siri 式光环表达"正在扫描"；否则退回加载卡（让用户知道在工作）
+  const petGlow = isPetVisible()
+  if (petGlow) setPetScanning(true)
+  else showPreview({ busy: '正在扫描屏幕…' })
   debugEvent('tick', '手动扫描屏幕')
   try {
     const png = await captureScreenSilently()
@@ -66,7 +94,7 @@ export async function scanOnce(): Promise<ScanResult> {
     }
     debugShot(png)
 
-    const { screenSenseKeywords, screenSenseKeepShots } = getSettings()
+    const { screenSenseKeepShots } = getSettings()
     let text: string
     try {
       text = await ocrTextForParse(png)
@@ -80,30 +108,42 @@ export async function scanOnce(): Promise<ScanResult> {
       showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
       return { status: 'empty', message: '屏幕上没有识别到文字' }
     }
+    debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
 
-    // 本地优先:不上云,本地严格门(关键词 + 时间线索)即时判断,延迟≈0
-    const local = detectLocalSchedule(text, screenSenseKeywords)
-    if (!local) {
-      debugEvent('detect', '本地未命中（无关键词或无明确时间）')
-      showPreview({ error: '未发现明确的待办事项' })
-      return { status: 'empty', message: '未发现明确的待办事项' }
+    // 本地优先：本地小模型即时精筛，低置信自动升级 VLM
+    const t0 = Date.now()
+    const hit = await detectAndMaybeRefine(text)
+    debugEvent('timing', `本地抽取耗时 ${Date.now() - t0}ms`)
+    if (!hit) {
+      debugEvent('detect', '本地模型未发现明确待办')
+      // 永远给 AI 解析兜底：本地没抽到也弹卡，让用户能手动上云精解
+      showPreview({ noLocalHit: { sourceText: text } })
+      return { status: 'empty', message: '本地未发现日程，可点 AI 解析' }
     }
-    debugEvent('detect', `本地命中：「${local.title}」 ${local.isoTime ?? local.timeText}`)
+    const { extraction, item } = hit
+    debugEvent(
+      'detect',
+      `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'}${hit.refined ? ' [VLM]' : ''}`
+    )
     const { detection } = addDetection({
-      title: local.title,
-      timeIso: local.isoTime,
-      deadline: local.deadline,
+      title: extraction.title,
+      timeIso: extraction.isoTime,
+      deadline: extraction.deadline,
       sourceText: text,
-      hits: local.hits,
+      hits: extraction.hits,
       app: null
     })
-    showPreview({ localSuggestion: { ...local, sourceText: text, detectionId: detection.id } })
+    showPreview({
+      localSuggestion: { ...extraction, item, sourceText: text, detectionId: detection.id }
+    })
     applyExternalPetSay('发现一个日程~', 'waiting')
-    return { status: 'suggested', message: `检测到可能的日程：${local.title}` }
+    return { status: 'suggested', message: `检测到可能的日程：${extraction.title}` }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     showPreview({ summary: emptySummary(message) })
     return { status: 'error', message }
+  } finally {
+    setPetScanning(false)
   }
 }
 
@@ -151,26 +191,33 @@ export async function aiParse(
   sourceText: string
 ): Promise<{ item: ParsedItem; sourceText: string; hits: string[] } | null> {
   debugEvent('cloud', '云端 AI 解析中…')
-  const items = await parseToItems({ text: sourceText, hint: HINTS.screen_scan })
-  const best = pickBest(items)
-  debugEvent('cloud', best ? `云端解析完成：「${best.title}」` : '云端解析完成：未发现明确事项')
-  if (!best) return null
-  return { item: best, sourceText, hits: matchKeywords(sourceText, getSettings().screenSenseKeywords) }
+  setPetScanning(true)
+  const tc = Date.now()
+  try {
+    const items = await parseToItems({ text: sourceText, hint: HINTS.screen_scan })
+    debugEvent('timing', `云端解析耗时 ${Date.now() - tc}ms`)
+    const best = pickBest(items)
+    debugEvent('cloud', best ? `云端解析完成：「${best.title}」` : '云端解析完成：未发现明确事项')
+    if (!best) return null
+    return { item: best, sourceText, hits: [] }
+  } finally {
+    setPetScanning(false)
+  }
 }
 
-/** 本地粗信息 → ParsedItem（归属未判定，交用户确认）。同意本地候选/历史共用。 */
-function buildLocalItem(title: string, isoTime: string | null, deadline: boolean): ParsedItem {
+/** 本地抽取 → ParsedItem。同意本地候选/历史共用。 */
+function buildLocalItem(e: LocalExtraction): ParsedItem {
   return {
-    title,
+    title: e.title,
     item_type: 'other',
-    belongs_to_user: 'uncertain',
-    belonging_reason: '本地识别（未经 AI 判断归属）',
+    belongs_to_user: e.belongsToUser,
+    belonging_reason: '本地模型识别',
     user_role: 'unclear',
-    start_time: deadline ? null : isoTime,
-    due_time: deadline ? isoTime : null,
+    start_time: e.deadline ? null : e.isoTime,
+    due_time: e.deadline ? e.isoTime : null,
     location: null,
     priority: 'unknown',
-    confidence: 0.5,
+    confidence: e.confidence,
     suggested_action: 'confirm',
     notes: [],
     evidence: [],
@@ -178,18 +225,13 @@ function buildLocalItem(title: string, isoTime: string | null, deadline: boolean
   }
 }
 
-/** 同意本地候选:直接入库（不上云）；带 detectionId 则把该历史记录标记为已加入。 */
+/** 同意本地候选:直接入库（不上云）；item 已含本地或 VLM 精修结果。带 detectionId 则标记历史为已加入。 */
 export function acceptLocal(payload: {
-  title: string
-  isoTime: string | null
-  deadline: boolean
+  item: ParsedItem
   sourceText: string
   detectionId?: string
 }): AddedInfo {
-  const info = acceptSuggestion({
-    item: buildLocalItem(payload.title, payload.isoTime, payload.deadline),
-    sourceText: payload.sourceText
-  })
+  const info = acceptSuggestion({ item: payload.item, sourceText: payload.sourceText })
   if (payload.detectionId) setDetectionStatus(payload.detectionId, 'accepted')
   return info
 }
@@ -199,7 +241,16 @@ export function acceptDetection(id: string): AddedInfo | null {
   const d = getDetection(id)
   if (!d) return null
   const info = acceptSuggestion({
-    item: buildLocalItem(d.title, d.timeIso, d.deadline),
+    item: buildLocalItem({
+      title: d.title,
+      isoTime: d.timeIso,
+      deadline: d.deadline,
+      belongsToUser: 'uncertain',
+      hits: d.hits,
+      confidence: 0.5,
+      needsVlm: false,
+      strong: !!d.timeIso
+    }),
     sourceText: d.sourceText
   })
   setDetectionStatus(id, 'accepted')
@@ -212,12 +263,13 @@ export function dismissDetection(id: string): void {
 }
 
 // ---------- 持续屏幕监控（#40 Phase 2）----------
-// 流水线：pHash 变化门 → OCR → 文本去重 → 关键词相关门 → 解析 → 建议卡。截图用完即弃、只文字上云。
+// 流水线：pHash 变化门 → OCR → 文本去重/冷却 → 本地模型精筛（按需 VLM）→ 建议卡。截图用完即弃、只文字上云。
 // pHash 算法与参数沿用 volcengine/MineContext（imagehash.dhash hash_size=8 + 异或 popcount 汉明距离；
 // capture_interval 默认 5s、similarity_hash_threshold 默认 2），其为 Python+imagehash，此处用 TS 等价落地（见 @shared/phash）。
 
-const PHASH_THRESHOLD = 2 // 汉明距离 ≤ 此值视为"屏幕没变" → 跳过 OCR/云（MineContext 实测默认）
+const PHASH_THRESHOLD = 2 // 汉明距离 ≤ 此值视为"屏幕没变" → 跳过 OCR/模型（MineContext 实测默认）
 const COOLDOWN_MS = 10 * 60 * 1000 // 同一内容命中后冷却，避免反复弹卡
+const IDLE_UNLOAD_MS = 10 * 60 * 1000 // 模型空闲超此时长自动卸载释放内存
 
 let watchTimer: ReturnType<typeof setInterval> | null = null
 let watchPaused = false
@@ -280,14 +332,8 @@ async function watchTick(): Promise<void> {
   ticking = true
   let png: string | null = null
   try {
-    const {
-      screenSenseKeywords,
-      screenSenseExcludedApps,
-      screenSenseAllowedApps,
-      screenSenseKeepShots,
-      screenSensePopup
-    } = getSettings()
-    // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己 ③ 进程级允许名单(只看 IM 等)
+    const { screenSenseExcludedApps, screenSenseKeepShots, screenSensePopup } = getSettings()
+    // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己。全屏感知，不再按进程名单过滤。
     const frontApp = await getFrontmostApp()
     const appChanged = frontApp !== lastDebugApp
     lastDebugApp = frontApp
@@ -300,17 +346,6 @@ async function watchTick(): Promise<void> {
       if (appChanged) debugEvent('skip', '纸壳助手自己在前台，跳过')
       return
     }
-    if (screenSenseAllowedApps.length && !isAppExcluded(frontApp, screenSenseAllowedApps)) {
-      if (appChanged)
-        debugEvent(
-          'skip',
-          frontApp ? `「${frontApp}」不在监控名单，跳过` : '前台应用检测失败，按名单跳过'
-        )
-      return
-    }
-    // 命中监控名单（进程级"检测到相关进程"）——调试面板据此确认进程门已放行
-    if (appChanged && screenSenseAllowedApps.length)
-      debugEvent('frontapp', `命中监控名单：${frontApp}，开始处理`)
 
     png = await captureScreenSilently()
     if (!png) {
@@ -334,17 +369,7 @@ async function watchTick(): Promise<void> {
     if (th === lastTextHash) return // 文本没变 → 静默跳过
     lastTextHash = th
 
-    // 本地严格门：关键词 + 时间线索缺一不弹、不上云
-    const local = detectLocalSchedule(text, screenSenseKeywords)
-    if (!local) {
-      debugEvent('detect', '本地未命中（无关键词或无明确时间）')
-      return
-    }
-    debugEvent(
-      'detect',
-      `本地命中：「${local.title}」 ${local.isoTime ?? local.timeText} ${local.strong ? '[强]' : '[弱]'} 关键词:${local.hits.join('/')}`
-    )
-
+    // 内容冷却（同内容 10 分钟内不重复跑模型/弹卡）→ 放模型前，省推理
     const now = Date.now()
     for (const [k, exp] of cooldown) if (exp <= now) cooldown.delete(k) // 清理过期，避免 Map 无界增长
     const until = cooldown.get(th)
@@ -352,15 +377,27 @@ async function watchTick(): Promise<void> {
       debugEvent('record', '同内容冷却中，跳过')
       return
     }
-    cooldown.set(th, now + COOLDOWN_MS)
+    cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
+
+    // 本地小模型精筛 + 低置信自动升级 VLM
+    const hit = await detectAndMaybeRefine(text)
+    if (!hit) {
+      debugEvent('detect', '本地模型未发现明确待办')
+      return
+    }
+    const { extraction } = hit
+    debugEvent(
+      'detect',
+      `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'} ${extraction.strong ? '[强]' : '[弱]'}${hit.refined ? ' [VLM]' : ''}`
+    )
 
     // 被动留存 + 长期去重：跨状态按 标题+时间 去重；已记录过（待处理/已忽略/已加入）的内容不再重复抓取/弹窗
     const { detection, isNew } = addDetection({
-      title: local.title,
-      timeIso: local.isoTime,
-      deadline: local.deadline,
+      title: extraction.title,
+      timeIso: extraction.isoTime,
+      deadline: extraction.deadline,
       sourceText: text,
-      hits: local.hits,
+      hits: extraction.hits,
       app: frontApp
     })
     debugEvent('record', isNew ? '已记入「记忆」历史（新）' : '已存在，不重复抓取')
@@ -370,7 +407,7 @@ async function watchTick(): Promise<void> {
     if (screenSenseKeepShots && png) saveShotTempFromPng(th, png)
 
     // 少量主动：仅强信号 + 弹窗开关开 + 仍在同一 App（新鲜度门）才弹卡
-    if (!local.strong || !screenSensePopup) {
+    if (!extraction.strong || !screenSensePopup) {
       debugEvent('popup', '不弹卡（弱信号或弹窗关），留在记忆历史')
       return
     }
@@ -378,8 +415,10 @@ async function watchTick(): Promise<void> {
       debugEvent('popup', '已切走 App，不弹')
       return
     }
-    debugEvent('popup', `弹出检测卡：「${local.title}」`)
-    showPreview({ localSuggestion: { ...local, sourceText: text, detectionId: detection.id } })
+    debugEvent('popup', `弹出检测卡：「${extraction.title}」`)
+    showPreview({
+      localSuggestion: { ...extraction, item: hit.item, sourceText: text, detectionId: detection.id }
+    })
     applyExternalPetSay('发现一个日程~', 'waiting')
   } catch {
     // 持续监控全程静默：截图/OCR/解析/无 endpoint 等任何失败都不打扰
@@ -409,14 +448,21 @@ export function setWatchPaused(paused: boolean): void {
   trayRefresh?.()
 }
 
-/** 跟随设置开关注册/注销扫描快捷键 + 启停持续监控（启动时 + settings:save 时调用） */
+/** 跟随设置开关注册/注销扫描快捷键 + 启停持续监控 + 模型生命周期（启动时 + settings:save 时调用） */
 export function applyScreenSenseSettings(): void {
-  const { screenSenseEnabled, screenSenseHotkey, screenSenseContinuous, screenSenseIntervalSec } =
+  const { screenSenseEnabled, screenSenseLocalModel, screenSenseHotkey, screenSenseContinuous, screenSenseIntervalSec } =
     getSettings()
-  if (screenSenseEnabled) initScanHotkey(screenSenseHotkey, () => void scanOnce())
+  const on = screenSenseEnabled && screenSenseLocalModel
+  if (on) initScanHotkey(screenSenseHotkey, () => void scanOnce())
   else unregisterScanHotkey()
-  if (screenSenseEnabled && screenSenseContinuous) startWatch(screenSenseIntervalSec)
+  if (on && screenSenseContinuous) startWatch(screenSenseIntervalSec)
   else stopWatch()
+  if (on) {
+    startIdleSweep(IDLE_UNLOAD_MS) // 模型按需 lazy load；空闲自动卸载
+  } else {
+    stopIdleSweep()
+    void unloadLocalModel() // 关功能即释放内存
+  }
   runShotRetention()
 }
 

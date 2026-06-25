@@ -1,5 +1,4 @@
-// 纯函数单测：关键词匹配 + 选最优。运行：npm run test:screen
-import { matchKeywords, DEFAULT_SCREEN_KEYWORDS } from '../src/shared/keywords.ts'
+// 纯函数单测：选最优（pickBest）。运行：npm run test:screen
 import { pickBest, SUGGEST_MIN_CONFIDENCE } from '../src/shared/suggest.ts'
 
 function mkItem(o) {
@@ -28,30 +27,12 @@ function check(name, ok) {
   if (!ok) failed++
 }
 
-// ---- matchKeywords ----
-check('命中单个关键词', matchKeywords('明天下午开会议', ['会议']).join() === '会议')
-check(
-  '多关键词去重命中',
-  JSON.stringify(matchKeywords('会议和考试通知，考试很重要', ['会议', '考试'])) ===
-    JSON.stringify(['会议', '考试'])
-)
-check('英文大小写不敏感', matchKeywords('Project DEADLINE today', ['deadline']).join() === 'deadline')
-check('未命中返回空数组', matchKeywords('今天天气不错', ['会议', '考试']).length === 0)
-check('默认词表非空', DEFAULT_SCREEN_KEYWORDS.length > 0)
-check(
-  '默认词表含会议/日程/考试',
-  ['会议', '日程', '考试'].every((k) => DEFAULT_SCREEN_KEYWORDS.includes(k))
-)
-
-// ---- pickBest ----
 check('空数组返回 null', pickBest([]) === null)
 check('全部 belongs=no 返回 null', pickBest([mkItem({ belongs_to_user: 'no', title: 'x' })]) === null)
 check(
   '挑置信度最高的 yes',
-  pickBest([
-    mkItem({ title: 'low', confidence: 0.5 }),
-    mkItem({ title: 'high', confidence: 0.95 })
-  ])?.title === 'high'
+  pickBest([mkItem({ title: 'low', confidence: 0.5 }), mkItem({ title: 'high', confidence: 0.95 })])
+    ?.title === 'high'
 )
 check(
   'yes 优先于 uncertain（即使 uncertain 置信度更高）',
@@ -67,4 +48,3 @@ check(
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)
-if (failed) process.exit(1)

@@ -30,6 +30,13 @@ ipcRenderer.on('openpets:pet-content-state', (_event, state) => {
   })
 })
 
+// 扫描/解析中：切 pet-scanning 类触发 Siri 式光环（不重渲染，平滑）。
+ipcRenderer.on('openpets:pet-scanning', (_event, on) => {
+  applyWhenReady(() => {
+    document.documentElement.classList.toggle('pet-scanning', !!on)
+  })
+})
+
 const getInteractiveTarget = (event) => {
   const target = document.elementFromPoint(event.clientX, event.clientY)
   return target && target.closest('.pet-hitbox, .pet-shell, .bubble')

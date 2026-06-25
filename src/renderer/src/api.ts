@@ -2,6 +2,7 @@ import type {
   AppSettings,
   DetectionRecord,
   FeishuStatus,
+  LocalModelStatus,
   MemoryHit,
   ParseSummary,
   PendingCapture,
@@ -67,16 +68,15 @@ export const api = {
       'suggestion:ai-parse',
       sourceText
     ),
-  acceptLocal: (payload: {
-    title: string
-    isoTime: string | null
-    deadline: boolean
-    sourceText: string
-    detectionId?: string
-  }) => inv<AddedInfo>('suggestion:accept-local', payload),
+  acceptLocal: (payload: { item: ParsedItem; sourceText: string; detectionId?: string }) =>
+    inv<AddedInfo>('suggestion:accept-local', payload),
   listDetections: () => inv<DetectionRecord[]>('detections:list'),
   acceptDetection: (id: string) => inv<AddedInfo | null>('detections:accept', id),
   dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
+
+  localModelStatus: () => inv<LocalModelStatus>('localmodel:status'),
+  downloadLocalModel: () => inv<LocalModelStatus>('localmodel:download'),
+  importLocalModel: () => inv<LocalModelStatus>('localmodel:import'),
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),

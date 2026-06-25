@@ -34,6 +34,9 @@ export const INVOKE_CHANNELS = [
   'detections:list',
   'detections:accept',
   'detections:dismiss',
+  'localmodel:status',
+  'localmodel:download',
+  'localmodel:import',
   'assistant:chat',
   'assistant:add',
   'app:focus-main',
@@ -57,6 +60,7 @@ export const EVENT_CHANNELS = [
   'eshell:tasks-updated',
   'eshell:debug',
   'eshell:pet-chat-drop',
+  'eshell:localmodel-progress',
   'eshell:theme'
 ] as const
 
