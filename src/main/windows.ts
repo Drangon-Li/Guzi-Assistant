@@ -50,6 +50,17 @@ export function focusMain(route?: string): void {
   if (route) win.webContents.send('eshell:navigate', route)
 }
 
+/** 切换主窗口显隐：已显示 → 隐藏；隐藏/最小化 → 显示并获焦。供双击桌宠调用。 */
+export function toggleMainWindow(): void {
+  const win = createMainWindow()
+  if (win.isVisible()) {
+    win.hide()
+  } else {
+    win.show()
+    win.focus()
+  }
+}
+
 export function getPreviewWindow(): BrowserWindow {
   if (previewWin && !previewWin.isDestroyed()) return previewWin
   previewWin = new BrowserWindow({

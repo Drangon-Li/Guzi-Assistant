@@ -1,11 +1,14 @@
 // 桌宠窗口 preload —— 移植/精简自 openpets pet-preload.cjs（MIT，见 src/main/pet/THIRD_PARTY_NOTICES.md）。
-// 保留：点击穿透 hit-test、手动拖拽、点击桌宠、气泡内容替换、文件拖放到桌宠。
-// 去掉：动画 reaction/motion 状态、音频、TTS、override、插件气泡 action/input、hover/dblclick。
+// 保留：点击穿透 hit-test、手动拖拽、单击桌宠（开助手）、双击桌宠（开/关主窗）、气泡内容替换、文件拖放到桌宠。
+// 去掉：动画 reaction/motion 状态、音频、TTS、override、插件气泡 action/input、hover。
 const { ipcRenderer, webUtils } = require('electron')
 
 let lastInteractiveHit = null
 let dragging = false
 let suppressClickUntil = 0
+// 单击延迟定时器：双击时取消它，避免双击连带触发两次单击（开/关助手）。
+let singleClickTimer = null
+const DBLCLICK_WINDOW_MS = 280
 
 const applyWhenReady = (fn) => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true })
@@ -60,14 +63,32 @@ const installMouseInterop = () => {
   dragging = false
   let dragStartPoint = null
 
-  // 点击桌宠 → 打开助手（拖拽后 300ms 内的 click 抑制掉）。
+  // 单击桌宠 → 开/关助手；双击桌宠 → 开/关主窗。
+  // click 先于 dblclick 触发，故单击动作延迟 DBLCLICK_WINDOW_MS 执行：期间若来 dblclick 就取消它，
+  // 双击便只切主窗、不连带开关助手（拖拽后 300ms 内的 click/dblclick 一并抑制）。
+  const isPetTap = (event) =>
+    event.button === 0 &&
+    event.target instanceof Element &&
+    !!event.target.closest('.pet-hitbox, .pet-shell') &&
+    Date.now() >= suppressClickUntil
+
   document.addEventListener('click', (event) => {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof Element) || !target.closest('.pet-hitbox, .pet-shell')) return
-    if (Date.now() < suppressClickUntil) return
+    if (!isPetTap(event)) return
     playClickPop()
-    ipcRenderer.send('openpets:pet-clicked')
+    if (singleClickTimer) clearTimeout(singleClickTimer)
+    singleClickTimer = setTimeout(() => {
+      singleClickTimer = null
+      ipcRenderer.send('openpets:pet-clicked')
+    }, DBLCLICK_WINDOW_MS)
+  })
+
+  document.addEventListener('dblclick', (event) => {
+    if (!isPetTap(event)) return
+    if (singleClickTimer) {
+      clearTimeout(singleClickTimer)
+      singleClickTimer = null
+    }
+    ipcRenderer.send('openpets:pet-dblclicked')
   })
 
   document.addEventListener(

@@ -12,7 +12,7 @@ import {
   isWatchPaused
 } from './screenwatch'
 import { submitExternalFiles } from './capture'
-import { appState, createMainWindow, focusMain, openDebugWindow } from './windows'
+import { appState, createMainWindow, focusMain, openDebugWindow, toggleMainWindow } from './windows'
 import { createPetWindow } from './pet/pet-window'
 import { togglePetChat, createPetChatWindow } from './pet/pet-chat-window'
 import {
@@ -103,7 +103,8 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc()
     createMainWindow()
     createPetWindow({
-      onClick: () => togglePetChat()
+      onClick: () => togglePetChat(),
+      onDblClick: () => toggleMainWindow()
     })
     createPetChatWindow() // 预创建桌宠对话窗口（隐藏），点击/拖文件即时可用
     createTray()
