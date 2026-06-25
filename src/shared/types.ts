@@ -166,3 +166,27 @@ export interface ScanResult {
   status: 'suggested' | 'empty' | 'error'
   message: string
 }
+
+/** 本地小模型单次抽取结果（替代旧 LocalSchedule）。strong 由 coerce 派生，模型不输出。 */
+export interface LocalExtraction {
+  title: string
+  /** YYYY-MM-DDTHH:mm；解不出为 null（绝不编造） */
+  isoTime: string | null
+  deadline: boolean
+  belongsToUser: Belongs
+  /** 命中信号词（填 DetectionRecord.hits） */
+  hits: string[]
+  confidence: number
+  /** 模型自判：要不要上云 VLM 复核 */
+  needsVlm: boolean
+  /** 派生：解析出了具体日期时间 → 决定是否主动弹卡 */
+  strong: boolean
+}
+
+export type LocalModelState = 'absent' | 'downloading' | 'loading' | 'ready' | 'unloaded' | 'error'
+export interface LocalModelStatus {
+  state: LocalModelState
+  /** downloading 时 0..1 */
+  progress?: number
+  error?: string
+}
