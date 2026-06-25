@@ -131,8 +131,8 @@ export interface AppSettings {
   feishuAppSecret: string
   /** 屏幕感知：核心被动采集总开关，默认 true（用户可显式关闭） */
   screenSenseEnabled: boolean
-  /** 触发解析的关键词 */
-  screenSenseKeywords: string[]
+  /** 本地小模型屏幕感知总开关；关闭=停监控+卸模型省内存。默认 false（opt-in，要下模型） */
+  screenSenseLocalModel: boolean
   /** 扫描屏幕的全局快捷键 accelerator */
   screenSenseHotkey: string
   /** 持续屏幕监控（#40）：screenSenseEnabled 之下的二级开关，默认 true（被动持续感知） */

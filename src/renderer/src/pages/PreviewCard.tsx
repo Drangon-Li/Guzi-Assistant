@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ParseSummary, PendingCapture } from '@shared/types'
 import type { ParsedItem } from '@shared/parsing'
-import type { LocalSchedule } from '@shared/local-extract'
+import type { LocalExtraction } from '@shared/types'
 import { api } from '../api'
 import { fmtTime, SOURCE_LABELS } from '../labels'
 import brandMark from '../assets/agent-avatar.png'
@@ -14,7 +14,10 @@ type State =
   | { phase: 'error'; message: string }
   | { phase: 'empty'; message: string }
   | { phase: 'suggestion'; item: ParsedItem; sourceText: string; hits: string[] }
-  | { phase: 'local'; local: LocalSchedule & { sourceText: string; detectionId?: string } }
+  | {
+      phase: 'local'
+      local: LocalExtraction & { item: ParsedItem; sourceText: string; detectionId?: string }
+    }
   | { phase: 'done'; message: string }
 
 const AUTO_SECONDS = 3
@@ -82,10 +85,10 @@ export default function PreviewCard(): React.JSX.Element | null {
   // 本地候选 →「同意」：直接用本地结果入库（不上云）
   const acceptLocalNow = async (): Promise<void> => {
     if (state.phase !== 'local') return
-    const { title, isoTime, deadline, sourceText, detectionId } = state.local
+    const { item, sourceText, detectionId } = state.local
     setState({ phase: 'loading', message: '正在加入…' })
     try {
-      const info = await api.acceptLocal({ title, isoTime, deadline, sourceText, detectionId })
+      const info = await api.acceptLocal({ item, sourceText, detectionId })
       setState({
         phase: 'done',
         message: info.duplicate ? `「${info.title}」已存在，未重复添加` : `✓ 已加入「${info.title}」`
@@ -133,7 +136,11 @@ export default function PreviewCard(): React.JSX.Element | null {
       setPetMode(!!(payload as { petMode?: boolean }).petMode)
       const ls = (
         payload as {
-          localSuggestion?: LocalSchedule & { sourceText: string; detectionId?: string }
+          localSuggestion?: LocalExtraction & {
+            item: ParsedItem
+            sourceText: string
+            detectionId?: string
+          }
         }
       ).localSuggestion
       if (ls) {
@@ -403,7 +410,7 @@ export default function PreviewCard(): React.JSX.Element | null {
               </span>
             </div>
             <div className="text-xs text-slate-500">
-              {state.local.isoTime ? fmtTime(state.local.isoTime) : state.local.timeText}
+              {state.local.isoTime ? fmtTime(state.local.isoTime) : '未识别到具体时间'}
             </div>
             <div className="flex justify-end gap-2">
               <button
