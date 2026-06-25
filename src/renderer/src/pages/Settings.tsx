@@ -512,26 +512,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                 )}
             </div>
 
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-slate-500">
-                只监控这些应用（逗号或顿号分隔）
-                <span className="ml-2 text-xs text-slate-400">
-                  留空 = 监控全部；默认只看微信/钉钉/QQ 等聊天应用
-                </span>
-              </span>
-              <input
-                className={input}
-                placeholder="如：微信、钉钉、QQ、飞书"
-                defaultValue={settings.screenSenseAllowedApps.join('、')}
-                onBlur={async (e) => {
-                  const list = splitList(e.target.value)
-                  setSettings({ ...settings, screenSenseAllowedApps: list })
-                  await api.saveSettings({ screenSenseAllowedApps: list })
-                  flash('已保存监控应用名单')
-                }}
-              />
-            </label>
-
             <div className="flex items-center gap-3 text-sm">
               <span className="text-slate-500">扫描快捷键</span>
               <button

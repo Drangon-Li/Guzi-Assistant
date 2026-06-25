@@ -18,6 +18,7 @@ type State =
       phase: 'local'
       local: LocalExtraction & { item: ParsedItem; sourceText: string; detectionId?: string }
     }
+  | { phase: 'nohit'; sourceText: string }
   | { phase: 'done'; message: string }
 
 const AUTO_SECONDS = 3
@@ -70,8 +71,13 @@ export default function PreviewCard(): React.JSX.Element | null {
 
   // 本地候选 →「AI 精确解析」：上云精修，成功转入 suggestion 卡态原地更新
   const aiRefine = async (): Promise<void> => {
-    if (state.phase !== 'local') return
-    const sourceText = state.local.sourceText
+    const sourceText =
+      state.phase === 'local'
+        ? state.local.sourceText
+        : state.phase === 'nohit'
+          ? state.sourceText
+          : null
+    if (sourceText == null) return
     setState({ phase: 'loading', message: '正在 AI 解析…' })
     try {
       const r = await api.suggestionAiParse(sourceText)
@@ -145,6 +151,11 @@ export default function PreviewCard(): React.JSX.Element | null {
       ).localSuggestion
       if (ls) {
         setState({ phase: 'local', local: ls })
+        return
+      }
+      const nh = (payload as { noLocalHit?: { sourceText: string } }).noLocalHit
+      if (nh) {
+        setState({ phase: 'nohit', sourceText: nh.sourceText })
         return
       }
       if ('suggestion' in p && p.suggestion) {
@@ -437,6 +448,33 @@ export default function PreviewCard(): React.JSX.Element | null {
                 onClick={() => void acceptLocalNow()}
               >
                 同意
+              </button>
+            </div>
+          </>
+        )}
+
+        {state.phase === 'nohit' && (
+          <>
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+                未发现明确日程
+              </span>
+              <span className="min-w-0 flex-1 text-sm leading-5 text-slate-500">
+                本地没抽到，可让 AI 精确解析这段内容
+              </span>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                onClick={() => close()}
+              >
+                关闭
+              </button>
+              <button
+                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                onClick={() => void aiRefine()}
+              >
+                AI 解析
               </button>
             </div>
           </>

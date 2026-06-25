@@ -114,8 +114,9 @@ export async function scanOnce(): Promise<ScanResult> {
     debugEvent('timing', `本地抽取耗时 ${Date.now() - t0}ms`)
     if (!hit) {
       debugEvent('detect', '本地模型未发现明确待办')
-      showPreview({ error: '未发现明确的待办事项' })
-      return { status: 'empty', message: '未发现明确的待办事项' }
+      // 永远给 AI 解析兜底：本地没抽到也弹卡，让用户能手动上云精解
+      showPreview({ noLocalHit: { sourceText: text } })
+      return { status: 'empty', message: '本地未发现日程，可点 AI 解析' }
     }
     const { extraction, item } = hit
     debugEvent(
@@ -322,9 +323,8 @@ async function watchTick(): Promise<void> {
   ticking = true
   let png: string | null = null
   try {
-    const { screenSenseExcludedApps, screenSenseAllowedApps, screenSenseKeepShots, screenSensePopup } =
-      getSettings()
-    // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己 ③ 进程级允许名单(只看 IM 等)
+    const { screenSenseExcludedApps, screenSenseKeepShots, screenSensePopup } = getSettings()
+    // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己。全屏感知，不再按进程名单过滤。
     const frontApp = await getFrontmostApp()
     const appChanged = frontApp !== lastDebugApp
     lastDebugApp = frontApp
@@ -337,17 +337,6 @@ async function watchTick(): Promise<void> {
       if (appChanged) debugEvent('skip', '纸壳助手自己在前台，跳过')
       return
     }
-    if (screenSenseAllowedApps.length && !isAppExcluded(frontApp, screenSenseAllowedApps)) {
-      if (appChanged)
-        debugEvent(
-          'skip',
-          frontApp ? `「${frontApp}」不在监控名单，跳过` : '前台应用检测失败，按名单跳过'
-        )
-      return
-    }
-    // 命中监控名单（进程级"检测到相关进程"）——调试面板据此确认进程门已放行
-    if (appChanged && screenSenseAllowedApps.length)
-      debugEvent('frontapp', `命中监控名单：${frontApp}，开始处理`)
 
     png = await captureScreenSilently()
     if (!png) {

@@ -4,7 +4,6 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
 import { localNow } from '@shared/parsing'
-import { DEFAULT_MONITORED_APPS } from '@shared/keywords'
 import { buildFtsQuery } from '@shared/fts-query'
 import type {
   AppSettings,
@@ -166,10 +165,6 @@ export function getSettings(): AppSettings {
     screenSensePopup: map.screenSensePopup !== 'false',
     screenSenseCardHideSec:
       map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 60,
-    screenSenseAllowedApps:
-      map.screenSenseAllowedApps != null
-        ? parseList(map.screenSenseAllowedApps)
-        : DEFAULT_MONITORED_APPS,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
     theme: map.theme === 'light' || map.theme === 'dark' ? map.theme : 'system'
   }
