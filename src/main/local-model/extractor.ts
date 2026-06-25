@@ -1,4 +1,3 @@
-import { getLlama, LlamaChatSession, createModelDownloader } from 'node-llama-cpp'
 import type { Llama, LlamaModel, LlamaJsonSchemaGrammar } from 'node-llama-cpp'
 import {
   EXTRACTION_JSON_SCHEMA,
@@ -11,6 +10,14 @@ import { MODEL_URI, modelDir, modelPath } from './paths'
 
 const CONTEXT_SIZE = 1024
 const MAX_TOKENS = 1024
+
+// node-llama-cpp 是带顶层 await 的 ESM，CJS 主进程不能静态 require → 动态 import() 延迟加载（首次用时才载）。
+type NlcModule = typeof import('node-llama-cpp')
+let nlc: NlcModule | null = null
+async function nlcMod(): Promise<NlcModule> {
+  if (!nlc) nlc = await import('node-llama-cpp')
+  return nlc
+}
 
 let llama: Llama | null = null
 let model: LlamaModel | null = null
@@ -32,7 +39,10 @@ export function getLocalModelStatus(): LocalModelStatus {
 }
 
 async function ensureLlama(): Promise<Llama> {
-  if (!llama) llama = await getLlama() // 全局单例，永不 dispose
+  if (!llama) {
+    const { getLlama } = await nlcMod()
+    llama = await getLlama() // 全局单例，永不 dispose
+  }
   return llama
 }
 
@@ -45,6 +55,7 @@ export async function downloadLocalModel(onProgress: (p: number) => void): Promi
   state = 'downloading'
   errMsg = undefined
   try {
+    const { createModelDownloader } = await nlcMod()
     const downloader = await createModelDownloader({
       modelUri: MODEL_URI,
       dirPath: modelDir(),
@@ -74,6 +85,7 @@ export async function ensureLoaded(): Promise<void> {
   errMsg = undefined
   try {
     const l = await ensureLlama()
+    const { LlamaChatSession } = await nlcMod()
     model = await l.loadModel({ modelPath: mp })
     grammar = await l.createGrammarForJsonSchema(EXTRACTION_JSON_SCHEMA)
     const warm = await model.createContext({ contextSize: CONTEXT_SIZE })
@@ -117,6 +129,7 @@ export async function extract(text: string, selfNames?: string[]): Promise<Local
 
 async function doExtract(text: string, selfNames?: string[]): Promise<LocalExtraction[]> {
   await ensureLoaded()
+  const { LlamaChatSession } = await nlcMod()
   inflight++
   lastUsed = Date.now()
   const m = model! // 串行化 + unload 等在途，doExtract 期间 model/grammar 不会被置 null
