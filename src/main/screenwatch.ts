@@ -109,7 +109,9 @@ export async function scanOnce(): Promise<ScanResult> {
     debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
 
     // 本地优先：本地小模型即时精筛，低置信自动升级 VLM
+    const t0 = Date.now()
     const hit = await detectAndMaybeRefine(text)
+    debugEvent('timing', `本地抽取耗时 ${Date.now() - t0}ms`)
     if (!hit) {
       debugEvent('detect', '本地模型未发现明确待办')
       showPreview({ error: '未发现明确的待办事项' })
@@ -184,7 +186,9 @@ export async function aiParse(
   sourceText: string
 ): Promise<{ item: ParsedItem; sourceText: string; hits: string[] } | null> {
   debugEvent('cloud', '云端 AI 解析中…')
+  const tc = Date.now()
   const items = await parseToItems({ text: sourceText, hint: HINTS.screen_scan })
+  debugEvent('timing', `云端解析耗时 ${Date.now() - tc}ms`)
   const best = pickBest(items)
   debugEvent('cloud', best ? `云端解析完成：「${best.title}」` : '云端解析完成：未发现明确事项')
   if (!best) return null
