@@ -5,7 +5,9 @@ import {
   EXTRACTION_JSON_SCHEMA,
   SYSTEM_PROMPT,
   buildExtractionPrompt,
-  coerceExtractions
+  coerceExtractions,
+  chunkForExtraction,
+  dedupeExtractions
 } from '@shared/local-model-schema'
 import type { LocalExtraction, LocalModelState, LocalModelStatus } from '@shared/types'
 import { MODEL_URI, modelDir, modelPath } from './paths'
@@ -161,25 +163,32 @@ async function doExtract(text: string, selfNames?: string[]): Promise<LocalExtra
   lastUsed = Date.now()
   const m = model! // 串行化 + unload 等在途，doExtract 期间 model/grammar 不会被置 null
   const g = grammar!
-  const ctx = await m.createContext({ contextSize: CONTEXT_SIZE })
+  const now = new Date()
   try {
-    const session = new LlamaChatSession({
-      contextSequence: ctx.getSequence(),
-      systemPrompt: SYSTEM_PROMPT
-    })
-    const res = await session.prompt(buildExtractionPrompt(text, { now: new Date(), selfNames }), {
-      grammar: g,
-      maxTokens: MAX_TOKENS
-    })
-    let parsed: unknown
-    try {
-      parsed = g.parse(res)
-    } catch {
-      return [] // won't-stop 截断成残缺 JSON → 当作无日程
+    // 切块逐块抽：满屏 OCR 噪声会把小模型淹掉，小窗口逐块跑再合并去重，召回更稳
+    const all: LocalExtraction[] = []
+    for (const chunk of chunkForExtraction(text)) {
+      const ctx = await m.createContext({ contextSize: CONTEXT_SIZE })
+      try {
+        const session = new LlamaChatSession({
+          contextSequence: ctx.getSequence(),
+          systemPrompt: SYSTEM_PROMPT
+        })
+        const res = await session.prompt(buildExtractionPrompt(chunk, { now, selfNames }), {
+          grammar: g,
+          maxTokens: MAX_TOKENS
+        })
+        try {
+          all.push(...coerceExtractions(g.parse(res), now))
+        } catch {
+          /* won't-stop 截断成残缺 JSON → 跳过该块 */
+        }
+      } finally {
+        await ctx.dispose()
+      }
     }
-    return coerceExtractions(parsed)
+    return dedupeExtractions(all)
   } finally {
-    await ctx.dispose()
     inflight--
     lastUsed = Date.now()
   }

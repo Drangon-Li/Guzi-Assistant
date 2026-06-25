@@ -70,6 +70,55 @@ export function coerceExtractions(raw: unknown, _now: Date = new Date()): LocalE
   return out
 }
 
+/**
+ * OCR 全文切块喂小模型：满屏 UI 噪声会把 1.5B 淹掉（单次易漏检），按行去重后切小块逐块抽。
+ * 归一化「自己：/对方：/【…】」前缀去重，消掉聊天转写与屏幕全文的重复。
+ * 每块 ≤maxLines 行且 ≤maxChars 字；最多 maxChunks 块（兜住超大屏幕的延迟）。
+ */
+export function chunkForExtraction(text: string, maxLines = 14, maxChars = 600, maxChunks = 12): string[] {
+  const seen = new Set<string>()
+  const lines: string[] = []
+  for (const raw of text.split('\n')) {
+    const ln = raw.trim()
+    if (!ln) continue
+    const norm = ln
+      .replace(/^(自己|对方)：/, '')
+      .replace(/^【[^】]*】/, '')
+      .trim()
+    if (!norm || seen.has(norm)) continue
+    seen.add(norm)
+    lines.push(ln)
+  }
+  const chunks: string[] = []
+  let cur: string[] = []
+  let len = 0
+  for (const ln of lines) {
+    cur.push(ln)
+    len += ln.length
+    if (cur.length >= maxLines || len >= maxChars) {
+      chunks.push(cur.join('\n'))
+      cur = []
+      len = 0
+      if (chunks.length >= maxChunks) break
+    }
+  }
+  if (cur.length && chunks.length < maxChunks) chunks.push(cur.join('\n'))
+  return chunks
+}
+
+/** 跨块合并后按 标题+时间 去重。 */
+export function dedupeExtractions(items: LocalExtraction[]): LocalExtraction[] {
+  const seen = new Set<string>()
+  const out: LocalExtraction[] = []
+  for (const it of items) {
+    const k = `${it.title}|${it.isoTime ?? ''}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(it)
+  }
+  return out
+}
+
 /** 一帧多事项时挑一条进检测/弹卡：优先 strong，再比置信度。 */
 export function pickBestExtraction(items: LocalExtraction[]): LocalExtraction | null {
   if (!items.length) return null

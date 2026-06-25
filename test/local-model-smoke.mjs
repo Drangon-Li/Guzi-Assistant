@@ -3,6 +3,8 @@
 import {
   EXTRACTION_JSON_SCHEMA,
   coerceExtractions,
+  chunkForExtraction,
+  dedupeExtractions,
   pickBestExtraction,
   shouldEscalate,
   SYSTEM_PROMPT,
@@ -132,6 +134,36 @@ check('空输入 → null', pickBestExtraction([]) === null)
 check('needsVlm=true → 升级', shouldEscalate({ needsVlm: true, confidence: 0.99 }, 0.6) === true)
 check('低置信 → 升级', shouldEscalate({ needsVlm: false, confidence: 0.3 }, 0.6) === true)
 check('高置信且不需 → 不升级', shouldEscalate({ needsVlm: false, confidence: 0.8 }, 0.6) === false)
+
+// ---- chunkForExtraction：去重 + 切块 + 上限 ----
+const longText = Array.from({ length: 40 }, (_, i) => `第${i}行内容长一些占点字数`).join('\n')
+check('长文本切多块', chunkForExtraction(longText, 14, 600, 12).length > 1)
+check('块数不超上限', chunkForExtraction(longText, 2, 50, 3).length <= 3)
+check('短文本单块', chunkForExtraction('明天下午三点开会').length === 1)
+const dedupChunk = chunkForExtraction('开会\n开会\n开会').join('')
+check('重复行去重', (dedupChunk.match(/开会/g) || []).length === 1)
+const prefixChunk = chunkForExtraction('对方：明天开会\n明天开会').join('')
+check('归一化前缀去重', (prefixChunk.match(/明天开会/g) || []).length === 1)
+
+// ---- dedupeExtractions ----
+const mk = (title, iso, conf) => ({
+  title,
+  isoTime: iso,
+  strong: true,
+  confidence: conf,
+  deadline: false,
+  belongsToUser: 'yes',
+  hits: [],
+  needsVlm: false
+})
+check(
+  '同标题同时间合一',
+  dedupeExtractions([mk('会', '2026-06-26T09:00', 0.9), mk('会', '2026-06-26T09:00', 0.8)]).length === 1
+)
+check(
+  '不同时间不合并',
+  dedupeExtractions([mk('会', '2026-06-26T09:00', 0.9), mk('会', '2026-06-27T09:00', 0.9)]).length === 2
+)
 
 // ---- prompt ----
 check('SYSTEM_PROMPT 含「不要编造/空」约束', /不要编造|勿编造|没有.*返回|空数组|\[\]/.test(SYSTEM_PROMPT))
