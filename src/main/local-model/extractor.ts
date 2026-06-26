@@ -3,9 +3,11 @@ import { basename, join } from 'path'
 import type { Llama, LlamaModel, LlamaJsonSchemaGrammar } from 'node-llama-cpp'
 import { EXTRACTION_JSON_SCHEMA, coerceExtractions, dedupeExtractions } from '@shared/local-model-schema'
 import {
-  foregroundLines,
+  foregroundBands,
   candidateWindows,
   combineDet,
+  messageTimestamps,
+  isStaleMessage,
   CLASSIFY_SYSTEM_PROMPT,
   buildClassifyPrompt
 } from '@shared/screen-foreground'
@@ -169,10 +171,20 @@ async function doExtract(boxes: TextBox[], selfNames?: string[]): Promise<LocalE
   const g = grammar!
   const now = new Date()
   try {
-    const lines = foregroundLines(boxes)
+    const bands = foregroundBands(boxes)
+    const lines = bands.map((b) => b.text)
+    const timestamps = messageTimestamps(boxes, now) // 聊天时间戳(判消息新旧)
     const all: LocalExtraction[] = []
-    for (const { detW, modelW } of candidateWindows(lines)) {
+    for (const { detW, modelW, lineIndex } of candidateWindows(lines)) {
       const detIso = combineDet(detW, now) // 行内确定性日期+时间
+      const stale = isStaleMessage(bands[lineIndex]?.y ?? 1, timestamps, now) // 非今天发的消息→旧
+      // 证据条 y 区间：依据行(本行)+上一行(detW 含的标题行)，供裁剪
+      const evTop = Math.max(0, (lineIndex > 0 ? bands[lineIndex - 1].y : bands[lineIndex].y) - 0.008)
+      const evBottom = Math.min(1, (bands[lineIndex]?.y ?? 0) + 0.05)
+      // 聚焦证据文字：依据行±1，作来源内容(而非整屏 OCR)
+      const evText = [bands[lineIndex - 1]?.text, bands[lineIndex]?.text, bands[lineIndex + 1]?.text]
+        .filter(Boolean)
+        .join('\n')
       const ctx = await m.createContext({ contextSize: CONTEXT_SIZE })
       try {
         const session = new LlamaChatSession({
@@ -189,6 +201,10 @@ async function doExtract(boxes: TextBox[], selfNames?: string[]): Promise<LocalE
           for (const it of items) {
             it.isoTime = detIso ?? it.isoTime // 确定性时间优先，覆盖模型自报
             it.strong = it.isoTime !== null
+            it.staleMessage = stale
+            it.evidenceTop = evTop
+            it.evidenceBottom = evBottom
+            it.evidenceText = evText
           }
           all.push(...items)
         } catch {

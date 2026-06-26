@@ -3,6 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
+import { deleteShot } from './shotvault'
 import { localNow } from '@shared/parsing'
 import { buildFtsQuery } from '@shared/fts-query'
 import type {
@@ -161,7 +162,7 @@ export function getSettings(): AppSettings {
     screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,
     // 排除名单空 = 不排除（不能像关键词那样回退默认词表）
     screenSenseExcludedApps: parseList(map.screenSenseExcludedApps),
-    screenSenseKeepShots: map.screenSenseKeepShots === 'true',
+    screenSenseKeepShots: map.screenSenseKeepShots !== 'false',
     screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
     screenSensePopup: map.screenSensePopup !== 'false',
     screenSenseCardHideSec:
@@ -445,6 +446,14 @@ export function updateTask(id: string, patch: Partial<TaskRecord>): void {
   sets.push('updated_at = ?')
   values.push(localNow(), id)
   db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+
+  // #3：任务标记完成 → 清掉其证据截图(隐私+省空间)；文字来源保留供回看/审核
+  if (patch.status === 'done') {
+    const t = db.prepare('SELECT source_id FROM tasks WHERE id = ?').get(id) as
+      | { source_id: string | null }
+      | undefined
+    if (t?.source_id) deleteShot(t.source_id)
+  }
 
   // 截止时间被清空或改到未来后，不应继续卡在"已延期"
   const row = db
