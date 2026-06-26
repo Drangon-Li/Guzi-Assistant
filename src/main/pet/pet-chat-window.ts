@@ -71,13 +71,16 @@ export function isPetChatVisible(): boolean {
   return !!chatWin && !chatWin.isDestroyed() && chatWin.isVisible()
 }
 
-/** 点桌宠开/关。若刚因点桌宠失焦而隐藏（<250ms），本次点击视为关闭，不重开。 */
+/**
+ * 点桌宠开/关。点桌宠会先让对话框失焦→立即 hide，本次点击应视为「关闭」不重开。
+ * 桌宠单击经 ~280ms 双击消歧延迟才到（见 pet-preload DBLCLICK_WINDOW_MS），故守卫窗口须 > 该延迟。
+ */
 export function togglePetChat(): void {
   if (isPetChatVisible()) {
     hidePetChat()
     return
   }
-  if (Date.now() - lastHiddenAt < 250) return
+  if (Date.now() - lastHiddenAt < 450) return
   showPetChat()
 }
 

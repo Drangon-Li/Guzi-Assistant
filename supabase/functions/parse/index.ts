@@ -98,13 +98,16 @@ async function callUpstream(
   isVision: boolean,
   instructions: string,
   input: RTurn[],
-  timeoutMs: number
+  timeoutMs: number,
+  deterministic: boolean
 ): Promise<string | null> {
   if (!up.base || !up.key) return null
   const body: Record<string, unknown> = {
     model: isVision ? up.modelVision : up.model,
     messages: toMessages(instructions, input)
   }
+  // 抽取类(parse_text/parse_vision)用 temperature 0 拿稳定可复现的 JSON；对话(chat)保留默认采样的自然度
+  if (deterministic) body.temperature = 0
   // 思考型文本模型：关思考拿干净 JSON；多模态/非思考模型不传（个别模板会因未知 kwarg 报错）
   if (!isVision && up.noThinkText) body.chat_template_kwargs = { enable_thinking: false }
   const ctrl = new AbortController()
@@ -163,8 +166,9 @@ Deno.serve(async (req) => {
 
     // 3. 转发上游 relay：主用 A100，掉线/超时/空响应自动切 yunwu 兜底。失败不扣（#56 心安）。
     const isVision = reason === 'parse_vision'
-    let text = await callUpstream(PRIMARY, isVision, instructions, input, PRIMARY_TIMEOUT_MS)
-    if (!text) text = await callUpstream(FALLBACK, isVision, instructions, input, FALLBACK_TIMEOUT_MS)
+    const deterministic = reason !== 'chat' // 抽取确定性可复现；对话保留自然采样
+    let text = await callUpstream(PRIMARY, isVision, instructions, input, PRIMARY_TIMEOUT_MS, deterministic)
+    if (!text) text = await callUpstream(FALLBACK, isVision, instructions, input, FALLBACK_TIMEOUT_MS, deterministic)
     if (!text) return json({ error: '解析服务暂时不可用，请稍后重试' }, 502)
 
     // 4. 成功后原子扣费（deduct_credits：for update 行锁，含月度重置 + 写流水，防并发超扣）

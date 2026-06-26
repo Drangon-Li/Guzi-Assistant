@@ -27,10 +27,11 @@ import {
   sweepTempShots
 } from './shotvault'
 import { extract, unloadLocalModel, startIdleSweep, stopIdleSweep } from './local-model/extractor'
-import { pickBestExtraction, shouldEscalate } from '@shared/local-model-schema'
+import { shouldEscalate } from '@shared/local-model-schema'
+import { pickBestByTime } from '@shared/screen-foreground'
 import { pickBest } from '@shared/suggest'
 import { isAppExcluded } from '@shared/app-exclude'
-import { looksLikeChat, clusterChatSpeakers, formatChatTranscript } from '@shared/chat-layout'
+import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox } from '@shared/chat-layout'
 import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
@@ -42,32 +43,56 @@ function emptySummary(error: string | null): ParseSummary {
 
 /** 本地置信度低于此值（或模型自判 needsVlm）→ 自动上云 VLM 复核。 */
 const CONF_MIN = 0.6
+const FG_X_CUT = 0.18 // 升级裁前景图：去左侧栏/会话列表
+const FG_Y_TOP = 0.025 // 去顶部菜单栏
 
 /**
- * OCR 文本 → 本地小模型精筛 → 选最优；低置信/缺信息则自动上 VLM 复核（升级失败回退本地）。
- * 返回可入库的 ParsedItem（refined=是否经 VLM）与展示用 extraction；无明确待办返回 null。
+ * OCR 框 → 本地小模型精筛（前景过滤 + 日期锚定）→ 选最优；低置信/缺信息则自动上 VLM 复核：
+ * 裁前景截图发 parse_vision（去侧栏，避免把列表/侧栏当任务），裁剪/升级失败回退本地结论。
  */
 async function detectAndMaybeRefine(
-  text: string
+  boxes: TextBox[],
+  text: string,
+  png: string
 ): Promise<{ extraction: LocalExtraction; item: ParsedItem; refined: boolean } | null> {
   const profile = getProfile()
   const selfNames = profile ? [profile.name, ...(profile.nicknames ?? [])].filter(Boolean) : []
-  const best = pickBestExtraction(await extract(text, selfNames))
+  const best = pickBestByTime(await extract(boxes, selfNames))
   if (!best) return null
   if (shouldEscalate(best, CONF_MIN)) {
     try {
-      const refinedBest = pickBest(await parseToItems({ text, hint: HINTS.screen_scan }))
+      const imageDataUrl = cropForegroundDataUrl(png)
+      const refinedBest = pickBest(
+        await parseToItems(
+          imageDataUrl ? { imageDataUrl, hint: HINTS.screen_scan_vision } : { text, hint: HINTS.screen_scan }
+        )
+      )
       if (refinedBest) return { extraction: best, item: refinedBest, refined: true }
     } catch {
-      // 升级失败（未登录/无档案/网络）→ 回退本地结论
+      // 升级失败（未登录/无档案/网络/裁剪失败）→ 回退本地结论
     }
   }
   return { extraction: best, item: buildLocalItem(best), refined: false }
 }
 
-/** OCR 文本；若像聊天界面（#54），前置「谁说的」转写作归属信号，保留全文。 */
-async function ocrTextForParse(png: string): Promise<string> {
-  const boxes = await ocrImageDetailed(png)
+/** 裁前景截图(去左侧栏/菜单栏)成 JPEG dataURL（供 VLM 升级，避免把侧栏/列表里别的会话当任务）；失败返回 null。 */
+function cropForegroundDataUrl(png: string): string | null {
+  try {
+    const img = nativeImage.createFromPath(png)
+    const { width, height } = img.getSize()
+    if (!width || !height) return null
+    const x = Math.round(width * FG_X_CUT)
+    const y = Math.round(height * FG_Y_TOP)
+    const cropped = img.crop({ x, y, width: width - x, height: height - y })
+    const sized = cropped.getSize().width > 2000 ? cropped.resize({ width: 2000 }) : cropped
+    return `data:image/jpeg;base64,${sized.toJPEG(72).toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
+/** 由 OCR 框拼解析用文字；若像聊天界面（#54），前置「谁说的」转写作归属信号，保留全文。 */
+function buildOcrText(boxes: TextBox[]): string {
   const text = boxes.map((b) => b.text).join('\n')
   if (!text) return ''
   if (looksLikeChat(boxes)) {
@@ -95,49 +120,50 @@ export async function scanOnce(): Promise<ScanResult> {
     debugShot(png)
 
     const { screenSenseKeepShots } = getSettings()
-    let text: string
+    // png 保留到检测/升级裁剪之后再删（升级需原图裁前景），故包一层 try/finally
     try {
-      text = await ocrTextForParse(png)
+      const boxes = await ocrImageDetailed(png)
+      const text = buildOcrText(boxes)
       // 截图持久化（#52/#53，opt-in）：趁 png 还在，按 textHash 存加密临时缩略图
       if (text && screenSenseKeepShots) saveShotTempFromPng(textHash(text), png)
-    } finally {
-      void unlink(png).catch(() => {}) // 原图始终用完即弃；只可能留加密缩略图
-    }
-    debugEvent('ocr', text ? `OCR 完成：${text.length} 字` : 'OCR 未识别到文字')
-    if (!text) {
-      showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
-      return { status: 'empty', message: '屏幕上没有识别到文字' }
-    }
-    debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
+      debugEvent('ocr', text ? `OCR 完成：${text.length} 字` : 'OCR 未识别到文字')
+      if (!text) {
+        showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
+        return { status: 'empty', message: '屏幕上没有识别到文字' }
+      }
+      debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
 
-    // 本地优先：本地小模型即时精筛，低置信自动升级 VLM
-    const t0 = Date.now()
-    const hit = await detectAndMaybeRefine(text)
-    debugEvent('timing', `本地抽取耗时 ${Date.now() - t0}ms`)
-    if (!hit) {
-      debugEvent('detect', '本地模型未发现明确待办')
-      // 永远给 AI 解析兜底：本地没抽到也弹卡，让用户能手动上云精解
-      showPreview({ noLocalHit: { sourceText: text } })
-      return { status: 'empty', message: '本地未发现日程，可点 AI 解析' }
+      // 本地优先：本地小模型即时精筛（前景+日期锚定），低置信自动升级 VLM（裁前景图）
+      const t0 = Date.now()
+      const hit = await detectAndMaybeRefine(boxes, text, png)
+      debugEvent('timing', `本地抽取耗时 ${Date.now() - t0}ms`)
+      if (!hit) {
+        debugEvent('detect', '本地模型未发现明确待办')
+        // 永远给 AI 解析兜底：本地没抽到也弹卡，让用户能手动上云精解
+        showPreview({ noLocalHit: { sourceText: text } })
+        return { status: 'empty', message: '本地未发现日程，可点 AI 解析' }
+      }
+      const { extraction, item } = hit
+      debugEvent(
+        'detect',
+        `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'}${hit.refined ? ' [VLM]' : ''}`
+      )
+      const { detection } = addDetection({
+        title: extraction.title,
+        timeIso: extraction.isoTime,
+        deadline: extraction.deadline,
+        sourceText: text,
+        hits: extraction.hits,
+        app: null
+      })
+      showPreview({
+        localSuggestion: { ...extraction, item, sourceText: text, detectionId: detection.id }
+      })
+      applyExternalPetSay('发现一个日程~', 'waiting')
+      return { status: 'suggested', message: `检测到可能的日程：${extraction.title}` }
+    } finally {
+      void unlink(png).catch(() => {}) // 原图用完即弃（检测/升级裁剪后）；只可能留加密缩略图
     }
-    const { extraction, item } = hit
-    debugEvent(
-      'detect',
-      `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'}${hit.refined ? ' [VLM]' : ''}`
-    )
-    const { detection } = addDetection({
-      title: extraction.title,
-      timeIso: extraction.isoTime,
-      deadline: extraction.deadline,
-      sourceText: text,
-      hits: extraction.hits,
-      app: null
-    })
-    showPreview({
-      localSuggestion: { ...extraction, item, sourceText: text, detectionId: detection.id }
-    })
-    applyExternalPetSay('发现一个日程~', 'waiting')
-    return { status: 'suggested', message: `检测到可能的日程：${extraction.title}` }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     showPreview({ summary: emptySummary(message) })
@@ -359,7 +385,8 @@ async function watchTick(): Promise<void> {
     debugShot(png)
 
     debugEvent('ocr', '本地 OCR 识别中…')
-    const text = await ocrTextForParse(png)
+    const boxes = await ocrImageDetailed(png)
+    const text = buildOcrText(boxes)
     if (!text) {
       debugEvent('ocr', 'OCR 未识别到文字')
       return
@@ -379,8 +406,8 @@ async function watchTick(): Promise<void> {
     }
     cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
 
-    // 本地小模型精筛 + 低置信自动升级 VLM
-    const hit = await detectAndMaybeRefine(text)
+    // 本地小模型精筛（前景+日期锚定）+ 低置信自动升级 VLM（裁前景图）
+    const hit = await detectAndMaybeRefine(boxes, text, png)
     if (!hit) {
       debugEvent('detect', '本地模型未发现明确待办')
       return

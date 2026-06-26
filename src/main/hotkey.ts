@@ -83,3 +83,16 @@ export function initScanHotkey(accelerator: string, trigger: () => void): boolea
 export function unregisterScanHotkey(): void {
   unregister('scan')
 }
+
+// ---- 提交屏幕截图快捷键 ----
+
+export function setScreenshotHotkey(accelerator: string): boolean {
+  return register('screenshot', accelerator)
+}
+
+export function initScreenshotHotkey(accelerator: string, trigger: () => void): void {
+  entryOf('screenshot').handler = trigger
+  if (!register('screenshot', accelerator)) {
+    console.warn(`[hotkey] 截图快捷键 ${accelerator} 注册失败，可能被其他应用占用`)
+  }
+}

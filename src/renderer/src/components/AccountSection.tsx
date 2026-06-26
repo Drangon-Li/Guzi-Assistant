@@ -15,6 +15,7 @@ export default function AccountSection(): React.JSX.Element {
   const [balance, setBalance] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [showRecharge, setShowRecharge] = useState(false)
 
   useEffect(() => {
     if (!supabase) return
@@ -63,23 +64,57 @@ export default function AccountSection(): React.JSX.Element {
   }
 
   if (session) {
+    const initial = (session.user.email ?? '?').slice(0, 1).toUpperCase()
     return (
-      <div className="flex flex-col gap-2 text-sm">
-        <div className="flex items-center justify-between">
-          <span className="text-slate-600">{session.user.email}</span>
+      <div className="flex flex-col gap-3 text-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink text-base font-semibold text-white">
+            {initial}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium text-slate-700">{session.user.email}</div>
+            <div className="text-xs text-slate-400">
+              积分余额：
+              {balance == null ? '—' : <span className="font-medium text-slate-600">{balance}</span>}
+            </div>
+          </div>
           <button
-            className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:bg-slate-50"
+            className="shrink-0 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:bg-slate-50"
             onClick={() => void sb.auth.signOut()}
           >
             退出登录
           </button>
         </div>
-        <div className="text-xs text-slate-400">
-          积分余额：{balance == null ? '—' : <span className="font-medium text-slate-700">{balance}</span>}
+        <div>
+          <button
+            className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
+            onClick={() => setShowRecharge(true)}
+          >
+            充值积分
+          </button>
         </div>
-        <div className="mt-1 border-t border-slate-100 pt-3">
-          <RechargePanel onRecharged={() => void loadBalance()} />
-        </div>
+        {showRecharge && (
+          <div
+            className="animate-fade fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+            onClick={() => setShowRecharge(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">充值积分</h3>
+                <button
+                  className="text-slate-400 hover:text-slate-600"
+                  onClick={() => setShowRecharge(false)}
+                >
+                  ✕
+                </button>
+              </div>
+              <RechargePanel onRecharged={() => void loadBalance()} />
+            </div>
+          </div>
+        )}
       </div>
     )
   }
