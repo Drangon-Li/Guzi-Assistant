@@ -12,7 +12,7 @@ interface Props {
   onOpenAssistant: () => void
 }
 
-type Tab = 'today' | 'week' | 'all'
+type Tab = 'today' | 'next3' | 'week' | 'all'
 
 const ACTIVE_STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'overdue']
 const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -59,17 +59,18 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
       empty: '今天没有安排的任务'
     })
     if (unscheduled.length) sections.push({ title: '未排期', list: unscheduled })
-  } else if (tab === 'week') {
+  } else if (tab === 'week' || tab === 'next3') {
     if (overdue.length) sections.push({ title: '已延期', list: overdue })
+    const days = tab === 'next3' ? 3 : 7
     const base = new Date()
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < days; i++) {
       const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i)
       const pad = (n: number): string => String(n).padStart(2, '0')
       const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
       const list = active.filter((t) => dayKey(timeOf(t)) === key && t.status !== 'overdue')
       if (!list.length && i > 0) continue
       const label =
-        i === 0 ? '今天' : i === 1 ? '明天' : `${WEEKDAY[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`
+        i === 0 ? '今天' : i === 1 ? '明天' : i === 2 ? '后天' : `${WEEKDAY[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`
       sections.push({ title: label, list, empty: i === 0 ? '今天没有安排的任务' : undefined })
     }
     if (unscheduled.length) sections.push({ title: '未排期', list: unscheduled })
@@ -85,6 +86,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
           {(
             [
               ['today', '今日'],
+              ['next3', '近三天'],
               ['week', '本周'],
               ['all', '全部']
             ] as [Tab, string][]
