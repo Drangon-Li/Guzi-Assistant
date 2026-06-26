@@ -311,10 +311,24 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             </button>
             {shotRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
           </div>
+          <div className="flex items-center gap-3">
+            <span className="w-24 shrink-0 text-slate-500">整屏感知扫描</span>
+            <button
+              onClick={() => setScanRecording(!scanRecording)}
+              className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
+                scanRecording
+                  ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
+                  : 'border-slate-300 hover:border-slate-400'
+              }`}
+            >
+              {scanRecording ? '按下新组合键…' : formatHotkey(settings.screenSenseHotkey)}
+            </button>
+            {scanRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
+          </div>
         </div>
         <p className="mt-2 text-xs leading-5 text-slate-400">
           点击按键框后直接按下想要的组合：需包含至少一个修饰键（⌘ ⌥ ⌃ ⇧），F1–F12
-          可单独使用。注册失败说明该组合被系统或其他应用占用。
+          可单独使用。注册失败说明该组合被系统或其他应用占用。「整屏感知扫描」需先在「屏幕感知」里开启本地智能检测才会生效。
         </p>
       </Section>
           </>
@@ -591,21 +605,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     )}
                   </div>
                 )}
-            </div>
-
-            <div className="flex items-center gap-3 text-sm">
-              <span className="text-slate-500">扫描快捷键</span>
-              <button
-                onClick={() => setScanRecording(!scanRecording)}
-                className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
-                  scanRecording
-                    ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
-                    : 'border-slate-300 hover:border-slate-400'
-                }`}
-              >
-                {scanRecording ? '按下新组合键…' : formatHotkey(settings.screenSenseHotkey)}
-              </button>
-              {scanRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
             </div>
 
             <div className="border-t border-slate-100 pt-4">
