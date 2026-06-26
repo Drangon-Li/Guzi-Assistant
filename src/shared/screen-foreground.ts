@@ -107,8 +107,25 @@ export function weekdayDate(text: string, now: Date): YMD | null {
 
 const ABS_G = /(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})|(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]/g
 
+const WD_RE = /(下下|下|本|这)?\s*(?:周|星期|礼拜)\s*[一二三四五六日天]/
+
+/** 窗口里「日期短语」起始下标：相对词 → 绝对日(取末) → 周X；都没有返回 -1。时间从此处起算，避开前面的聊天时间戳。 */
+function dateAnchorIndex(window: string): number {
+  let best = -1
+  for (const k of Object.keys(REL)) {
+    const i = window.indexOf(k)
+    if (i >= 0 && (best < 0 || i < best)) best = i
+  }
+  if (best >= 0) return best
+  const ms = [...window.matchAll(ABS_G)]
+  if (ms.length) return ms[ms.length - 1].index ?? 0
+  const wd = window.match(WD_RE)
+  return wd?.index ?? -1
+}
+
 /**
- * 窗口内确定性 isoTime：相对词优先；否则取「最后一个」绝对日期(区间/截止取末)；时间从窗口取。
+ * 窗口内确定性 isoTime：相对词优先；否则取「最后一个」绝对日期(区间/截止取末)；
+ * 时间**只从日期短语起算**(window.slice(anchor))——避免抓到日期前面别行的聊天时间戳(#2 时间二次错)。
  * 绝对「X月X日」不做 +1 年(「有日程就算」约定下过去日期照常)。解不出返回 null。
  */
 export function combineDet(window: string, now: Date): string | null {
@@ -124,7 +141,8 @@ export function combineDet(window: string, now: Date): string | null {
   }
   if (!date) return null
   const ds = `${date.y}-${pad(date.mo)}-${pad(date.d)}`
-  const tm = parseTimeOfDay(window)
+  const anchor = dateAnchorIndex(window)
+  const tm = parseTimeOfDay(anchor >= 0 ? window.slice(anchor) : window)
   return tm ? `${ds}T${pad(tm.hh)}:${pad(tm.mm)}` : `${ds}T00:00`
 }
 
@@ -172,6 +190,16 @@ export function pickBestByTime(items: LocalExtraction[]): LocalExtraction | null
       Number(b.strong) - Number(a.strong) ||
       b.confidence - a.confidence
   )[0]
+}
+
+/**
+ * 多候选歧义：≥2 个 strong 候选且「日期」彼此不一致 → 本地难判哪个是前景事件(密集学术邮件
+ * 「列表收件日期」压「正文事件日期」=#2/#3 的真实极限)。此时即便本地置信高也强制升级 VLM 兜底。
+ */
+export function isAmbiguous(items: LocalExtraction[]): boolean {
+  const dates = new Set<string>()
+  for (const it of items) if (it.strong && it.isoTime) dates.add(it.isoTime.slice(0, 10))
+  return dates.size >= 2
 }
 
 // ---------- 分类提示词 ----------
