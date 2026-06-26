@@ -1,5 +1,6 @@
 import { unlink } from 'fs/promises'
 import { app, nativeImage } from 'electron'
+import type { NativeImage } from 'electron'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImageDetailed } from './ocr'
 import { parseToItems } from './parser'
@@ -21,6 +22,7 @@ import { initScanHotkey, unregisterScanHotkey } from './hotkey'
 import { getFrontmostApp } from './frontapp'
 import {
   saveShotTempFromPng,
+  saveShotTempFromImage,
   finalizeShot,
   deleteShot,
   listShotIds,
@@ -93,6 +95,31 @@ function cropForegroundDataUrl(png: string): string | null {
   }
 }
 
+/** 裁出「依据行」横条(去左侧栏 x≥FG_X_CUT，y 取证据区间)作任务证据；失败 null。 */
+function cropEvidenceImage(png: string, top: number, bottom: number): NativeImage | null {
+  try {
+    const img = nativeImage.createFromPath(png)
+    const { width, height } = img.getSize()
+    if (!width || !height) return null
+    const x = Math.round(width * FG_X_CUT)
+    const y0 = Math.max(0, Math.round(height * top))
+    const y1 = Math.min(height, Math.round(height * bottom))
+    return img.crop({ x, y: y0, width: width - x, height: Math.max(8, y1 - y0) })
+  } catch {
+    return null
+  }
+}
+
+/** 存任务证据缩略图(临时，按 textHash)：有证据区间则裁「依据行」横条，否则兜底整屏。 */
+function saveEvidenceShot(key: string, png: string, e: LocalExtraction): void {
+  const crop =
+    e.evidenceTop != null && e.evidenceBottom != null
+      ? cropEvidenceImage(png, e.evidenceTop, e.evidenceBottom)
+      : null
+  if (crop) saveShotTempFromImage(key, crop)
+  else saveShotTempFromPng(key, png)
+}
+
 /** 由 OCR 框拼解析用文字；若像聊天界面（#54），前置「谁说的」转写作归属信号，保留全文。 */
 function buildOcrText(boxes: TextBox[]): string {
   const text = boxes.map((b) => b.text).join('\n')
@@ -126,8 +153,6 @@ export async function scanOnce(): Promise<ScanResult> {
     try {
       const boxes = await ocrImageDetailed(png)
       const text = buildOcrText(boxes)
-      // 截图持久化（#52/#53，opt-in）：趁 png 还在，按 textHash 存加密临时缩略图
-      if (text && screenSenseKeepShots) saveShotTempFromPng(textHash(text), png)
       debugEvent('ocr', text ? `OCR 完成：${text.length} 字` : 'OCR 未识别到文字')
       if (!text) {
         showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
@@ -141,11 +166,13 @@ export async function scanOnce(): Promise<ScanResult> {
       debugEvent('timing', `本地抽取耗时 ${Date.now() - t0}ms`)
       if (!hit) {
         debugEvent('detect', '本地模型未发现明确待办')
+        if (screenSenseKeepShots) saveShotTempFromPng(textHash(text), png) // 兜底整屏，供 AI 解析后留证
         // 永远给 AI 解析兜底：本地没抽到也弹卡，让用户能手动上云精解
         showPreview({ noLocalHit: { sourceText: text } })
         return { status: 'empty', message: '本地未发现日程，可点 AI 解析' }
       }
       const { extraction, item } = hit
+      if (screenSenseKeepShots) saveEvidenceShot(textHash(text), png, extraction) // 存「依据行」证据条
       debugEvent(
         'detect',
         `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'}${hit.refined ? ' [VLM]' : ''}`
@@ -178,10 +205,13 @@ export async function scanOnce(): Promise<ScanResult> {
 /** 建议卡点"同意/修改"时入库：来源存 OCR 文字（非图），任务直接进日程 */
 export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string }): AddedInfo {
   const { item, sourceText } = payload
+  // 聚焦证据(云端 item.evidence / 本地 evidenceText)作来源内容；整屏全文只留给「AI 精确解析」兜底
+  const evid = (item.evidence ?? []).map((s) => s.trim()).filter(Boolean)
+  const evidenceText = evid.length ? evid.join('\n') : sourceText.slice(0, 1000)
   const source = createSource({
     type: 'screen_scan',
-    excerpt: excerptOf(sourceText),
-    content: sourceText.slice(0, 20000),
+    excerpt: excerptOf(evidenceText),
+    content: evidenceText.slice(0, 4000),
     filePath: null
   })
   const time = item.due_time ?? item.start_time
@@ -250,7 +280,7 @@ function buildLocalItem(e: LocalExtraction): ParsedItem {
     confidence: e.confidence,
     suggested_action: 'confirm',
     notes: [],
-    evidence: [],
+    evidence: e.evidenceText ? [e.evidenceText] : [],
     duplicate_of: null
   }
 }
@@ -434,12 +464,15 @@ async function watchTick(): Promise<void> {
     debugEvent('record', isNew ? '已记入「记忆」历史（新）' : '已存在，不重复抓取')
     if (!isNew) return
 
-    // 截图持久化（#52/#53，opt-in）：趁 png 还在存加密临时缩略图，接受时落实
-    if (screenSenseKeepShots && png) saveShotTempFromPng(th, png)
+    // 截图持久化（#52/#53）：趁 png 还在存「依据行」证据条(加密临时缩略图)，接受时落实
+    if (screenSenseKeepShots && png) saveEvidenceShot(th, png, extraction)
 
-    // 少量主动：仅强信号 + 弹窗开关开 + 仍在同一 App（新鲜度门）才弹卡
-    if (!extraction.strong || !screenSensePopup) {
-      debugEvent('popup', '不弹卡（弱信号或弹窗关），留在记忆历史')
+    // 少量主动：仅强信号 + 弹窗开关开 + 非旧消息 + 仍在同一 App（新鲜度门）才弹卡
+    if (!extraction.strong || !screenSensePopup || extraction.staleMessage) {
+      debugEvent(
+        'popup',
+        extraction.staleMessage ? '旧消息（非今天发）→ 只记历史不弹卡' : '不弹卡（弱信号或弹窗关），留在记忆历史'
+      )
       return
     }
     if (frontApp && (await getFrontmostApp()) !== frontApp) {

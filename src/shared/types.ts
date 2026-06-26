@@ -145,7 +145,7 @@ export interface AppSettings {
   screenSenseIntervalSec: number
   /** 应用排除名单（#40 隐私门）：这些 App 在前台时连截图都不做，默认空（不排除） */
   screenSenseExcludedApps: string[]
-  /** 持久化截图缩略图到可搜索记忆（#52/#53）：opt-in，默认 false（保持「截图用完即弃」）。加密落盘 */
+  /** 持久化任务证据缩略图（#52/#53/#3）：默认 true（裁「依据行」横条、加密落盘、任务完成即清）。设 'false' 关 */
   screenSenseKeepShots: boolean
   /** 截图保留天数（#53），到期自动清；<=0 永久保留。默认 14 */
   screenSenseRetentionDays: number
@@ -183,6 +183,13 @@ export interface LocalExtraction {
   needsVlm: boolean
   /** 派生：解析出了具体日期时间 → 决定是否主动弹卡 */
   strong: boolean
+  /** 派生(#2)：该消息发送时间非今天(昨天及更早)→ 大概率已处理 → 只记入历史、不主动弹卡 */
+  staleMessage?: boolean
+  /** 派生(#3)：任务「依据行」在截图中的归一化 y 区间(上/下边)，供裁剪证据条 */
+  evidenceTop?: number
+  evidenceBottom?: number
+  /** 派生(#3)：聚焦的证据文字片段(依据行±1)，作来源内容而非整屏 OCR */
+  evidenceText?: string
 }
 
 export type LocalModelState = 'absent' | 'downloading' | 'loading' | 'ready' | 'unloaded' | 'error'

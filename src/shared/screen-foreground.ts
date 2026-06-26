@@ -12,8 +12,14 @@ const FG_X_CUT = 0.18 // 左侧 18% 视为导航/会话列表/侧栏
 const FG_Y_TOP = 0.025 // 顶部 2.5% 视为系统菜单栏/时钟
 const MAX_CANDIDATES = 12
 
-/** 前景文字：剔除左侧栏(x<cut) + 菜单栏(y<top)，按阅读顺序(y 分带→带内按 x)重排成多行。 */
-export function foregroundLines(boxes: TextBox[], xCut = FG_X_CUT, yTop = FG_Y_TOP): string[] {
+export interface ForegroundBand {
+  text: string
+  /** 该带的上边缘 y（归一化）；供候选关联其上方最近的聊天时间戳。 */
+  y: number
+}
+
+/** 前景文字带：剔除左侧栏(x<cut) + 菜单栏(y<top)，按阅读顺序(y 分带→带内按 x)重排，每带带上 y。 */
+export function foregroundBands(boxes: TextBox[], xCut = FG_X_CUT, yTop = FG_Y_TOP): ForegroundBand[] {
   const fg = boxes.filter((b) => b.x >= xCut && b.y >= yTop)
   const bands = new Map<number, TextBox[]>()
   for (const b of fg) {
@@ -24,13 +30,15 @@ export function foregroundLines(boxes: TextBox[], xCut = FG_X_CUT, yTop = FG_Y_T
   }
   return [...bands.keys()]
     .sort((a, b) => a - b)
-    .map((k) =>
-      bands
-        .get(k)!
-        .sort((p, q) => p.x - q.x)
-        .map((i) => i.text)
-        .join('  ')
-    )
+    .map((k) => {
+      const arr = bands.get(k)!.sort((p, q) => p.x - q.x)
+      return { text: arr.map((i) => i.text).join('  '), y: Math.min(...arr.map((i) => i.y)) }
+    })
+}
+
+/** 前景文字行（纯文本，向后兼容）。 */
+export function foregroundLines(boxes: TextBox[], xCut = FG_X_CUT, yTop = FG_Y_TOP): string[] {
+  return foregroundBands(boxes, xCut, yTop).map((b) => b.text)
 }
 
 // ---------- 确定性日期/时间 ----------
@@ -150,15 +158,18 @@ export function combineDet(window: string, now: Date): string | null {
 
 const DATE_LINE_RE =
   /(今天|今日|明天|明日|后天|大后天|今晚|明晚|昨天|前天|(?:下下|下|本|这)?\s*(?:周|星期|礼拜)\s*[一二三四五六日天]|\d{4}\s*[-/年]\s*\d{1,2}\s*[-/月]\s*\d{1,2}|\d{1,2}\s*月\s*\d{1,2}\s*[日号])/
-/** 事件关键词：窗口须含其一才成候选 → 滤掉邮件 header/列表纯日期等噪声(提速 + 改善排序)。 */
+/** 事件关键词：窗口须含其一才成候选 → 滤掉邮件 header/列表纯日期等噪声(提速 + 改善排序)。
+ *  含截止/完成类动词("X点之前完成…"这类 deadline 任务此前漏检 → 补 完成/做完/交付/上交 等)。 */
 const EVENT_KW =
-  /会议|例会|周会|班会|组会|开.{0,2}会|约.{0,2}会|课程|上课|选课|考试|笔试|面试|答辩|考核|开题|活动|讲座|报名|截止|提交|培训|签到|预约|面谈|deadline|ddl|review|sync|weekly|meeting/i
+  /会议|例会|周会|班会|组会|开.{0,2}会|约.{0,2}会|课程|上课|选课|考试|笔试|面试|答辩|考核|开题|活动|讲座|报名|截止|提交|完成|做完|搞定|弄好|交付|上交|递交|发给|培训|签到|预约|面谈|deadline|ddl|review|sync|weekly|meeting/i
 
 export interface CandidateWindow {
   /** 窄窗(前1行+本行)：喂确定性日期解析，保证日期关联准 */
   detW: string
   /** 喂模型分类(同窄窗)；事件词检测用更宽上下文 */
   modelW: string
+  /** 日期所在行在 foregroundBands 中的下标，供关联其上方聊天时间戳判消息新旧(#2)。 */
+  lineIndex: number
 }
 
 /** 扫含日期且含事件词的行成候选；事件词在「前2行」宽上下文里命中即可(救标题在上行的情形)。 */
@@ -171,10 +182,64 @@ export function candidateWindows(lines: string[]): CandidateWindow[] {
     const kwCtx = [lines[i - 2] || '', lines[i - 1] || '', lines[i]].join(' ')
     if (seen.has(w) || !EVENT_KW.test(kwCtx)) continue
     seen.add(w)
-    wins.push({ detW: w, modelW: w })
+    wins.push({ detW: w, modelW: w, lineIndex: i })
     if (wins.length >= MAX_CANDIDATES) break
   }
   return wins
+}
+
+// ---------- 聊天消息时间：判新旧(#2) ----------
+// 思路：聊天「时间戳/系统分隔」行是居中的(气泡里的消息文字靠左/右)，据此从 OCR 框里挑出时间戳，
+// 解析其「发送日期」。候选关联到其上方最近的时间戳 → 非今天(昨天及更早)视为旧消息：大概率已处理。
+
+const TS_CENTER_LO = 0.35 // 居中行：行中心 x 在 [0.35,0.65] 视为时间戳/系统分隔
+const TS_CENTER_HI = 0.65
+
+/** 解析聊天时间戳行的「发送日期」→ YYYY-MM-DD。须含具体时刻才算时间戳行；无日期词默认今天。否则 null。 */
+export function chatSentDateKey(text: string, now: Date): string | null {
+  const t = text.trim()
+  if (!t || t.length > 24) return null // 时间戳行通常很短
+  if (!parseTimeOfDay(t) && !/\d{1,2}[:：]\d{2}/.test(t)) return null // 必须像个时刻
+  let date = relWordDate(t, now) // 今天/昨天/前天
+  if (!date) {
+    const ms = [...t.matchAll(ABS_G)]
+    if (ms.length) {
+      const m = ms[0]
+      date = m[1] ? { y: +m[1], mo: +m[2], d: +m[3] } : { y: now.getFullYear(), mo: +m[4], d: +m[5] }
+    } else {
+      date = weekdayDate(t, now)
+    }
+  }
+  if (!date) date = { y: now.getFullYear(), mo: now.getMonth() + 1, d: now.getDate() } // 纯时刻=今天
+  return `${date.y}-${pad(date.mo)}-${pad(date.d)}`
+}
+
+/** 从 OCR 框取「居中的聊天时间戳」→ {y, dateKey}，按 y 升序。 */
+export function messageTimestamps(boxes: TextBox[], now: Date): { y: number; dateKey: string }[] {
+  const out: { y: number; dateKey: string }[] = []
+  for (const b of boxes) {
+    const cx = b.x + b.w / 2
+    if (cx < TS_CENTER_LO || cx > TS_CENTER_HI) continue
+    const dateKey = chatSentDateKey(b.text, now)
+    if (dateKey) out.push({ y: b.y, dateKey })
+  }
+  return out.sort((a, b) => a.y - b.y)
+}
+
+/** 候选(在 candidateY 处)上方最近时间戳是否「非今天」→ 旧消息。无时间戳→false(照常处理)。 */
+export function isStaleMessage(
+  candidateY: number,
+  timestamps: { y: number; dateKey: string }[],
+  now: Date
+): boolean {
+  let nearest: string | null = null
+  for (const ts of timestamps) {
+    if (ts.y <= candidateY) nearest = ts.dateKey
+    else break // 升序，第一个在候选下方的之后都更下方
+  }
+  if (!nearest) return false
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  return nearest !== today
 }
 
 // ---------- 选优 ----------

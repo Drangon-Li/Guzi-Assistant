@@ -2,6 +2,7 @@
 // 运行：node test/screen-foreground-smoke.mjs
 import {
   foregroundLines,
+  foregroundBands,
   parseTimeOfDay,
   relWordDate,
   weekdayDate,
@@ -10,7 +11,10 @@ import {
   pickBestByTime,
   buildClassifyPrompt,
   CLASSIFY_SYSTEM_PROMPT,
-  isAmbiguous
+  isAmbiguous,
+  chatSentDateKey,
+  messageTimestamps,
+  isStaleMessage
 } from '../src/shared/screen-foreground.ts'
 
 let pass = 0
@@ -39,6 +43,25 @@ check('前景剔除左侧栏', !fg.join('\n').includes('侧栏条目'))
 check('前景剔除菜单栏', !fg.join('\n').includes('菜单栏时钟'))
 check('前景同带内按x排', fg[0] === '前景A  前景B')
 check('前景跨带成多行', fg.length === 2 && fg[1] === '前景下一行')
+
+check('foregroundBands 带 y 坐标', foregroundBands(boxes).length === 2 && typeof foregroundBands(boxes)[0].y === 'number')
+
+// ---- #2 消息新旧：chatSentDateKey / messageTimestamps / isStaleMessage（NOW=2026-06-25 周四）----
+check('纯时刻=今天', chatSentDateKey('上午 11:05', NOW) === '2026-06-25')
+check('昨天 14:09=昨天', chatSentDateKey('昨天 14:09', NOW) === '2026-06-24')
+check('X月X日带时刻', chatSentDateKey('6月20日 周五 下午4:29', NOW) === '2026-06-20')
+check('无时刻→非时间戳', chatSentDateKey('随便聊聊没有时间', NOW) === null)
+const tsBoxes = [
+  { text: '上午 11:05', x: 0.45, y: 0.2, w: 0.1, h: 0.02 }, // 居中→时间戳(今天)
+  { text: '昨天 14:09', x: 0.46, y: 0.5, w: 0.1, h: 0.02 }, // 居中→时间戳(昨天)
+  { text: '明天下午四点开会', x: 0.6, y: 0.6, w: 0.3, h: 0.02 } // 右气泡(cx=0.75)→非时间戳
+]
+const ts = messageTimestamps(tsBoxes, NOW)
+check('只取居中时间戳', ts.length === 2)
+check('时间戳按 y 升序', ts[0].y < ts[1].y)
+check('候选在昨天戳下方→旧', isStaleMessage(0.55, ts, NOW) === true)
+check('候选在今天戳下方→不旧', isStaleMessage(0.3, ts, NOW) === false)
+check('无时间戳→不旧', isStaleMessage(0.5, [], NOW) === false)
 
 // ---- parseTimeOfDay ----
 check('下午四点=16:00', hm(parseTimeOfDay('明天下午四点开会')) === '16:0')
@@ -72,6 +95,10 @@ check('日期但无事件词→不成候选', candidateWindows(['◎5月22日', 
 check('事件词但无日期→不成候选', candidateWindows(['组会开得很顺利', '大家辛苦']).length === 0)
 const cw = candidateWindows(['李世龙', '明天下午四点去c9821开会'])
 check('日期+事件词→候选', cw.length === 1 && cw[0].detW.includes('c9821'))
+// deadline 动词("X点之前完成…")也应成候选（修漏检）
+const cw3 = candidateWindows(['老板', '明天下午三点之前完成公司的通讯稿'])
+check('截止动词「完成」成候选', cw3.length === 1 && cw3[0].detW.includes('完成'))
+check('「交付」成候选', candidateWindows(['周五前交付设计稿']).length === 1)
 
 // ---- pickBestByTime ----
 const mk = (iso, conf) => ({ title: 't', isoTime: iso, deadline: false, belongsToUser: 'yes', hits: [], confidence: conf, needsVlm: false, strong: iso !== null })

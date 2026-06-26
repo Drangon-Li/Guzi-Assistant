@@ -9,6 +9,7 @@
  * 未接受的临时文件由 sweep 按 mtime 清。保留期清理见 shot-retention（纯计算）。
  */
 import { app, nativeImage, safeStorage } from 'electron'
+import type { NativeImage } from 'electron'
 import {
   existsSync,
   mkdirSync,
@@ -34,11 +35,10 @@ export function isShotVaultReady(): boolean {
   }
 }
 
-/** 截图 png → 缩略图(≤480w) → 加密落盘到临时键。加密不可用/失败 → 不落盘返 false。 */
-export function saveShotTempFromPng(key: string, pngPath: string): boolean {
+/** 图像 → 缩略图(≤480w) → 加密落盘到临时键。加密不可用/失败 → 不落盘返 false。 */
+export function saveShotTempFromImage(key: string, img: NativeImage): boolean {
   if (!isShotVaultReady()) return false
   try {
-    const img = nativeImage.createFromPath(pngPath)
     if (img.isEmpty()) return false
     const w = img.getSize().width
     const thumb = w > 480 ? img.resize({ width: 480 }) : img
@@ -48,6 +48,11 @@ export function saveShotTempFromPng(key: string, pngPath: string): boolean {
   } catch {
     return false
   }
+}
+
+/** 截图 png 路径 → 加密落盘临时键(整屏，证据裁剪走 saveShotTempFromImage)。 */
+export function saveShotTempFromPng(key: string, pngPath: string): boolean {
+  return saveShotTempFromImage(key, nativeImage.createFromPath(pngPath))
 }
 
 /** 接受建议后把临时截图落实到 sourceId；无临时文件则 no-op 返 false。 */
