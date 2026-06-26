@@ -64,10 +64,12 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
     hasShadow: false,
     webPreferences: { preload: petPreloadPath(), backgroundThrottling: false }
   })
-  // 用普通置顶层级（构造器 alwaysOnTop:true = floating，已浮在普通窗口之上）。
-  // 不用 'screen-saver' 超高层级 + setVisibleOnAllWorkspaces：那会让 macOS 把本窗当「面板窗」、
-  // 不注册为拖放目标，导致拖文件到桌宠的 dragover/drop 永远不触发（实测定位）。
-  // 代价：桌宠不再显示于全屏 App 之上 / 所有工作区。
+  // 用普通置顶层级（构造器 alwaysOnTop:true = floating，已浮在普通窗口之上），不抬到
+  // 'screen-saver' 超高层级——那会让 macOS 把本窗当「面板窗」、不注册为拖放目标，导致拖文件到
+  // 桌宠的 dragover/drop 永远不触发（实测定位）。
+  // 跨工作区跟随：单独用 setVisibleOnAllWorkspaces（保持普通层级，不配 screen-saver），让桌宠
+  // 跟随三指切换桌面 / 显示在全屏 App 上。保持普通层级是为尽量不破坏拖放（拖文件需回归验证）。
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   currentPet = win
   records.set(win, { reaction: 'idle', bubbleText: null })
@@ -347,9 +349,9 @@ function windowCss(paused: boolean, scale: PetScaleValue, isDark: boolean): stri
     @keyframes bubble-in { from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.96); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
     /* 扫描/解析中：Siri 式旋转锥形光环 + 呼吸光晕（环挂在徽章外缘） */
     html.pet-scanning .pet-shell { animation: scan-breathe 1.8s ease-in-out infinite; }
-    html.pet-scanning .pet-shell::before { content: ""; position: absolute; inset: -5px; border-radius: 50%; background: conic-gradient(from 0deg, #f59e0b, #fbbf24, #fb7185, #a78bfa, #38bdf8, #34d399, #f59e0b); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px)); mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px)); filter: blur(0.4px); opacity: 0.92; z-index: -1; animation: scan-spin 1s linear infinite; }
+    html.pet-scanning .pet-shell::before { content: ""; position: absolute; inset: -4px; border-radius: 50%; background: conic-gradient(from 0deg, #f59e0b, #fbbf24, #fb7185, #a78bfa, #38bdf8, #34d399, #f59e0b); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); filter: blur(0.7px); opacity: 0.5; z-index: -1; animation: scan-spin 1.3s linear infinite; }
     @keyframes scan-spin { to { transform: rotate(1turn); } }
-    @keyframes scan-breathe { 0%, 100% { filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.2)); transform: scale(1); } 50% { filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.2)) drop-shadow(0 0 9px rgba(251, 146, 60, 0.55)); transform: scale(1.03); } }
+    @keyframes scan-breathe { 0%, 100% { filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.2)); transform: scale(1); } 50% { filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.2)) drop-shadow(0 0 7px rgba(251, 146, 60, 0.3)); transform: scale(1.02); } }
     @media (prefers-reduced-motion: reduce) { .bubble, .pet-shell, html.pet-scanning .pet-shell::before { animation: none !important; } }
   `
 }

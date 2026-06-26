@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import { detectSensitive } from './sensitive'
-import { createSource, createTask, deleteSourceRow, getProfile, taskExists } from './db'
+import { createSource, createTask, deleteSourceRow, findDuplicateTitle, getProfile } from './db'
 import { parseToItems, type ParsedItem } from './parser'
 import { broadcast, showPreview } from './windows'
 import { applyExternalPetReaction } from './pet/controller'
@@ -210,7 +210,7 @@ function createTasksFromItems(
   let duplicates = 0
   for (const it of items) {
     if (it.belongs_to_user === 'no') continue // 分配给别人的任务不入库（文档 4.3 多人分配）
-    if (taskExists(it.title, it.due_time)) {
+    if (findDuplicateTitle(it.title, it.start_time, it.due_time)) {
       duplicates++ // 同一通知被重复提交（群转发两遍、手滑双击）很常见，静默生成重复任务最伤信任
       continue
     }

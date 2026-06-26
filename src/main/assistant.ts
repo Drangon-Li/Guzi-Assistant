@@ -1,4 +1,4 @@
-import { createSource, createTask, deleteSourceRow, getProfile, listTasks, taskExists } from './db'
+import { createSource, createTask, deleteSourceRow, findDuplicateTitle, getProfile, listTasks } from './db'
 import { broadcast } from './windows'
 import { callModel } from './parser'
 import {
@@ -31,8 +31,8 @@ function addCandidates(
   let created = 0
   const added = picks.map(({ item, candidate, force }) => {
     const time = item.due_time ?? item.start_time
-    // 完全相同的任务默认拦下，回传事项本体供用户选择「仍要加入」
-    if (!force && taskExists(item.title, item.due_time)) {
+    // 疑似同一事件默认拦下，回传事项本体供用户选择「仍要加入」(force 跳过)
+    if (!force && findDuplicateTitle(item.title, item.start_time, item.due_time)) {
       return { candidate, title: item.title, time, duplicate: true, item }
     }
     const status: TaskStatus = item.due_time || item.start_time ? 'scheduled' : 'not_started'
