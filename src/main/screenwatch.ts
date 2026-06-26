@@ -13,7 +13,7 @@ import {
   getSettings,
   getSource,
   setDetectionStatus,
-  taskExists
+  findDuplicateTitle
 } from './db'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
@@ -185,7 +185,9 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
     filePath: null
   })
   const time = item.due_time ?? item.start_time
-  if (taskExists(item.title, item.due_time)) {
+  // 模糊查重(同一事件不同表述) + VLM 语义查重(duplicate_of)双保险
+  const dupOf = findDuplicateTitle(item.title, item.start_time, item.due_time) ?? item.duplicate_of
+  if (dupOf) {
     deleteSourceRow(source.id) // 没有任务引用的来源不留库
     return { candidate: 0, title: item.title, time, duplicate: true, item }
   }
