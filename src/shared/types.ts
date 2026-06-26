@@ -124,6 +124,8 @@ export interface PermissionStatus {
 export interface AppSettings {
   /** Electron accelerator 字符串，如 "Alt+C"、"Command+Shift+K" */
   hotkey: string
+  /** 提交屏幕截图（交互框选截图 → 解析）的全局快捷键 */
+  screenshotHotkey: string
   apiBase: string
   apiKey: string
   model: string

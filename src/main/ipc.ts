@@ -27,7 +27,7 @@ import {
 import { assistantAdd, assistantChat } from './assistant'
 import { exportTaskIcs } from './export'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
-import { setHotkey } from './hotkey'
+import { setHotkey, setScreenshotHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
 import {
@@ -70,6 +70,14 @@ export function triggerClipboardCapture(): void {
   showPreview(readClipboardPending())
 }
 
+/** 提交屏幕截图：交互框选截图 → 送解析。供全局快捷键调用。 */
+export function triggerScreenshotCapture(): void {
+  void (async () => {
+    const dataUrl = await takeScreenshot()
+    if (dataUrl) await submitScreenshot(dataUrl)
+  })()
+}
+
 export function registerIpc(): void {
   ipcMain.handle('profile:get', () => getProfile())
   ipcMain.handle('profile:save', (_e, p: Profile) => saveProfile(p))
@@ -90,6 +98,10 @@ export function registerIpc(): void {
     if (patch.hotkey !== undefined) {
       ok = setHotkey(patch.hotkey)
       if (!ok) delete patch.hotkey
+    }
+    if (patch.screenshotHotkey !== undefined) {
+      ok = setScreenshotHotkey(patch.screenshotHotkey)
+      if (!ok) delete patch.screenshotHotkey
     }
     saveSettings(patch)
     // 主题：设 themeSource（驱动桌宠/窗口 shouldUseDarkColors）+ 主动广播给所有渲染窗口切 .dark

@@ -144,7 +144,8 @@ export function getSettings(): AppSettings {
     cmd_shift_c: 'CommandOrControl+Shift+C'
   }
   return {
-    hotkey: map.hotkey || legacy[map.hotkeyMode] || 'Alt+C',
+    hotkey: map.hotkey || legacy[map.hotkeyMode] || 'Command+P',
+    screenshotHotkey: map.screenshotHotkey || 'Command+Shift+P',
     // ?? 而不是 ||：用户显式清空后不能从 .env 静默复活
     apiBase: map.apiBase ?? env.ESHELL_API_BASE ?? '',
     apiKey: map.apiKey ?? env.ESHELL_API_KEY ?? '',

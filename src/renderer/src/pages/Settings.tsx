@@ -17,7 +17,7 @@ interface Props {
 const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
 
-const PRESET_HOTKEYS = ['Alt+C', 'Alt+Space', 'CommandOrControl+Shift+C']
+const CATS = ['通用', '快捷键', '助手', '集成', '屏幕感知', '数据'] as const
 
 const CODE_KEYS: Record<string, string> = {
   Space: 'Space',
@@ -82,6 +82,8 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [note, setNote] = useState('')
   const [recording, setRecording] = useState(false)
   const [scanRecording, setScanRecording] = useState(false)
+  const [shotRecording, setShotRecording] = useState(false)
+  const [cat, setCat] = useState<(typeof CATS)[number]>('通用')
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
   const [modelStatus, setModelStatus] = useState<LocalModelStatus | null>(null)
@@ -129,6 +131,16 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     flash(`扫描快捷键已设为 ${formatHotkey(acc)}`)
   }
 
+  const applyScreenshotHotkey = async (acc: string): Promise<void> => {
+    const ok = await api.saveSettings({ screenshotHotkey: acc })
+    if (ok) {
+      setSettings((s) => (s ? { ...s, screenshotHotkey: acc } : s))
+      flash(`截图快捷键已设为 ${formatHotkey(acc)}`)
+    } else {
+      flash('注册失败：该组合可能被系统或其他应用占用')
+    }
+  }
+
   useEffect(() => {
     if (!recording) return
     const onKey = (e: KeyboardEvent): void => {
@@ -165,6 +177,24 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     return () => window.removeEventListener('keydown', onKey, true)
   }, [scanRecording])
 
+  useEffect(() => {
+    if (!shotRecording) return
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') {
+        setShotRecording(false)
+        return
+      }
+      const acc = eventToAccelerator(e)
+      if (!acc) return
+      setShotRecording(false)
+      void applyScreenshotHotkey(acc)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [shotRecording])
+
   if (!profile || !settings) return <div className="p-8 text-sm text-slate-400">加载中…</div>
 
   const saveProfile = async (next: Profile): Promise<void> => {
@@ -180,9 +210,24 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 pb-16">
-      <h1 className="text-lg font-semibold">设置</h1>
-
+    <div className="mx-auto flex max-w-4xl gap-6 px-8 py-8">
+      <nav className="flex w-28 shrink-0 flex-col gap-1 pt-0.5">
+        <h1 className="mb-2 px-3 text-lg font-semibold">设置</h1>
+        {CATS.map((c) => (
+          <button
+            key={c}
+            onClick={() => setCat(c)}
+            className={`rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
+              cat === c ? 'bg-elevated font-medium text-slate-700' : 'text-slate-500 hover:bg-slate-50'
+            }`}
+          >
+            {c}
+          </button>
+        ))}
+      </nav>
+      <div className="flex min-w-0 flex-1 flex-col gap-5 pb-12">
+        {cat === '通用' && (
+          <>
       <Section title="外观">
         <div className="flex gap-2">
           {(
@@ -232,44 +277,50 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           ))}
         </div>
       </Section>
-
+          </>
+        )}
+        {cat === '快捷键' && (
+          <>
       <Section title="快捷键">
-        <div className="flex items-center gap-3 text-sm">
-          <span className="text-slate-500">提交剪切板</span>
-          <button
-            onClick={() => setRecording(!recording)}
-            className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
-              recording
-                ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
-                : 'border-slate-300 hover:border-slate-400'
-            }`}
-          >
-            {recording ? '按下新组合键…' : formatHotkey(settings.hotkey)}
-          </button>
-          {recording && <span className="text-xs text-slate-400">Esc 取消</span>}
+        <div className="flex flex-col gap-3 text-sm">
+          <div className="flex items-center gap-3">
+            <span className="w-24 shrink-0 text-slate-500">提交剪切板</span>
+            <button
+              onClick={() => setRecording(!recording)}
+              className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
+                recording
+                  ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
+                  : 'border-slate-300 hover:border-slate-400'
+              }`}
+            >
+              {recording ? '按下新组合键…' : formatHotkey(settings.hotkey)}
+            </button>
+            {recording && <span className="text-xs text-slate-400">Esc 取消</span>}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="w-24 shrink-0 text-slate-500">提交屏幕截图</span>
+            <button
+              onClick={() => setShotRecording(!shotRecording)}
+              className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
+                shotRecording
+                  ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
+                  : 'border-slate-300 hover:border-slate-400'
+              }`}
+            >
+              {shotRecording ? '按下新组合键…' : formatHotkey(settings.screenshotHotkey)}
+            </button>
+            {shotRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
+          </div>
         </div>
         <p className="mt-2 text-xs leading-5 text-slate-400">
           点击按键框后直接按下想要的组合：需包含至少一个修饰键（⌘ ⌥ ⌃ ⇧），F1–F12
           可单独使用。注册失败说明该组合被系统或其他应用占用。
         </p>
-        <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
-          常用：
-          {PRESET_HOTKEYS.map((acc) => (
-            <button
-              key={acc}
-              onClick={() => void applyHotkey(acc)}
-              className={`rounded-lg border px-2 py-1 ${
-                settings.hotkey === acc
-                  ? 'border-slate-400 bg-elevated text-slate-700'
-                  : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-              }`}
-            >
-              {formatHotkey(acc)}
-            </button>
-          ))}
-        </div>
       </Section>
-
+          </>
+        )}
+        {cat === '助手' && (
+          <>
       <Section title="悬浮助手">
         <label className="flex items-center gap-3 text-sm">
           <span className="text-slate-500">闲置自动收起</span>
@@ -296,7 +347,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       <Section title="桌宠">
         <PetSettings />
       </Section>
-
+          </>
+        )}
+        {cat === '集成' && (
+          <>
       <Section title="系统集成">
         <div className="flex flex-col gap-3 text-sm">
           <div className="flex items-center justify-between gap-4">
@@ -397,7 +451,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           )}
         </div>
       </Section>
-
+          </>
+        )}
+        {cat === '屏幕感知' && (
+          <>
       <Section title="屏幕感知（持续被动采集）">
         <p className="mb-3 text-xs leading-5 text-slate-400">
           纸壳助手在本机持续感知屏幕上的文字，命中关键词时把文字（非截图）送解析，自动沉淀为记忆与待办建议——
@@ -441,6 +498,30 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                   }}
                 />
               </label>
+              {settings.screenSenseLocalModel &&
+                modelStatus &&
+                ['ready', 'unloaded'].includes(modelStatus.state) && (
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-emerald-600">✓ 模型已就绪</span>
+                    <button
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
+                      onClick={async () => {
+                        try {
+                          const st = await api.importLocalModel()
+                          setModelStatus(st)
+                          if (['ready', 'unloaded'].includes(st.state)) flash('模型已更换')
+                        } catch (err) {
+                          setModelStatus({
+                            state: 'error',
+                            error: err instanceof Error ? err.message : String(err)
+                          })
+                        }
+                      }}
+                    >
+                      更换模型文件
+                    </button>
+                  </div>
+                )}
               {settings.screenSenseLocalModel &&
                 modelStatus &&
                 !['ready', 'unloaded'].includes(modelStatus.state) && (
@@ -708,7 +789,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           </div>
         )}
       </Section>
-
+          </>
+        )}
+        {cat === '数据' && (
+          <>
       <Section title="数据管理">
         <p className="mb-3 text-xs leading-5 text-slate-400">
           所有数据仅保存在本机（用户目录下的 SQLite 数据库），不会自动上传。提交解析时，所选内容会发送至 纸壳助手 云端解析服务。
@@ -720,6 +804,9 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           清除全部数据
         </button>
       </Section>
+          </>
+        )}
+      </div>
 
       {note && (
         <div

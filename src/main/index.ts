@@ -1,7 +1,7 @@
 import { app, Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions } from 'electron'
 import { initDb, getSettings } from './db'
-import { registerIpc, triggerClipboardCapture } from './ipc'
-import { initHotkey, stopHotkey } from './hotkey'
+import { registerIpc, triggerClipboardCapture, triggerScreenshotCapture } from './ipc'
+import { initHotkey, initScreenshotHotkey, stopHotkey } from './hotkey'
 import { initDropbox } from './dropbox'
 import { ensureFeishu } from './feishu'
 import {
@@ -110,6 +110,7 @@ if (!app.requestSingleInstanceLock()) {
     createTray()
     setTrayRefresh(buildTrayMenu) // 监控启停/暂停时刷新托盘菜单
     initHotkey(getSettings().hotkey, triggerClipboardCapture)
+    initScreenshotHotkey(getSettings().screenshotHotkey, triggerScreenshotCapture)
     initDropbox()
     ensureFeishu()
     applyScreenSenseSettings()

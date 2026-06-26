@@ -62,6 +62,47 @@ export default function Memory(): React.JSX.Element {
         </p>
       </div>
 
+      <input
+        className={input}
+        autoFocus
+        placeholder="搜关键词，回车检索…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void run()
+        }}
+      />
+
+      {busy && <div className="text-sm text-slate-400">检索中…</div>}
+
+      {!busy && hits !== null && hits.length === 0 && (
+        <div className="text-sm text-slate-400">没有匹配的历史内容。</div>
+      )}
+
+      {!busy && hits && hits.length > 0 && (
+        <ul className="stagger flex flex-col gap-2">
+          {hits.map((h) => (
+            <li key={h.source.id}>
+              <button
+                onClick={() => setSourceId(h.source.id)}
+                className="w-full rounded-lg border border-slate-200 bg-surface px-4 py-3 text-left transition-colors hover:border-slate-300"
+              >
+                <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">
+                    {SOURCE_LABELS[h.source.type] ?? h.source.type}
+                  </span>
+                  <span>{h.source.createdAt.slice(0, 16).replace('T', ' ')}</span>
+                  {h.taskCount > 0 && <span>· 派生 {h.taskCount} 条待办</span>}
+                </div>
+                <div className="mt-1.5 line-clamp-2 text-sm leading-6 text-slate-700">
+                  {h.snippet || h.source.excerpt}
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       {dets.length > 0 && (
         <section>
           <h2 className="mb-2 text-xs font-medium text-slate-400">
@@ -114,47 +155,6 @@ export default function Memory(): React.JSX.Element {
             ))}
           </div>
         </section>
-      )}
-
-      <input
-        className={input}
-        autoFocus
-        placeholder="搜关键词，回车检索…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') void run()
-        }}
-      />
-
-      {busy && <div className="text-sm text-slate-400">检索中…</div>}
-
-      {!busy && hits !== null && hits.length === 0 && (
-        <div className="text-sm text-slate-400">没有匹配的历史内容。</div>
-      )}
-
-      {!busy && hits && hits.length > 0 && (
-        <ul className="stagger flex flex-col gap-2">
-          {hits.map((h) => (
-            <li key={h.source.id}>
-              <button
-                onClick={() => setSourceId(h.source.id)}
-                className="w-full rounded-lg border border-slate-200 bg-surface px-4 py-3 text-left transition-colors hover:border-slate-300"
-              >
-                <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">
-                    {SOURCE_LABELS[h.source.type] ?? h.source.type}
-                  </span>
-                  <span>{h.source.createdAt.slice(0, 16).replace('T', ' ')}</span>
-                  {h.taskCount > 0 && <span>· 派生 {h.taskCount} 条待办</span>}
-                </div>
-                <div className="mt-1.5 line-clamp-2 text-sm leading-6 text-slate-700">
-                  {h.snippet || h.source.excerpt}
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
       )}
 
       {sourceId && <SourceModal sourceId={sourceId} onClose={() => setSourceId(null)} />}
