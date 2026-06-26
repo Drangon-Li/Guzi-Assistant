@@ -28,7 +28,7 @@ import {
 } from './shotvault'
 import { extract, unloadLocalModel, startIdleSweep, stopIdleSweep } from './local-model/extractor'
 import { shouldEscalate } from '@shared/local-model-schema'
-import { pickBestByTime } from '@shared/screen-foreground'
+import { pickBestByTime, isAmbiguous } from '@shared/screen-foreground'
 import { pickBest } from '@shared/suggest'
 import { isAppExcluded } from '@shared/app-exclude'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox } from '@shared/chat-layout'
@@ -57,9 +57,11 @@ async function detectAndMaybeRefine(
 ): Promise<{ extraction: LocalExtraction; item: ParsedItem; refined: boolean } | null> {
   const profile = getProfile()
   const selfNames = profile ? [profile.name, ...(profile.nicknames ?? [])].filter(Boolean) : []
-  const best = pickBestByTime(await extract(boxes, selfNames))
+  const items = await extract(boxes, selfNames)
+  const best = pickBestByTime(items)
   if (!best) return null
-  if (shouldEscalate(best, CONF_MIN)) {
+  // 升级条件：本地置信不足/模型自判，或多 strong 候选日期打架(本地选错也高置信，靠 VLM 兜底)
+  if (shouldEscalate(best, CONF_MIN) || isAmbiguous(items)) {
     try {
       const imageDataUrl = cropForegroundDataUrl(png)
       const refinedBest = pickBest(

@@ -9,7 +9,8 @@ import {
   candidateWindows,
   pickBestByTime,
   buildClassifyPrompt,
-  CLASSIFY_SYSTEM_PROMPT
+  CLASSIFY_SYSTEM_PROMPT,
+  isAmbiguous
 } from '../src/shared/screen-foreground.ts'
 
 let pass = 0
@@ -60,6 +61,9 @@ check('区间取末日(选课至7/3)', combineDet('选课时间：2026年6月15�
 check('过去X月X日不+1年', combineDet('博资考笔试时间统一为：6月11日9:30-11:30', NOW) === '2026-06-11T09:30')
 check('只有日期→T00:00', combineDet('开题答辩7月14日', NOW) === '2026-07-14T00:00')
 check('无日期→null', combineDet('随便聊聊', NOW) === null)
+// #2 时间二次错：日期前的聊天时间戳(18:40)不应压过本行「下午四点」
+check('忽略日期前的聊天时间戳', combineDet('李世龙 18:40 明天下午四点开会', NOW) === '2026-06-26T16:00')
+check('区间起始时间不绑到末日', combineDet('选课6月15日14:00至7月3日', NOW) === '2026-07-03T00:00')
 
 // ---- candidateWindows ----
 const lines1 = ['【A类活动预告】主题：AI', '时间：6月28日14:00-16:15', '主讲人：李斯特']
@@ -76,6 +80,13 @@ check(
   pickBestByTime([mk('2026-06-23T00:00', 0.95), mk('2026-07-03T12:00', 0.6)])?.isoTime === '2026-07-03T12:00'
 )
 check('空→null', pickBestByTime([]) === null)
+
+// ---- isAmbiguous：多 strong 候选日期打架 → 升级 VLM ----
+check('单候选→不歧义', isAmbiguous([mk('2026-06-26T18:00', 0.9)]) === false)
+check('同日多候选→不歧义', isAmbiguous([mk('2026-06-26T18:00', 0.9), mk('2026-06-26T09:00', 0.8)]) === false)
+check('异日多 strong→歧义', isAmbiguous([mk('2026-06-23T00:00', 0.9), mk('2026-07-03T12:00', 0.85)]) === true)
+check('弱候选(无日期)不计入', isAmbiguous([mk('2026-06-26T18:00', 0.9), mk(null, 0.8)]) === false)
+check('空→不歧义', isAmbiguous([]) === false)
 
 // ---- prompt ----
 check('分类提示词含拒列表项/讨论', /列表项|讨论|个人看法/.test(CLASSIFY_SYSTEM_PROMPT))
