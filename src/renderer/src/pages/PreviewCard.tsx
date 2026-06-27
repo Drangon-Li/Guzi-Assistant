@@ -16,7 +16,13 @@ type State =
   | { phase: 'suggestion'; item: ParsedItem; sourceText: string; hits: string[] }
   | {
       phase: 'local'
-      local: LocalExtraction & { item: ParsedItem; sourceText: string; detectionId?: string }
+      local: LocalExtraction & {
+        item: ParsedItem
+        sourceText: string
+        detectionId?: string
+        verifying?: boolean
+        verified?: boolean
+      }
     }
   | { phase: 'nohit'; sourceText: string }
   | { phase: 'done'; message: string }
@@ -146,6 +152,8 @@ export default function PreviewCard(): React.JSX.Element | null {
             item: ParsedItem
             sourceText: string
             detectionId?: string
+            verifying?: boolean
+            verified?: boolean
           }
         }
       ).localSuggestion
@@ -425,6 +433,12 @@ export default function PreviewCard(): React.JSX.Element | null {
             <div className="text-xs text-slate-500">
               {state.local.isoTime ? fmtTime(state.local.isoTime) : '未识别到具体时间'}
             </div>
+            {state.local.verifying && !state.local.verified && (
+              <div className="text-[10px] text-slate-400">云端校正中…</div>
+            )}
+            {state.local.verified && (
+              <div className="text-[10px] text-emerald-600">✓ 已云端校正</div>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"

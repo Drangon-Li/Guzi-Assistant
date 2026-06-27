@@ -151,6 +151,8 @@ export interface AppSettings {
   screenSenseRetentionDays: number
   /** 检测到日程时是否主动弹卡；false=完全被动（只进「记忆」历史，不打扰）。默认 true */
   screenSensePopup: boolean
+  /** 云端校正（B）：本地秒出后台并行打 VLM 校正弹卡。默认 false（opt-in，耗 credits） */
+  screenSenseCloudVerify: boolean
   /** 检测卡/AI 建议卡闲置自动隐藏秒数；0=不自动隐藏（一直挂着）。默认 60 */
   screenSenseCardHideSec: number
   /** 悬浮助手闲置自动收起秒数；0=不自动收起。默认 60 */
