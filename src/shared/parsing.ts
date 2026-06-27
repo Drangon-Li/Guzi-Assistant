@@ -138,6 +138,8 @@ export interface AddedInfo {
   duplicate: boolean
   /** duplicate=true 时回传被拦下的事项（含已应用的 patch），便于用户选择强制添加 */
   item?: ParsedItem
+  /** 新建任务的 id（供云端校正回来更新已建任务，B Phase 1.5） */
+  taskId?: string
 }
 
 export interface AssistantTurnResult {
