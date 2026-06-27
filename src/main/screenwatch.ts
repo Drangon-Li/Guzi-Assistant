@@ -15,7 +15,8 @@ import {
   getSource,
   setDetectionStatus,
   findDuplicateTitle,
-  addCorrection
+  addCorrection,
+  updateTask
 } from './db'
 import { textSimilarity } from '@shared/correction-memory'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
@@ -39,7 +40,7 @@ import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox 
 import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
-import type { LocalExtraction, ParseSummary, ScanResult, TaskStatus } from '@shared/types'
+import type { LocalExtraction, ParseSummary, ScanResult, TaskRecord, TaskStatus } from '@shared/types'
 
 function emptySummary(error: string | null): ParseSummary {
   return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
@@ -102,6 +103,27 @@ function cropForegroundDataUrl(png: string): string | null {
 // ---------- 云端校正（B Phase 1）：本地先弹卡，远端后台异步校正同一张卡 ----------
 let currentPopDetectionId: string | null = null // 当前弹卡对应的检测；校正回来需一致才原地更新
 
+// B Phase 1.5：用户在校正回来前就接受了 → 记下「检测→已建任务」，校正回来去更新这条任务
+const acceptedTaskByDetection = new Map<string, string>()
+function rememberAcceptedTask(detectionId: string, taskId: string): void {
+  acceptedTaskByDetection.set(detectionId, taskId)
+  if (acceptedTaskByDetection.size > 30) {
+    const oldest = acceptedTaskByDetection.keys().next().value // Map 保插入序，删最旧
+    if (oldest) acceptedTaskByDetection.delete(oldest)
+  }
+}
+
+/** 远端精修 ParsedItem → 任务更新 patch（标题/起止时间/归属/地点）。 */
+function correctionPatch(refined: ParsedItem): Partial<TaskRecord> {
+  return {
+    title: refined.title,
+    startTime: refined.start_time,
+    dueTime: refined.due_time,
+    belongsToUser: refined.belongs_to_user,
+    location: refined.location
+  }
+}
+
 /** 远端精修 ParsedItem → localSuggestion 同形载荷（卡显示 title/isoTime、接受用 item）。 */
 function correctedSuggestion(refined: ParsedItem, sourceText: string, detectionId: string): Record<string, unknown> {
   const iso = refined.due_time ?? refined.start_time
@@ -147,11 +169,22 @@ async function verifyAndCorrect(
       return
     }
     const titleDiff = textSimilarity(refined.title, local.title) < 0.85
-    if (titleDiff || refined.belongs_to_user !== local.belongsToUser) {
+    const differs = titleDiff || refined.belongs_to_user !== local.belongsToUser
+    if (differs) {
       addCorrection({ inputText: key, isTodo: true, title: refined.title, belongs: refined.belongs_to_user })
       debugEvent('cloud', `校正入记忆：「${local.title}」→「${refined.title}」`)
     }
-    if (isPreviewVisible() && currentPopDetectionId === detectionId) {
+    const acceptedTaskId = acceptedTaskByDetection.get(detectionId)
+    if (acceptedTaskId) {
+      // B Phase 1.5：用户已接受（卡已关）→ 校正回来去更新这条已建任务
+      acceptedTaskByDetection.delete(detectionId)
+      if (differs) {
+        updateTask(acceptedTaskId, correctionPatch(refined))
+        broadcast('eshell:tasks-updated')
+        debugEvent('cloud', `云端校正已更新已建任务：「${refined.title}」`)
+      }
+    } else if (isPreviewVisible() && currentPopDetectionId === detectionId) {
+      // 卡还在显示这条检测 → 原地更新卡
       showPreview(correctedSuggestion(refined, sourceText, detectionId))
       debugEvent('cloud', `云端校正完成：「${refined.title}」`)
     }
@@ -292,7 +325,7 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
     return { candidate: 0, title: item.title, time, duplicate: true, item }
   }
   const status: TaskStatus = item.due_time || item.start_time ? 'scheduled' : 'not_started'
-  createTask({
+  const task = createTask({
     sourceId: source.id,
     title: item.title,
     itemType: item.item_type,
@@ -313,7 +346,7 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
   })
   finalizeShot(textHash(sourceText), source.id) // 把捕获时存的临时加密缩略图落实到本来源（无则 no-op）
   broadcast('eshell:tasks-updated')
-  return { candidate: 0, title: item.title, time, duplicate: false }
+  return { candidate: 0, title: item.title, time, duplicate: false, taskId: task.id }
 }
 
 /** 按需 AI 精修:对屏幕文字跑云端解析、挑最优项（供建议卡「AI 精确解析」按钮）。无明确事项返回 null。 */
@@ -362,7 +395,11 @@ export function acceptLocal(payload: {
   detectionId?: string
 }): AddedInfo {
   const info = acceptSuggestion({ item: payload.item, sourceText: payload.sourceText })
-  if (payload.detectionId) setDetectionStatus(payload.detectionId, 'accepted')
+  if (payload.detectionId) {
+    setDetectionStatus(payload.detectionId, 'accepted')
+    // B Phase 1.5：记下「检测→已建任务」，云端校正若在接受后才回来，去更新这条任务
+    if (info.taskId) rememberAcceptedTask(payload.detectionId, info.taskId)
+  }
   return info
 }
 
