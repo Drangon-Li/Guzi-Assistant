@@ -14,8 +14,10 @@ import {
   getSettings,
   getSource,
   setDetectionStatus,
-  findDuplicateTitle
+  findDuplicateTitle,
+  addCorrection
 } from './db'
+import { textSimilarity } from '@shared/correction-memory'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
@@ -121,12 +123,16 @@ function correctedSuggestion(refined: ParsedItem, sourceText: string, detectionI
   }
 }
 
-/** 后台异步校正：打远端 VLM；回来若卡还在显示这条检测则原地更新，否则放弃(用户已操作/换屏)。 */
+/**
+ * 后台异步校正：打远端 VLM；回来 ① 若与本地不同则存校正记忆(Phase 2，让本地越用越聪明)
+ * ② 卡还在显示这条检测则原地更新，否则放弃(用户已操作/换屏)。
+ */
 async function verifyAndCorrect(
   imageDataUrl: string | null,
   text: string,
   detectionId: string,
-  sourceText: string
+  sourceText: string,
+  local: LocalExtraction
 ): Promise<void> {
   try {
     const refined = pickBest(
@@ -134,7 +140,17 @@ async function verifyAndCorrect(
         imageDataUrl ? { imageDataUrl, hint: HINTS.screen_scan_vision } : { text, hint: HINTS.screen_scan }
       )
     )
-    if (!refined) return
+    // Phase 2 捕获校正：以本地候选片段为键，记下 VLM 的纠正
+    const key = local.evidenceText || sourceText.slice(0, 200)
+    if (!refined) {
+      addCorrection({ inputText: key, isTodo: false, title: null, belongs: null }) // VLM 判非待办=本地假阳性
+      return
+    }
+    const titleDiff = textSimilarity(refined.title, local.title) < 0.85
+    if (titleDiff || refined.belongs_to_user !== local.belongsToUser) {
+      addCorrection({ inputText: key, isTodo: true, title: refined.title, belongs: refined.belongs_to_user })
+      debugEvent('cloud', `校正入记忆：「${local.title}」→「${refined.title}」`)
+    }
     if (isPreviewVisible() && currentPopDetectionId === detectionId) {
       showPreview(correctedSuggestion(refined, sourceText, detectionId))
       debugEvent('cloud', `云端校正完成：「${refined.title}」`)
@@ -240,7 +256,7 @@ export async function scanOnce(): Promise<ScanResult> {
       if (screenSenseCloudVerify) {
         currentPopDetectionId = detection.id
         const fg = cropForegroundDataUrl(png) // 趁 png 还在裁前景图（finally 才删）
-        void verifyAndCorrect(fg, text, detection.id, text)
+        void verifyAndCorrect(fg, text, detection.id, text, extraction)
       }
       applyExternalPetSay('发现一个日程~', 'waiting')
       return { status: 'suggested', message: `检测到可能的日程：${extraction.title}` }
@@ -547,7 +563,7 @@ async function watchTick(): Promise<void> {
     if (screenSenseCloudVerify) {
       currentPopDetectionId = detection.id
       const fg = cropForegroundDataUrl(png) // 趁 png 还在裁前景图（finally 才删）
-      void verifyAndCorrect(fg, text, detection.id, text)
+      void verifyAndCorrect(fg, text, detection.id, text, extraction)
     }
     applyExternalPetSay('发现一个日程~', 'waiting')
   } catch {

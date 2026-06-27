@@ -11,6 +11,8 @@ import {
   CLASSIFY_SYSTEM_PROMPT,
   buildClassifyPrompt
 } from '@shared/screen-foreground'
+import { exactCorrection, relevantCorrections, buildCorrectionFewShot } from '@shared/correction-memory'
+import { listCorrections } from '../db'
 import type { TextBox } from '@shared/chat-layout'
 import type { LocalExtraction, LocalModelState, LocalModelStatus } from '@shared/types'
 import { MODEL_URI, modelDir, modelPath } from './paths'
@@ -174,6 +176,7 @@ async function doExtract(boxes: TextBox[], selfNames?: string[]): Promise<LocalE
     const bands = foregroundBands(boxes)
     const lines = bands.map((b) => b.text)
     const timestamps = messageTimestamps(boxes, now) // 聊天时间戳(判消息新旧)
+    const corrections = listCorrections() // Phase 2 校正记忆
     const all: LocalExtraction[] = []
     for (const { detW, modelW, lineIndex } of candidateWindows(lines)) {
       const detIso = combineDet(detW, now) // 行内确定性日期+时间
@@ -185,13 +188,38 @@ async function doExtract(boxes: TextBox[], selfNames?: string[]): Promise<LocalE
       const evText = [bands[lineIndex - 1]?.text, bands[lineIndex]?.text, bands[lineIndex + 1]?.text]
         .filter(Boolean)
         .join('\n')
+
+      // Phase 2 校正记忆：精确命中 → 直接套用纠正(等价语义缓存，且省一次模型调用)
+      const ovr = exactCorrection(modelW, corrections)
+      if (ovr) {
+        if (ovr.isTodo && ovr.title) {
+          all.push({
+            title: ovr.title,
+            isoTime: detIso,
+            deadline: false,
+            belongsToUser: ovr.belongs ?? 'uncertain',
+            hits: [],
+            confidence: 0.95,
+            needsVlm: false,
+            strong: detIso !== null,
+            staleMessage: stale,
+            evidenceTop: evTop,
+            evidenceBottom: evBottom,
+            evidenceText: evText
+          })
+        }
+        continue // isTodo=false：学过的假阳性 → 跳过，不建候选
+      }
+      // 相似命中 → 注入 few-shot，让本地在这类内容上对齐过去的云端纠正
+      const fewShot = buildCorrectionFewShot(relevantCorrections(modelW, corrections))
+
       const ctx = await m.createContext({ contextSize: CONTEXT_SIZE })
       try {
         const session = new LlamaChatSession({
           contextSequence: ctx.getSequence(),
           systemPrompt: CLASSIFY_SYSTEM_PROMPT
         })
-        const res = await session.prompt(buildClassifyPrompt(modelW, selfNames), {
+        const res = await session.prompt(buildClassifyPrompt(modelW, selfNames, fewShot || undefined), {
           grammar: g,
           maxTokens: CLASSIFY_MAX_TOKENS,
           temperature: 0 // 抽取贪心解码：确定可复现，且通常更准
