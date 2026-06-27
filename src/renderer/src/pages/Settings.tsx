@@ -628,6 +628,27 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               </label>
             </div>
 
+            <div className="border-t border-slate-100 pt-4">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
+                  云端校正
+                  <span className="ml-2 text-xs text-slate-400">
+                    本地秒出后，后台打云端 VLM 校正这张卡（更准，但耗 credits）
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSenseCloudVerify}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    setSettings({ ...settings, screenSenseCloudVerify: next })
+                    await api.saveSettings({ screenSenseCloudVerify: next })
+                    flash(next ? '已开启云端校正' : '已关闭云端校正')
+                  }}
+                />
+              </label>
+            </div>
+
             {settings.screenSensePopup && (
               <label className="flex items-center gap-3 pl-1 text-sm">
                 <span className="text-slate-500">弹窗无操作自动隐藏</span>

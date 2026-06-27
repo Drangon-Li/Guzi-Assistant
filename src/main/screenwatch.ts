@@ -55,15 +55,17 @@ const FG_Y_TOP = 0.025 // 去顶部菜单栏
 async function detectAndMaybeRefine(
   boxes: TextBox[],
   text: string,
-  png: string
+  png: string,
+  cloudVerify = false
 ): Promise<{ extraction: LocalExtraction; item: ParsedItem; refined: boolean } | null> {
   const profile = getProfile()
   const selfNames = profile ? [profile.name, ...(profile.nicknames ?? [])].filter(Boolean) : []
   const items = await extract(boxes, selfNames)
   const best = pickBestByTime(items)
   if (!best) return null
-  // 升级条件：本地置信不足/模型自判，或多 strong 候选日期打架(本地选错也高置信，靠 VLM 兜底)
-  if (shouldEscalate(best, CONF_MIN) || isAmbiguous(items)) {
+  // 云端校正开启时不在此阻塞升级（本地先弹卡、远端后台异步校正，见 verifyAndCorrect）；
+  // 否则按需阻塞升级：本地置信不足/模型自判，或多 strong 候选日期打架(本地选错也高置信)。
+  if (!cloudVerify && (shouldEscalate(best, CONF_MIN) || isAmbiguous(items))) {
     try {
       const imageDataUrl = cropForegroundDataUrl(png)
       const refinedBest = pickBest(
@@ -92,6 +94,53 @@ function cropForegroundDataUrl(png: string): string | null {
     return `data:image/jpeg;base64,${sized.toJPEG(72).toString('base64')}`
   } catch {
     return null
+  }
+}
+
+// ---------- 云端校正（B Phase 1）：本地先弹卡，远端后台异步校正同一张卡 ----------
+let currentPopDetectionId: string | null = null // 当前弹卡对应的检测；校正回来需一致才原地更新
+
+/** 远端精修 ParsedItem → localSuggestion 同形载荷（卡显示 title/isoTime、接受用 item）。 */
+function correctedSuggestion(refined: ParsedItem, sourceText: string, detectionId: string): Record<string, unknown> {
+  const iso = refined.due_time ?? refined.start_time
+  return {
+    localSuggestion: {
+      title: refined.title,
+      isoTime: iso,
+      deadline: !!refined.due_time,
+      belongsToUser: refined.belongs_to_user,
+      hits: [],
+      confidence: refined.confidence,
+      needsVlm: false,
+      strong: !!iso,
+      item: refined,
+      sourceText,
+      detectionId,
+      verified: true
+    }
+  }
+}
+
+/** 后台异步校正：打远端 VLM；回来若卡还在显示这条检测则原地更新，否则放弃(用户已操作/换屏)。 */
+async function verifyAndCorrect(
+  imageDataUrl: string | null,
+  text: string,
+  detectionId: string,
+  sourceText: string
+): Promise<void> {
+  try {
+    const refined = pickBest(
+      await parseToItems(
+        imageDataUrl ? { imageDataUrl, hint: HINTS.screen_scan_vision } : { text, hint: HINTS.screen_scan }
+      )
+    )
+    if (!refined) return
+    if (isPreviewVisible() && currentPopDetectionId === detectionId) {
+      showPreview(correctedSuggestion(refined, sourceText, detectionId))
+      debugEvent('cloud', `云端校正完成：「${refined.title}」`)
+    }
+  } catch {
+    /* 校正失败静默：本地结果已在卡上 */
   }
 }
 
@@ -148,7 +197,7 @@ export async function scanOnce(): Promise<ScanResult> {
     }
     debugShot(png)
 
-    const { screenSenseKeepShots } = getSettings()
+    const { screenSenseKeepShots, screenSenseCloudVerify } = getSettings()
     // png 保留到检测/升级裁剪之后再删（升级需原图裁前景），故包一层 try/finally
     try {
       const boxes = await ocrImageDetailed(png)
@@ -162,7 +211,7 @@ export async function scanOnce(): Promise<ScanResult> {
 
       // 本地优先：本地小模型即时精筛（前景+日期锚定），低置信自动升级 VLM（裁前景图）
       const t0 = Date.now()
-      const hit = await detectAndMaybeRefine(boxes, text, png)
+      const hit = await detectAndMaybeRefine(boxes, text, png, screenSenseCloudVerify)
       debugEvent('timing', `本地抽取耗时 ${Date.now() - t0}ms`)
       if (!hit) {
         debugEvent('detect', '本地模型未发现明确待办')
@@ -186,8 +235,13 @@ export async function scanOnce(): Promise<ScanResult> {
         app: null
       })
       showPreview({
-        localSuggestion: { ...extraction, item, sourceText: text, detectionId: detection.id }
+        localSuggestion: { ...extraction, item, sourceText: text, detectionId: detection.id, verifying: screenSenseCloudVerify }
       })
+      if (screenSenseCloudVerify) {
+        currentPopDetectionId = detection.id
+        const fg = cropForegroundDataUrl(png) // 趁 png 还在裁前景图（finally 才删）
+        void verifyAndCorrect(fg, text, detection.id, text)
+      }
       applyExternalPetSay('发现一个日程~', 'waiting')
       return { status: 'suggested', message: `检测到可能的日程：${extraction.title}` }
     } finally {
@@ -392,7 +446,8 @@ async function watchTick(): Promise<void> {
   ticking = true
   let png: string | null = null
   try {
-    const { screenSenseExcludedApps, screenSenseKeepShots, screenSensePopup } = getSettings()
+    const { screenSenseExcludedApps, screenSenseKeepShots, screenSensePopup, screenSenseCloudVerify } =
+      getSettings()
     // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己。全屏感知，不再按进程名单过滤。
     const frontApp = await getFrontmostApp()
     const appChanged = frontApp !== lastDebugApp
@@ -441,7 +496,7 @@ async function watchTick(): Promise<void> {
     cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
 
     // 本地小模型精筛（前景+日期锚定）+ 低置信自动升级 VLM（裁前景图）
-    const hit = await detectAndMaybeRefine(boxes, text, png)
+    const hit = await detectAndMaybeRefine(boxes, text, png, screenSenseCloudVerify)
     if (!hit) {
       debugEvent('detect', '本地模型未发现明确待办')
       return
@@ -481,8 +536,19 @@ async function watchTick(): Promise<void> {
     }
     debugEvent('popup', `弹出检测卡：「${extraction.title}」`)
     showPreview({
-      localSuggestion: { ...extraction, item: hit.item, sourceText: text, detectionId: detection.id }
+      localSuggestion: {
+        ...extraction,
+        item: hit.item,
+        sourceText: text,
+        detectionId: detection.id,
+        verifying: screenSenseCloudVerify
+      }
     })
+    if (screenSenseCloudVerify) {
+      currentPopDetectionId = detection.id
+      const fg = cropForegroundDataUrl(png) // 趁 png 还在裁前景图（finally 才删）
+      void verifyAndCorrect(fg, text, detection.id, text)
+    }
     applyExternalPetSay('发现一个日程~', 'waiting')
   } catch {
     // 持续监控全程静默：截图/OCR/解析/无 endpoint 等任何失败都不打扰

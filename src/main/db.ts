@@ -165,6 +165,7 @@ export function getSettings(): AppSettings {
     screenSenseKeepShots: map.screenSenseKeepShots !== 'false',
     screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
     screenSensePopup: map.screenSensePopup !== 'false',
+    screenSenseCloudVerify: map.screenSenseCloudVerify === 'true',
     screenSenseCardHideSec:
       map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 60,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
