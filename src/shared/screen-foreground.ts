@@ -283,8 +283,9 @@ export const CLASSIFY_SYSTEM_PROMPT = [
   '"6月25日 周四 下午9:05" → []；"◎5月22日 培养部学生培养" → []'
 ].join('\n')
 
-/** 逐候选用户消息：自称(供归属) + 待判文字。 */
-export function buildClassifyPrompt(window: string, selfNames?: string[]): string {
+/** 逐候选用户消息：自称(供归属) + 校正记忆 few-shot(Phase 2) + 待判文字。 */
+export function buildClassifyPrompt(window: string, selfNames?: string[], fewShot?: string): string {
   const self = selfNames?.filter(Boolean).length ? `用户本人常用称呼：${selfNames.join('、')}。\n` : ''
-  return `${self}判断下面这段是否用户的具体待办，是就抽一个，不是返回 []：\n"""\n${window.slice(0, 400)}\n"""`
+  const shots = fewShot ? `参考你过去在相似内容上被云端纠正的正确判断：\n${fewShot}\n\n` : ''
+  return `${self}${shots}判断下面这段是否用户的具体待办，是就抽一个，不是返回 []：\n"""\n${window.slice(0, 400)}\n"""`
 }
