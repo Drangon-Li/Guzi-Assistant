@@ -621,3 +621,10 @@ export function wipeAll(): void {
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')
 }
+
+/** 清空「记忆」：来源历史(sources + FTS)与屏幕识别历史(detections)。保留任务/校正记忆/档案。 */
+export function wipeMemory(): void {
+  db.exec('DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections;')
+  db.pragma('wal_checkpoint(TRUNCATE)')
+  db.exec('VACUUM')
+}

@@ -39,6 +39,15 @@ export default function Memory(): React.JSX.Element {
   }
   const freshCount = dets.filter((d) => d.status === 'new').length
 
+  const wipeMemory = async (): Promise<void> => {
+    if (!window.confirm('将清空所有屏幕识别历史与来源记忆，无法恢复。任务与个人档案不受影响。确定清空？'))
+      return
+    await api.wipeMemory()
+    setHits(null)
+    setQuery('')
+    setDets([])
+  }
+
   const run = async (): Promise<void> => {
     const q = query.trim()
     if (!q) {
@@ -55,11 +64,19 @@ export default function Memory(): React.JSX.Element {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 pb-16">
-      <div>
-        <h1 className="text-lg font-semibold">记忆</h1>
-        <p className="mt-0.5 text-xs text-slate-400">
-          搜索捕获过的历史内容（屏幕 / 剪贴板 / 文件），定位回来源。全部本地，不上传。
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold">记忆</h1>
+          <p className="mt-0.5 text-xs text-slate-400">
+            搜索捕获过的历史内容（屏幕 / 剪贴板 / 文件），定位回来源。全部本地，不上传。
+          </p>
+        </div>
+        <button
+          onClick={() => void wipeMemory()}
+          className="mt-0.5 shrink-0 rounded-lg px-2.5 py-1 text-xs text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+        >
+          清空所有记忆
+        </button>
       </div>
 
       <input

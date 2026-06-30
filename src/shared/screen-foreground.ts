@@ -194,6 +194,9 @@ export function candidateWindows(lines: string[]): CandidateWindow[] {
 
 const TS_CENTER_LO = 0.35 // 居中行：行中心 x 在 [0.35,0.65] 视为时间戳/系统分隔
 const TS_CENTER_HI = 0.65
+// 非居中但含「明确日历日期」的行(如「06月25日 21:08」)也认作时间戳：部分 IM 时间戳靠左/靠右，
+// 居中判定会漏；消息气泡几乎不会是纯「X月X日 HH:MM」，误判风险低(纯时刻行仍要求居中)。
+const ABS_DATE_RE = /\d{4}\s*[-/年]\s*\d{1,2}|\d{1,2}\s*月\s*\d{1,2}\s*[日号]/
 
 /** 解析聊天时间戳行的「发送日期」→ YYYY-MM-DD。须含具体时刻才算时间戳行；无日期词默认今天。否则 null。 */
 export function chatSentDateKey(text: string, now: Date): string | null {
@@ -214,16 +217,28 @@ export function chatSentDateKey(text: string, now: Date): string | null {
   return `${date.y}-${pad(date.mo)}-${pad(date.d)}`
 }
 
-/** 从 OCR 框取「居中的聊天时间戳」→ {y, dateKey}，按 y 升序。 */
+/** 从 OCR 框取「聊天时间戳」→ {y, dateKey}，按 y 升序。居中行全认；非居中行须含明确日历日期。 */
 export function messageTimestamps(boxes: TextBox[], now: Date): { y: number; dateKey: string }[] {
   const out: { y: number; dateKey: string }[] = []
   for (const b of boxes) {
-    const cx = b.x + b.w / 2
-    if (cx < TS_CENTER_LO || cx > TS_CENTER_HI) continue
     const dateKey = chatSentDateKey(b.text, now)
-    if (dateKey) out.push({ y: b.y, dateKey })
+    if (!dateKey) continue
+    const cx = b.x + b.w / 2
+    const centered = cx >= TS_CENTER_LO && cx <= TS_CENTER_HI
+    if (!centered && !ABS_DATE_RE.test(b.text)) continue // 非居中仅认带明确日期的分隔行
+    out.push({ y: b.y, dateKey })
   }
   return out.sort((a, b) => a.y - b.y)
+}
+
+/** 候选(在 candidateY 处)上方最近时间戳的 dateKey；无→null。 */
+function nearestTimestampKey(candidateY: number, timestamps: { y: number; dateKey: string }[]): string | null {
+  let nearest: string | null = null
+  for (const ts of timestamps) {
+    if (ts.y <= candidateY) nearest = ts.dateKey
+    else break // 升序，第一个在候选下方的之后都更下方
+  }
+  return nearest
 }
 
 /** 候选(在 candidateY 处)上方最近时间戳是否「非今天」→ 旧消息。无时间戳→false(照常处理)。 */
@@ -232,14 +247,25 @@ export function isStaleMessage(
   timestamps: { y: number; dateKey: string }[],
   now: Date
 ): boolean {
-  let nearest: string | null = null
-  for (const ts of timestamps) {
-    if (ts.y <= candidateY) nearest = ts.dateKey
-    else break // 升序，第一个在候选下方的之后都更下方
-  }
+  const nearest = nearestTimestampKey(candidateY, timestamps)
   if (!nearest) return false
   const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
   return nearest !== today
+}
+
+/**
+ * 候选上方最近聊天时间戳的「发送日期」→ Date(当地零点)；无时间戳返回 null。
+ * 供把相对日期(明天/后天/下周X)锚定到「消息发送日」而非「今天」(#2)：
+ * 几天前发的「明天六点开会」，应算消息发送日的次日，而非今天的次日。
+ */
+export function sentDateAnchor(
+  candidateY: number,
+  timestamps: { y: number; dateKey: string }[]
+): Date | null {
+  const key = nearestTimestampKey(candidateY, timestamps)
+  if (!key) return null
+  const [y, mo, d] = key.split('-').map(Number)
+  return new Date(y, mo - 1, d)
 }
 
 // ---------- 选优 ----------

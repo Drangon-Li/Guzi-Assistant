@@ -695,7 +695,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     <span className="text-slate-500">检查间隔</span>
                     <input
                       type="number"
-                      min={2}
+                      min={1}
                       max={60}
                       className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
                       value={settings.screenSenseIntervalSec}
@@ -703,7 +703,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                         setSettings({ ...settings, screenSenseIntervalSec: Number(e.target.value) })
                       }
                       onBlur={async (e) => {
-                        const v = Math.min(60, Math.max(2, Number(e.target.value) || 5))
+                        const v = Math.min(60, Math.max(1, Number(e.target.value) || 5))
                         setSettings({ ...settings, screenSenseIntervalSec: v })
                         await api.saveSettings({ screenSenseIntervalSec: v })
                         flash('已保存监控间隔')

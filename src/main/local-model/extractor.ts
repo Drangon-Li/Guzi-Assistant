@@ -8,6 +8,7 @@ import {
   combineDet,
   messageTimestamps,
   isStaleMessage,
+  sentDateAnchor,
   CLASSIFY_SYSTEM_PROMPT,
   buildClassifyPrompt
 } from '@shared/screen-foreground'
@@ -179,8 +180,11 @@ async function doExtract(boxes: TextBox[], selfNames?: string[]): Promise<LocalE
     const corrections = listCorrections() // Phase 2 校正记忆
     const all: LocalExtraction[] = []
     for (const { detW, modelW, lineIndex } of candidateWindows(lines)) {
-      const detIso = combineDet(detW, now) // 行内确定性日期+时间
-      const stale = isStaleMessage(bands[lineIndex]?.y ?? 1, timestamps, now) // 非今天发的消息→旧
+      const candidateY = bands[lineIndex]?.y ?? 1
+      // 相对日期(明天/后天)锚定到「消息发送日」而非今天：有聊天时间戳用它，否则回退 now(#2)
+      const anchor = sentDateAnchor(candidateY, timestamps) ?? now
+      const detIso = combineDet(detW, anchor) // 行内确定性日期+时间
+      const stale = isStaleMessage(candidateY, timestamps, now) // 非今天发的消息→旧
       // 证据条 y 区间：依据行(本行)+上一行(detW 含的标题行)，供裁剪
       const evTop = Math.max(0, (lineIndex > 0 ? bands[lineIndex - 1].y : bands[lineIndex].y) - 0.008)
       const evBottom = Math.min(1, (bands[lineIndex]?.y ?? 0) + 0.05)

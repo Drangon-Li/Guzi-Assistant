@@ -12,7 +12,8 @@ import {
   saveSettings,
   searchSources,
   updateTask,
-  wipeAll
+  wipeAll,
+  wipeMemory
 } from './db'
 import { learnNotMine } from '@shared/belonging-learn'
 import {
@@ -37,6 +38,7 @@ import {
   aiParse,
   applyScreenSenseSettings,
   dismissDetection,
+  onPreviewHidden,
   scanOnce
 } from './screenwatch'
 import { downloadLocalModel, getLocalModelStatus, importLocalModel } from './local-model/extractor'
@@ -135,10 +137,12 @@ export function registerIpc(): void {
   ipcMain.handle('preview:cancel', (_e, captureId: string) => {
     cancelPending(captureId)
     hidePreview()
+    onPreviewHidden() // 队列卡：当前关掉 → 弹下一张
   })
   ipcMain.handle('preview:hide', () => {
     clearPendings()
     hidePreview()
+    onPreviewHidden() // 队列卡：当前关掉 → 弹下一张
   })
 
   ipcMain.handle('tasks:list', () => listTasks())
@@ -186,6 +190,13 @@ export function registerIpc(): void {
   ipcMain.handle('data:wipe', () => {
     wipeAll()
     clearAllShots() // 一键清除覆盖加密截图（#53）
+    broadcast('eshell:tasks-updated')
+  })
+
+  // 记忆页「清空所有记忆」：清来源历史 + 屏幕识别历史 + 加密截图；保留任务/校正记忆/档案
+  ipcMain.handle('memory:wipe', () => {
+    wipeMemory()
+    clearAllShots()
     broadcast('eshell:tasks-updated')
   })
 

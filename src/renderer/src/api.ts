@@ -52,6 +52,7 @@ export const api = {
   deleteSource: (id: string) => inv<void>('source:delete', id),
   searchMemory: (query: string) => inv<MemoryHit[]>('memory:search', query),
   readShot: (id: string) => inv<string | null>('memory:read-shot', id),
+  wipeMemory: () => inv<void>('memory:wipe'),
 
   wipeData: () => inv<void>('data:wipe'),
   permissions: () => inv<PermissionStatus>('permissions:get'),
