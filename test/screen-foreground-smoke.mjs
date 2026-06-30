@@ -14,7 +14,8 @@ import {
   isAmbiguous,
   chatSentDateKey,
   messageTimestamps,
-  isStaleMessage
+  isStaleMessage,
+  sentDateAnchor
 } from '../src/shared/screen-foreground.ts'
 
 let pass = 0
@@ -62,6 +63,21 @@ check('时间戳按 y 升序', ts[0].y < ts[1].y)
 check('候选在昨天戳下方→旧', isStaleMessage(0.55, ts, NOW) === true)
 check('候选在今天戳下方→不旧', isStaleMessage(0.3, ts, NOW) === false)
 check('无时间戳→不旧', isStaleMessage(0.5, [], NOW) === false)
+
+// ---- #2 相对日期锚定到「消息发送日」（NOW2=2026-06-30，消息是 06-25 发的）----
+const NOW2 = new Date('2026-06-30T14:00:00')
+// 左上角靠左时间戳「06月25日 21:08」(cx≈0.14 非居中)：含明确日期 → 仍认作时间戳
+const anchorBoxes = [
+  { text: '06月25日 21:08', x: 0.08, y: 0.05, w: 0.12, h: 0.02 }, // 非居中但带日期
+  { text: '21:08 该睡了', x: 0.05, y: 0.07, w: 0.12, h: 0.02 } // 非居中纯时刻 → 不认(防误判)
+]
+const ats = messageTimestamps(anchorBoxes, NOW2)
+check('非居中带日期戳被识别', ats.length === 1 && ats[0].dateKey === '2026-06-25')
+const anchor = sentDateAnchor(0.3, ats) // 候选在戳下方
+check('sentDateAnchor 取发送日', anchor?.getFullYear() === 2026 && anchor?.getMonth() === 5 && anchor?.getDate() === 25)
+check('明天锚到发送日次日(06-26 非 07-01)', combineDet('明天下午六点开会', anchor) === '2026-06-26T18:00')
+check('对照:不锚定则按今天=07-01', combineDet('明天下午六点开会', NOW2) === '2026-07-01T18:00')
+check('无时间戳→sentDateAnchor=null', sentDateAnchor(0.3, []) === null)
 
 // ---- parseTimeOfDay ----
 check('下午四点=16:00', hm(parseTimeOfDay('明天下午四点开会')) === '16:0')

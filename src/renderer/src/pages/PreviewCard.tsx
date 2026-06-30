@@ -22,6 +22,8 @@ type State =
         detectionId?: string
         verifying?: boolean
         verified?: boolean
+        queueIndex?: number // 多任务队列：第几张
+        queueTotal?: number // 多任务队列：共几张
       }
     }
   | { phase: 'nohit'; sourceText: string }
@@ -118,7 +120,7 @@ export default function PreviewCard(): React.JSX.Element | null {
       const info = await api.suggestionAccept({ item, sourceText })
       if (modify) {
         void api.focusMain('schedule')
-        setState({ phase: 'idle' })
+        close() // 关掉预览卡（淡出→previewHide），主进程据此推进多任务队列
       } else if (info.duplicate) {
         setState({ phase: 'done', message: `「${info.title}」与已有任务相同，未重复添加` })
       } else {
@@ -154,6 +156,8 @@ export default function PreviewCard(): React.JSX.Element | null {
             detectionId?: string
             verifying?: boolean
             verified?: boolean
+            queueIndex?: number
+            queueTotal?: number
           }
         }
       ).localSuggestion
@@ -429,6 +433,11 @@ export default function PreviewCard(): React.JSX.Element | null {
               <span className="min-w-0 flex-1 text-sm leading-5 font-medium">
                 {state.local.title}
               </span>
+              {state.local.queueTotal != null && state.local.queueTotal > 1 && (
+                <span className="mt-0.5 shrink-0 text-[10px] text-slate-400">
+                  {state.local.queueIndex}/{state.local.queueTotal}
+                </span>
+              )}
             </div>
             <div className="text-xs text-slate-500">
               {state.local.isoTime ? fmtTime(state.local.isoTime) : '未识别到具体时间'}

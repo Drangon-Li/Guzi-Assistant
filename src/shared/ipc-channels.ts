@@ -21,6 +21,7 @@ export const INVOKE_CHANNELS = [
   'source:delete',
   'memory:search',
   'memory:read-shot',
+  'memory:wipe',
   'data:wipe',
   'permissions:get',
   'permissions:open-screen-settings',
