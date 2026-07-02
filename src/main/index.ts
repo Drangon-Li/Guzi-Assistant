@@ -117,6 +117,12 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => focusMain())
 
   app.whenReady().then(() => {
+    // 实测进程会以配件(UIElement)策略登记——不占菜单栏、无 Dock 图标，应用菜单永远显示不出来。
+    // setActivationPolicy 单独调用翻不过来，需 dock.show() 由系统异步完成常规化
+    if (process.platform === 'darwin') {
+      app.setActivationPolicy('regular')
+      void app.dock?.show()
+    }
     initDb()
     nativeTheme.themeSource = getSettings().theme // 应用主题设置：驱动渲染层 prefers-color-scheme + 桌宠/窗口深浅色
     installAppMenu()

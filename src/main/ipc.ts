@@ -7,8 +7,12 @@ import {
   deleteReport,
   deleteSourceContent,
   deleteWorkRecord,
+  appUsageRange,
   exportRange,
   getPersonalMemory,
+  listAppCategoryOverrides,
+  listAppSwitchesSince,
+  setAppCategoryOverride,
   hideFocusTask,
   listFocusTaskPrefs,
   getProfile,
@@ -245,6 +249,16 @@ export function registerIpc(): void {
   ipcMain.handle('work-records:list', (_e, day: string) => listWorkRecords(day))
   ipcMain.handle('work-records:since', (_e, sinceDay: string) => listWorkRecordsSince(sinceDay))
   ipcMain.handle('work-records:delete', (_e, id: string) => deleteWorkRecord(id))
+
+  // 注意力分析（「分析」页）：切换事件 + 时长范围 + 应用分类覆盖
+  ipcMain.handle('app-usage:range', (_e, fromDay: string, toDay: string) =>
+    appUsageRange(fromDay, toDay)
+  )
+  ipcMain.handle('app-switches:since', (_e, sinceDay: string) => listAppSwitchesSince(sinceDay))
+  ipcMain.handle('app-categories:list', () => listAppCategoryOverrides())
+  ipcMain.handle('app-categories:set', (_e, app: string, category: string | null) =>
+    setAppCategoryOverride(app, category)
+  )
 
   // 个人记忆（「记忆」页：base=基本画像 / recent=近期行为画像）
   ipcMain.handle('memory:get-personal', () => getPersonalMemory())

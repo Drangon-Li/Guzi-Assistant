@@ -17,11 +17,16 @@ export interface ParsedItem {
   duplicate_of: string | null
 }
 
-/** 本地时区的 YYYY-MM-DDTHH:mm，与任务时间字段同格式，可直接字符串比较 */
-export function localNow(): string {
+/** 本地时区 ISO 到秒：亚分钟排序场景用（如 app_switches——同一分钟内多次切换需稳定有序） */
+export function localNowSec(): string {
   const d = new Date()
   const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+/** 本地时区的 YYYY-MM-DDTHH:mm，与任务时间字段同格式，可直接字符串比较 */
+export function localNow(): string {
+  return localNowSec().slice(0, 16)
 }
 
 const IDENTITY_LABELS: Record<Profile['identity'], string> = {

@@ -112,6 +112,35 @@ export function daySegmentOf(iso: string): DaySegment {
 }
 
 /**
+ * 个人记忆的显示格式：存储保持「- 」要点（模型好读、prompt 直接注入），
+ * 给用户展示/编辑时转成无 Markdown 的纯文本，保存时再转回要点格式。
+ */
+export function memoryToPlain(text: string): string {
+  return text
+    .split('\n')
+    .map((l) =>
+      l
+        .replace(/^\s*(?:[-*•]|\d+[.、])\s*/, '')
+        .replace(/^#+\s*/, '')
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/`(.+?)`/g, '$1')
+        .trimEnd()
+    )
+    .join('\n')
+    .trim()
+}
+
+/** 纯文本 → 存储格式：每个非空行变成一条「- 」要点。 */
+export function plainToMemory(text: string): string {
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => (l.startsWith('- ') ? l : `- ${l}`))
+    .join('\n')
+}
+
+/**
  * 近期行为画像生成 prompt：从近期工作记录 + 任务归纳「用户最近在做什么、关注什么」。
  * 与「基本画像」分工：基本画像是用户身份的长期定义（手动维护），这里只写近期任务与关注点。
  */
