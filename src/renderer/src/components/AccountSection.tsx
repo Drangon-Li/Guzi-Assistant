@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { isSubscriptionActive, planById, shouldRemindRenew } from '@shared/subscription'
 import { supabase, hasBackend } from '../supabase'
-import RechargePanel from './RechargePanel'
+import SubscribePanel from './SubscribePanel'
 
 const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
 
-/** #69 账号体系：登录/注册/登出 + 积分余额。托管解析(#39)与充值(#41)的前提。 */
+interface SubState {
+  plan: string
+  expiresAtMs: number
+}
+
+/** #69 账号体系：登录/注册/登出 + 订阅状态（积分制 → 订阅制）。托管解析(#39)的前提。 */
 export default function AccountSection(): React.JSX.Element {
   const [session, setSession] = useState<Session | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [balance, setBalance] = useState<number | null>(null)
+  const [sub, setSub] = useState<SubState | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  const [showRecharge, setShowRecharge] = useState(false)
+  const [showSubscribe, setShowSubscribe] = useState(false)
 
   useEffect(() => {
     if (!supabase) return
@@ -24,22 +30,22 @@ export default function AccountSection(): React.JSX.Element {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  const loadBalance = useCallback(async (): Promise<void> => {
+  const loadSubscription = useCallback(async (): Promise<void> => {
     if (!supabase || !session) {
-      setBalance(null)
+      setSub(null)
       return
     }
     const { data } = await supabase
-      .from('credits')
-      .select('grant_balance, purchased_balance')
+      .from('subscriptions')
+      .select('plan, expires_at')
       .eq('user_id', session.user.id)
       .single()
-    setBalance(data ? data.grant_balance + data.purchased_balance : null)
+    setSub(data ? { plan: data.plan, expiresAtMs: new Date(data.expires_at).getTime() } : null)
   }, [session])
 
   useEffect(() => {
-    void loadBalance()
-  }, [loadBalance])
+    void loadSubscription()
+  }, [loadSubscription])
 
   if (!hasBackend || !supabase) {
     return <p className="text-xs leading-5 text-slate-400">托管服务未接入（本版本未配置后端）。</p>
@@ -65,6 +71,18 @@ export default function AccountSection(): React.JSX.Element {
 
   if (session) {
     const initial = (session.user.email ?? '?').slice(0, 1).toUpperCase()
+    const now = Date.now()
+    const active = isSubscriptionActive(sub?.expiresAtMs ?? null, now)
+    const expireDay = sub ? new Date(sub.expiresAtMs).toISOString().slice(0, 10) : ''
+    const planLabel = sub?.plan === 'trial' ? '试用' : planById(sub?.plan)?.label ?? '订阅'
+    const remind = shouldRemindRenew(sub?.expiresAtMs ?? null, now)
+    const statusText = !sub
+      ? '—'
+      : active
+        ? `${planLabel} · 有效至 ${expireDay}${remind ? '（即将到期）' : ''}`
+        : sub.plan === 'trial'
+          ? '试用已结束'
+          : '订阅已到期'
     return (
       <div className="flex flex-col gap-3 text-sm">
         <div className="flex items-center gap-3">
@@ -73,9 +91,8 @@ export default function AccountSection(): React.JSX.Element {
           </div>
           <div className="min-w-0 flex-1">
             <div className="truncate font-medium text-slate-700">{session.user.email}</div>
-            <div className="text-xs text-slate-400">
-              积分余额：
-              {balance == null ? '—' : <span className="font-medium text-slate-600">{balance}</span>}
+            <div className={`text-xs ${active && !remind ? 'text-slate-400' : 'text-amber-600'}`}>
+              {statusText}
             </div>
           </div>
           <button
@@ -88,30 +105,30 @@ export default function AccountSection(): React.JSX.Element {
         <div>
           <button
             className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark"
-            onClick={() => setShowRecharge(true)}
+            onClick={() => setShowSubscribe(true)}
           >
-            充值积分
+            {active ? '续费订阅' : '立即订阅'}
           </button>
         </div>
-        {showRecharge && (
+        {showSubscribe && (
           <div
             className="animate-fade fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
-            onClick={() => setShowRecharge(false)}
+            onClick={() => setShowSubscribe(false)}
           >
             <div
               className="w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">充值积分</h3>
+                <h3 className="text-sm font-semibold">订阅</h3>
                 <button
                   className="text-slate-400 hover:text-slate-600"
-                  onClick={() => setShowRecharge(false)}
+                  onClick={() => setShowSubscribe(false)}
                 >
                   ✕
                 </button>
               </div>
-              <RechargePanel onRecharged={() => void loadBalance()} />
+              <SubscribePanel onSubscribed={() => void loadSubscription()} />
             </div>
           </div>
         )}

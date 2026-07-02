@@ -401,6 +401,11 @@ let lastHash: bigint | null = null
 let lastTextHash = ''
 let lastDebugApp: string | null | undefined = undefined // 调试日志：仅前台 App 变化时记一次，避免刷屏
 let lastSwitchApp: string | null = null // 切换事件：上一轮的前台应用（own-app/idle 轮不更新）
+// 订阅到期/额度用尽的云端退避：期间保留本地采样（时长/切换不花钱），跳过截图/OCR/上云；
+// 通知只发一次，解析恢复成功后复位。曾因每 1-2s 白打一次 402 刷爆日志。
+const CLOUD_PAUSE_MS = 10 * 60_000
+let cloudPauseUntil = 0
+let cloudPauseNotified = false
 let previewBlockLogged = false // 调试日志：预览卡占用导致跳过只记一次，卡关掉后重置
 let cloudBlockLogged = false // 调试日志：解析服务未就绪导致跳过只记一次，恢复后重置
 const cooldown = new Map<string, number>()
@@ -507,6 +512,7 @@ async function watchTick(): Promise<void> {
       if (appChanged) debugEvent('skip', '谷子助手自己在前台，跳过')
       return
     }
+    if (Date.now() < cloudPauseUntil) return // 退避窗口内：采样已记完，不截图不上云
 
     png = await captureScreenSilently()
     if (!png) {
@@ -546,6 +552,7 @@ async function watchTick(): Promise<void> {
 
     // 云端解析 → 全部候选（多任务）+ 顺带的工作记录
     const { hits, workSummary, focusTask } = await detectAll(text, screenSenseWorkLog, png, screenSenseVlmConfirm)
+    cloudPauseNotified = false // 解析成功 → 下次再断流时重新提醒
     maybeAddWorkRecord(workSummary, focusTask, frontApp)
     if (!hits.length) {
       debugEvent('detect', '云端未发现明确待办')
@@ -597,8 +604,23 @@ async function watchTick(): Promise<void> {
     debugEvent('popup', `弹出检测卡：${cards.length} 张`)
     enqueueCards(cards)
     applyExternalPetSay(cards.length > 1 ? `发现 ${cards.length} 个日程~` : '发现一个日程~', 'waiting')
-  } catch {
-    // 持续监控全程静默：截图/OCR/解析/无 endpoint 等任何失败都不打扰
+  } catch (e) {
+    // 持续监控全程静默不打扰用户，但必须留诊断痕迹——
+    // 曾因此完全静默：云端解析连续失败 7 小时（工作记录/检测全断）而日志无任何线索
+    const msg = e instanceof Error ? e.message : String(e)
+    debugEvent('error', `监控轮异常：${msg}`)
+    // 计费类失败（订阅到期/试用结束/额度用尽/旧积分文案）→ 退避 + 只提醒一次
+    if (/订阅|试用|额度|积分不足/.test(msg)) {
+      cloudPauseUntil = Date.now() + CLOUD_PAUSE_MS
+      if (!cloudPauseNotified) {
+        cloudPauseNotified = true
+        applyExternalPetSay(
+          /额度/.test(msg) ? '今天的额度用完啦，明天继续～' : '订阅到期了，续订后我继续帮你记～',
+          'waiting',
+          { durationMs: 12_000 }
+        )
+      }
+    }
   } finally {
     if (png) void unlink(png).catch(() => {})
     ticking = false

@@ -36,11 +36,12 @@ async function viaGateway(
     throw new Error(`解析服务无法访问：${e instanceof Error ? e.message : String(e)}`)
   }
   if (res.status === 401) throw new Error('登录已失效，请重新登录')
-  if (res.status === 402) throw new Error('积分不足，请充值后再试')
   const payload = (await res.json().catch(() => ({}))) as {
     data?: ResponsesOutput
     error?: string
   }
+  // 402 文案随计费状态变化（订阅到期/试用结束/额度用尽），以服务端返回为准
+  if (res.status === 402) throw new Error(payload.error ?? '订阅已到期，请续订')
   if (!res.ok || payload.error) throw new Error(`解析服务错误：${payload.error ?? res.status}`)
   return payload.data ?? ({} as ResponsesOutput)
 }
