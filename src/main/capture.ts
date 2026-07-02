@@ -6,7 +6,7 @@ import { basename, extname, join } from 'path'
 import { randomUUID } from 'crypto'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
-import { detectSensitive } from './sensitive'
+import { detectSensitive, redactSensitive } from '@shared/sensitive'
 import { createSource, createTask, deleteSourceRow, findDuplicateTitle, getProfile } from './db'
 import { parseToItems, type ParsedItem } from './parser'
 import { broadcast, showPreview } from './windows'
@@ -260,7 +260,12 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
       filePath: payload.filePath ?? null
     })
 
-    const items = await parseToItems({ text, imageDataUrl, hint: HINTS[payload.type] ?? HINTS.text_input })
+    // 上云前脱敏（本地存档保留原文——用户主动提交的内容自己可见，出设备的才打码）
+    const items = await parseToItems({
+      text: text ? redactSensitive(text).text : text,
+      imageDataUrl,
+      hint: HINTS[payload.type] ?? HINTS.text_input
+    })
     const { related, autoAdded, duplicates } = createTasksFromItems(source.id, items)
     // 没有任何任务引用的来源在 UI 上不可见也删不掉，不留库
     if (related === 0) deleteSourceRow(source.id)

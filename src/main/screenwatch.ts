@@ -26,6 +26,7 @@ import { getFrontmostApp } from './frontapp'
 import { saveShotTempFromPng, finalizeShot, deleteShot, listShotIds, sweepTempShots } from './shotvault'
 import { getSession } from './session'
 import { isAppExcluded } from '@shared/app-exclude'
+import { redactSensitive } from '@shared/sensitive'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox } from '@shared/chat-layout'
 import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
@@ -161,8 +162,11 @@ export async function scanOnce(): Promise<ScanResult> {
     // png 保留到 OCR/存证之后再删，故包一层 try/finally
     try {
       const boxes = await ocrImageDetailed(png)
-      const text = buildOcrText(boxes)
+      // 上云前脱敏：证件/卡号/密钥类的值打码（后续存历史/查重/上云统一用打码后文本）
+      const red = redactSensitive(buildOcrText(boxes))
+      const text = red.text
       debugEvent('ocr', text ? `OCR 完成：${text.length} 字` : 'OCR 未识别到文字')
+      if (red.hits.length) debugEvent('ocr', `已脱敏：${red.hits.join('、')}`)
       if (!text) {
         showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
         return { status: 'empty', message: '屏幕上没有识别到文字' }
@@ -439,12 +443,15 @@ async function watchTick(): Promise<void> {
 
     debugEvent('ocr', '本地 OCR 识别中…')
     const boxes = await ocrImageDetailed(png)
-    const text = buildOcrText(boxes)
+    // 上云前脱敏：证件/卡号/密钥类的值打码（后续存历史/查重/上云统一用打码后文本）
+    const red = redactSensitive(buildOcrText(boxes))
+    const text = red.text
     if (!text) {
       debugEvent('ocr', 'OCR 未识别到文字')
       return
     }
     debugEvent('ocr', `OCR 完成：${text.length} 字`)
+    if (red.hits.length) debugEvent('ocr', `已脱敏：${red.hits.join('、')}`)
     const th = textHash(text)
     if (th === lastTextHash) return // 文本没变 → 静默跳过
     lastTextHash = th
