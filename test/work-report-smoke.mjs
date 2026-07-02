@@ -4,7 +4,9 @@ import {
   formatDuration,
   defaultReportTitle,
   splitTasksForDay,
-  buildDailyReportPrompt
+  buildDailyReportPrompt,
+  groupWorkPeriods,
+  periodLabel
 } from '../src/shared/work-report.ts'
 import { parseWorkSummary } from '../src/shared/parsing.ts'
 
@@ -86,6 +88,30 @@ const empty = buildDailyReportPrompt('张三', {
   tasksOpen: []
 })
 check('空素材各节标注（无）', (empty.text.match(/（无）/g) ?? []).length === 4)
+
+// ---- groupWorkPeriods ----
+const wr = (t, content, app) => ({ id: t, content, app: app ?? 'Code', createdAt: `2026-07-02T${t}` })
+const periods = groupWorkPeriods([
+  wr('09:00', '在 VS Code 写代码'),
+  wr('09:03', '在 VS Code 写代码'),
+  wr('09:06', '在 VS Code 调试'), // 同 app 小间隔 → 同段
+  wr('09:40', '在浏览器查文档', 'Chrome'), // 换 app → 新段
+  wr('11:00', '在 VS Code 写代码') // 同 app 但大间隔 → 新段
+])
+check('聚合成 3 段', periods.length === 3)
+check('第一段跨 09:00–09:06', periods[0].start.endsWith('09:00') && periods[0].end.endsWith('09:06'))
+check('第一段代表描述取最高频', periods[0].summary === '在 VS Code 写代码')
+check('第一段含 2 项活动', periods[0].activities.length === 2)
+check('第一段收集全部 id', periods[0].ids.length === 3)
+check('换应用切段', periods[1].app === 'Chrome')
+check('大间隔切段', periods[2].start.endsWith('11:00'))
+check('periodLabel 区间', periodLabel(periods[0]) === '09:00–09:06')
+check('periodLabel 单点', periodLabel(periods[1]) === '09:40')
+check('空输入 → 空', groupWorkPeriods([]).length === 0)
+check('乱序输入按时间排序', (() => {
+  const p = groupWorkPeriods([wr('09:06', 'x'), wr('09:00', 'x'), wr('09:03', 'x')])
+  return p.length === 1 && p[0].start.endsWith('09:00')
+})())
 
 // ---- parseWorkSummary ----
 check('正常解析', parseWorkSummary('{"items":[],"work_summary":"在浏览器查资料"}') === '在浏览器查资料')

@@ -43,8 +43,14 @@ interface DetectHit {
 }
 
 // 工作记录搭同一次识别调用的便车：让模型在 items 之外多回一个顶层 work_summary 字段
-const WORK_SUMMARY_HINT =
-  '另外，在返回的 JSON 中额外加一个顶层字段 "work_summary"：用一句不超过 40 字的中文客观描述屏幕上正在进行的主要活动（如「在 VS Code 中编辑项目代码」「在浏览器查阅 Python 文档」）；无法判断时填 null。'
+function workSummaryHint(prevSummary: string): string {
+  const base =
+    '另外，在返回的 JSON 中额外加一个顶层字段 "work_summary"：用一句不超过 40 字的中文客观描述屏幕上正在进行的主要活动（如「在 VS Code 中编辑项目代码」「在浏览器查阅 Python 文档」）；无法判断时填 null。'
+  // 传入上一条描述：同一活动持续中 → 原样返回同一句，让相邻记录能聚合成时段（避免措辞漂移拆成多段）
+  return prevSummary
+    ? `${base}\n若当前活动与上一条描述「${prevSummary}」本质相同，请原样返回完全一致的字符串。`
+    : base
+}
 
 interface DetectResult {
   hits: DetectHit[]
@@ -54,7 +60,7 @@ interface DetectResult {
 
 /** OCR 文字 → 云端解析 → **全部候选**（多任务）+ 顺带的工作记录总结。只上传文字，不上传截图。 */
 async function detectAll(text: string, wantWorkLog: boolean): Promise<DetectResult> {
-  const hint = wantWorkLog ? `${HINTS.screen_scan}\n${WORK_SUMMARY_HINT}` : HINTS.screen_scan
+  const hint = wantWorkLog ? `${HINTS.screen_scan}\n${workSummaryHint(lastWorkRecordContent)}` : HINTS.screen_scan
   const { items, raw } = await parseToItemsRaw({ text, hint })
   return {
     hits: items.map((it) => ({ extraction: parsedToExtraction(it), item: it })),

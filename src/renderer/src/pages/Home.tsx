@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AppUsageEntry, TaskRecord, WorkRecord } from '@shared/types'
-import { dayKey, formatDuration } from '@shared/work-report'
+import { dayKey, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
 import { api } from '../api'
 import brandMark from '../assets/agent-avatar.png'
 
@@ -69,7 +69,7 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
   const heatClass = (n: number): string =>
     n === 0 ? 'bg-slate-100' : n === 1 ? 'bg-slate-300' : n <= 3 ? 'bg-slate-500' : 'bg-slate-700'
 
-  const recent = records.slice(-5).reverse()
+  const recent = groupWorkPeriods(records).slice(-5).reverse()
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
@@ -171,13 +171,16 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
           </p>
         ) : (
           <ul className="flex flex-col">
-            {recent.map((r) => (
-              <li key={r.id} className="flex items-baseline gap-3 border-b border-slate-100 py-2 text-sm last:border-b-0">
-                <span className="shrink-0 font-mono text-xs text-slate-400">{r.createdAt.slice(11, 16)}</span>
-                {r.app && (
-                  <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{r.app}</span>
+            {recent.map((p) => (
+              <li
+                key={p.start + p.summary}
+                className="flex items-baseline gap-3 border-b border-slate-100 py-2 text-sm last:border-b-0"
+              >
+                <span className="w-24 shrink-0 font-mono text-xs text-slate-400">{periodLabel(p)}</span>
+                {p.app && (
+                  <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{p.app}</span>
                 )}
-                <span className="min-w-0 flex-1 truncate leading-5">{r.content}</span>
+                <span className="min-w-0 flex-1 truncate leading-5">{p.summary}</span>
               </li>
             ))}
           </ul>

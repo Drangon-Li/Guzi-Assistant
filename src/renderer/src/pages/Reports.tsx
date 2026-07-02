@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AppUsageEntry, ReportRecord, WorkRecord } from '@shared/types'
-import { dayKey, formatDuration } from '@shared/work-report'
+import { dayKey, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
 import { api } from '../api'
 
 /** 「日报」页：当日工作记录时间线 + 应用使用时长 + 生成/回看工作日报。 */
@@ -58,8 +58,8 @@ export default function Reports(): React.JSX.Element {
     }
   }
 
-  const removeRecord = async (id: string): Promise<void> => {
-    await api.deleteWorkRecord(id)
+  const removePeriod = async (ids: string[]): Promise<void> => {
+    await Promise.all(ids.map((id) => api.deleteWorkRecord(id)))
     loadDay(day)
   }
 
@@ -120,18 +120,26 @@ export default function Reports(): React.JSX.Element {
           </p>
         ) : (
           <ul className="flex flex-col">
-            {records.map((r) => (
-              <li key={r.id} className="group flex items-baseline gap-3 border-b border-slate-100 py-2 text-sm last:border-b-0">
-                <span className="shrink-0 font-mono text-xs text-slate-400">{r.createdAt.slice(11, 16)}</span>
-                {r.app && (
+            {groupWorkPeriods(records).map((p) => (
+              <li
+                key={p.start + p.summary}
+                className="group flex items-baseline gap-3 border-b border-slate-100 py-2 text-sm last:border-b-0"
+              >
+                <span className="w-24 shrink-0 font-mono text-xs text-slate-400">{periodLabel(p)}</span>
+                {p.app && (
                   <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                    {r.app}
+                    {p.app}
                   </span>
                 )}
-                <span className="min-w-0 flex-1 leading-5">{r.content}</span>
+                <span className="min-w-0 flex-1 leading-5">
+                  {p.summary}
+                  {p.activities.length > 1 && (
+                    <span className="ml-1.5 text-xs text-slate-400">等 {p.activities.length} 项</span>
+                  )}
+                </span>
                 <button
                   className="invisible shrink-0 px-1 text-xs text-slate-400 group-hover:visible hover:text-red-500"
-                  onClick={() => void removeRecord(r.id)}
+                  onClick={() => void removePeriod(p.ids)}
                 >
                   删除
                 </button>

@@ -20,6 +20,79 @@ export function defaultReportTitle(day: string): string {
   return `${day} 工作日报`
 }
 
+/** HH:mm（从 "YYYY-MM-DDTHH:mm" 取） */
+function hhmm(iso: string): string {
+  return iso.length >= 16 ? iso.slice(11, 16) : ''
+}
+
+/** 一段连续活动：某时段用户在做什么（工作记录聚合的展示单元）。 */
+export interface WorkPeriod {
+  start: string // 起始记录的 createdAt
+  end: string // 末条记录的 createdAt
+  app: string | null
+  /** 该时段代表性描述（组内出现最多的内容，并列取最长） */
+  summary: string
+  /** 组内记录条数 */
+  count: number
+  /** 时段内的不同活动描述（去重，按首次出现序） */
+  activities: string[]
+  /** 组内所有记录 id（供整段删除） */
+  ids: string[]
+}
+
+/**
+ * 把逐条工作记录聚合成「时段」：相邻记录同应用且时间间隔 ≤ gapMinutes 分钟 → 并入同一段。
+ * 解决「每个时间点各记一条」过碎的问题，改为「某时段在做什么」。纯函数，注入 records。
+ */
+export function groupWorkPeriods(records: WorkRecord[], gapMinutes = 10): WorkPeriod[] {
+  const sorted = [...records].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const periods: WorkPeriod[] = []
+  let cur: WorkRecord[] = []
+
+  const flush = (): void => {
+    if (!cur.length) return
+    const counts = new Map<string, number>()
+    for (const r of cur) counts.set(r.content, (counts.get(r.content) ?? 0) + 1)
+    let summary = cur[0].content
+    let best = -1
+    for (const [content, n] of counts) {
+      if (n > best || (n === best && content.length > summary.length)) {
+        best = n
+        summary = content
+      }
+    }
+    periods.push({
+      start: cur[0].createdAt,
+      end: cur[cur.length - 1].createdAt,
+      app: cur[0].app,
+      summary,
+      count: cur.length,
+      activities: [...new Set(cur.map((r) => r.content))],
+      ids: cur.map((r) => r.id)
+    })
+    cur = []
+  }
+
+  for (const r of sorted) {
+    if (cur.length) {
+      const prev = cur[cur.length - 1]
+      const gapMs = new Date(r.createdAt).getTime() - new Date(prev.createdAt).getTime()
+      const sameApp = (r.app ?? '') === (prev.app ?? '')
+      if (!sameApp || gapMs > gapMinutes * 60_000) flush()
+    }
+    cur.push(r)
+  }
+  flush()
+  return periods
+}
+
+/** 时段标签：起止相同显示单点，否则 "HH:mm–HH:mm"。 */
+export function periodLabel(p: WorkPeriod): string {
+  const s = hhmm(p.start)
+  const e = hhmm(p.end)
+  return s === e ? s : `${s}–${e}`
+}
+
 /** 从全部任务切出「这一天完成的」与「仍待办的」标题（日报素材；待办作明日计划候选）。 */
 export function splitTasksForDay(tasks: TaskRecord[], day: string): { done: string[]; open: string[] } {
   const OPEN = new Set(['not_started', 'scheduled', 'in_progress', 'overdue'])
@@ -53,14 +126,16 @@ export function buildDailyReportPrompt(
 - 只依据给定数据组织内容，不要编造不存在的工作
 - 语言简洁专业，条目以「- 」开头
 - 只输出 Markdown 正文，不要输出代码块围栏或其他说明文字`
-  const lines = m.records.map(
-    (r) => `${r.createdAt.slice(11, 16)} ${r.app ? `[${r.app}] ` : ''}${r.content}`
-  )
+  // 用时段而非逐条喂模型：更贴近「某时段在做什么」，也省 token
+  const lines = groupWorkPeriods(m.records).map((p) => {
+    const extra = p.activities.length > 1 ? `（含 ${p.activities.length} 项活动）` : ''
+    return `${periodLabel(p)} ${p.app ? `[${p.app}] ` : ''}${p.summary}${extra}`
+  })
   const usage = m.usage.slice(0, 10).map((u) => `${u.app}：${formatDuration(u.seconds)}`)
   const text = `# 日期
 ${m.day}
 
-# 工作记录时间线
+# 工作记录时间线（按时段聚合）
 ${lines.join('\n') || '（无）'}
 
 # 应用使用时长
