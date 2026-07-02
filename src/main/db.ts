@@ -190,6 +190,7 @@ export function getSettings(): AppSettings {
     screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
     screenSensePopup: map.screenSensePopup !== 'false',
     screenSenseWorkLog: map.screenSenseWorkLog !== 'false',
+    screenSenseVlmConfirm: map.screenSenseVlmConfirm === 'true',
     dailyReportTime: map.dailyReportTime ?? '',
     screenSenseCardHideSec:
       map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 60,

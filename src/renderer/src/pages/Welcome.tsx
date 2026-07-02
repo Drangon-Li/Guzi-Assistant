@@ -75,7 +75,7 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
               </div>
               <ul className="flex flex-col gap-2 text-sm leading-6 text-slate-600">
                 <li>
-                  · 截图只在你的电脑上做 OCR，<strong>只有文字</strong>会发给 AI，截图本身绝不上传
+                  · 截图只在你的电脑上做 OCR，默认<strong>只有文字</strong>会发给 AI；截图本身不上传（除非你在设置里主动开启「日程深度确认」）
                 </li>
                 <li>· 屏幕没变化、人不在电脑前、指定应用在前台时，连截图都不做</li>
                 <li>· 所有数据存在本机，设置页可一键清除</li>

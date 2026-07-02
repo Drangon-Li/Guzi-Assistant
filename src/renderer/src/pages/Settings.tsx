@@ -560,6 +560,27 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             <div className="border-t border-slate-100 pt-4">
               <label className="flex items-center justify-between gap-4 text-sm">
                 <span>
+                  日程深度确认
+                  <span className="ml-2 text-xs text-slate-400">
+                    检出日程候选后把截图发视觉模型二次确认，更准；注意此时<b>截图会上传云端</b>、额外耗积分
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSenseVlmConfirm}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    setSettings({ ...settings, screenSenseVlmConfirm: next })
+                    await api.saveSettings({ screenSenseVlmConfirm: next })
+                    flash(next ? '已开启日程深度确认（截图上云）' : '已关闭深度确认（仅文字上云）')
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="border-t border-slate-100 pt-4">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
                   持续监控（自动）
                   <span className="ml-2 text-xs text-slate-400">屏幕变化时自动识别，无需手动扫描</span>
                 </span>

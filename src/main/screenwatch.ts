@@ -52,20 +52,72 @@ function workSummaryHint(prevSummary: string): string {
     : base
 }
 
+const FG_X_CUT = 0.18 // 裁前景图：去左侧栏/会话列表
+const FG_Y_TOP = 0.025 // 去顶部菜单栏
+
+/** 裁前景截图(去左侧栏/菜单栏)成 JPEG dataURL（供 VLM 二次确认）；失败返回 null。 */
+function cropForegroundDataUrl(png: string): string | null {
+  try {
+    const img = nativeImage.createFromPath(png)
+    const { width, height } = img.getSize()
+    if (!width || !height) return null
+    const x = Math.round(width * FG_X_CUT)
+    const y = Math.round(height * FG_Y_TOP)
+    const cropped = img.crop({ x, y, width: width - x, height: height - y })
+    const sized = cropped.getSize().width > 2000 ? cropped.resize({ width: 2000 }) : cropped
+    return `data:image/jpeg;base64,${sized.toJPEG(72).toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
+/** 一个候选是否「值得花一次视觉确认」：解出了具体时间、且不是明确别人的事。 */
+function isScheduleCandidate(h: DetectHit): boolean {
+  return h.extraction.strong && h.item.belongs_to_user !== 'no'
+}
+
 interface DetectResult {
   hits: DetectHit[]
   /** 「在做什么」一句话（工作记录开关关/模型没给时为 null） */
   workSummary: string | null
+  /** 是否经过视觉模型二次确认 */
+  confirmed: boolean
 }
 
-/** OCR 文字 → 云端解析 → **全部候选**（多任务）+ 顺带的工作记录总结。只上传文字，不上传截图。 */
-async function detectAll(text: string, wantWorkLog: boolean): Promise<DetectResult> {
+/**
+ * 二段式检测：① OCR 文字上云解析出全部候选（+顺带工作记录总结，只传文字）；
+ * ② 若开启视觉确认且出现「值得确认」的日程候选，把当帧截图裁前景发视觉模型深度确认，
+ *    以视觉结果为准（空=文字层假阳性，丢弃）。png 为 null（如手动无图路径）时跳过②。
+ */
+async function detectAll(
+  text: string,
+  wantWorkLog: boolean,
+  png: string | null,
+  wantVlmConfirm: boolean
+): Promise<DetectResult> {
   const hint = wantWorkLog ? `${HINTS.screen_scan}\n${workSummaryHint(lastWorkRecordContent)}` : HINTS.screen_scan
   const { items, raw } = await parseToItemsRaw({ text, hint })
-  return {
-    hits: items.map((it) => ({ extraction: parsedToExtraction(it), item: it })),
-    workSummary: wantWorkLog ? parseWorkSummary(raw) : null
+  const workSummary = wantWorkLog ? parseWorkSummary(raw) : null
+  let hits = items.map((it) => ({ extraction: parsedToExtraction(it), item: it }))
+
+  if (wantVlmConfirm && png && hits.some(isScheduleCandidate)) {
+    const imageDataUrl = cropForegroundDataUrl(png)
+    if (imageDataUrl) {
+      try {
+        const t0 = Date.now()
+        const { items: refined } = await parseToItemsRaw({ imageDataUrl, hint: HINTS.screen_scan_confirm })
+        debugEvent('cloud', `视觉确认耗时 ${Date.now() - t0}ms：${refined.length} 项`)
+        return {
+          hits: refined.map((it) => ({ extraction: parsedToExtraction(it), item: it })),
+          workSummary,
+          confirmed: true
+        }
+      } catch {
+        // 视觉确认失败（网络/额度）→ 回退文字层候选，不阻断
+      }
+    }
   }
+  return { hits, workSummary, confirmed: false }
 }
 
 // 工作记录节流：同一活动持续中不重复记；不同活动也至少间隔 1 分钟，防打字每帧都记
@@ -164,8 +216,8 @@ export async function scanOnce(): Promise<ScanResult> {
     }
     debugShot(png)
 
-    const { screenSenseKeepShots, screenSenseWorkLog } = getSettings()
-    // png 保留到 OCR/存证之后再删，故包一层 try/finally
+    const { screenSenseKeepShots, screenSenseWorkLog, screenSenseVlmConfirm } = getSettings()
+    // png 保留到 OCR/确认/存证之后再删，故包一层 try/finally
     try {
       const boxes = await ocrImageDetailed(png)
       // 上云前脱敏：证件/卡号/密钥类的值打码（后续存历史/查重/上云统一用打码后文本）
@@ -180,7 +232,7 @@ export async function scanOnce(): Promise<ScanResult> {
       debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
 
       const t0 = Date.now()
-      const { hits, workSummary } = await detectAll(text, screenSenseWorkLog)
+      const { hits, workSummary } = await detectAll(text, screenSenseWorkLog, png, screenSenseVlmConfirm)
       debugEvent('timing', `云端解析耗时 ${Date.now() - t0}ms`)
       maybeAddWorkRecord(workSummary, null)
       if (!hits.length) {
@@ -416,6 +468,7 @@ async function watchTick(): Promise<void> {
       screenSenseKeepShots,
       screenSensePopup,
       screenSenseWorkLog,
+      screenSenseVlmConfirm,
       screenSenseIntervalSec
     } = getSettings()
     // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己。全屏感知，不再按进程名单过滤。
@@ -473,7 +526,7 @@ async function watchTick(): Promise<void> {
     cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
 
     // 云端解析 → 全部候选（多任务）+ 顺带的工作记录
-    const { hits, workSummary } = await detectAll(text, screenSenseWorkLog)
+    const { hits, workSummary } = await detectAll(text, screenSenseWorkLog, png, screenSenseVlmConfirm)
     maybeAddWorkRecord(workSummary, frontApp)
     if (!hits.length) {
       debugEvent('detect', '云端未发现明确待办')
