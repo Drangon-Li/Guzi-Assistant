@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppUsageEntry, ReportRecord, WorkRecord } from '@shared/types'
-import { dayKey, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
+import { dayKey, focusDurations, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
 import { api } from '../api'
 
 /** 「日报」页：当日工作记录时间线 + 应用使用时长 + 生成/回看工作日报。 */
@@ -12,6 +12,9 @@ export default function Reports(): React.JSX.Element {
   const [openReportId, setOpenReportId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  const [taskPrefs, setTaskPrefs] = useState<{ name: string; hidden: boolean; custom: boolean }[]>([])
+  const [newTask, setNewTask] = useState('')
+  const recordListRef = useRef<HTMLDivElement | null>(null)
 
   const today = dayKey(new Date())
 
@@ -23,6 +26,7 @@ export default function Reports(): React.JSX.Element {
   const loadDay = useCallback((d: string) => {
     void api.listWorkRecords(d).then(setRecords)
     void api.appUsageSummary(d).then(setUsage)
+    void api.focusTaskPrefs().then(setTaskPrefs)
   }, [])
 
   const loadReports = useCallback(() => {
@@ -76,6 +80,37 @@ export default function Reports(): React.JSX.Element {
 
   const maxUsage = usage.length ? usage[0].seconds : 0
 
+  const periods = groupWorkPeriods(records)
+  // 时段锚点：有记录的小时（供长列表快速跳转）
+  const hoursWithRecords = [...new Set(periods.map((p) => p.start.slice(11, 13)))]
+  const jumpToHour = (hh: string): void => {
+    recordListRef.current
+      ?.querySelector(`[data-hour="${hh}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // 任务专注：本地聚合 + 用户偏好（隐藏剔除、自定义补零显示）
+  const hidden = new Set(taskPrefs.filter((p) => p.hidden).map((p) => p.name))
+  const durations = focusDurations(records).filter((d) => !hidden.has(d.task))
+  const shown = new Set(durations.map((d) => d.task))
+  const customZero = taskPrefs
+    .filter((p) => p.custom && !p.hidden && !shown.has(p.name))
+    .map((p) => ({ task: p.name, seconds: 0 }))
+  const focusList = [...durations, ...customZero]
+  const maxFocus = focusList.length ? Math.max(...focusList.map((f) => f.seconds), 1) : 1
+
+  const addTask = async (): Promise<void> => {
+    const n = newTask.trim()
+    if (!n) return
+    await api.addFocusTask(n)
+    setNewTask('')
+    void api.focusTaskPrefs().then(setTaskPrefs)
+  }
+  const hideTask = async (name: string): Promise<void> => {
+    await api.hideFocusTask(name)
+    void api.focusTaskPrefs().then(setTaskPrefs)
+  }
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
       <div className="flex items-center justify-between">
@@ -119,33 +154,51 @@ export default function Reports(): React.JSX.Element {
             这一天还没有工作记录。开启「设置 → 屏幕感知 → 工作记录」后，识别屏幕时会自动记下在做什么。
           </p>
         ) : (
-          <ul className="flex flex-col">
-            {groupWorkPeriods(records).map((p) => (
-              <li
-                key={p.start + p.summary}
-                className="group flex items-baseline gap-3 border-b border-slate-100 py-2 text-sm last:border-b-0"
-              >
-                <span className="w-24 shrink-0 font-mono text-xs text-slate-400">{periodLabel(p)}</span>
-                {p.app && (
-                  <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                    {p.app}
-                  </span>
-                )}
-                <span className="min-w-0 flex-1 leading-5">
-                  {p.summary}
-                  {p.activities.length > 1 && (
-                    <span className="ml-1.5 text-xs text-slate-400">等 {p.activities.length} 项</span>
-                  )}
-                </span>
-                <button
-                  className="invisible shrink-0 px-1 text-xs text-slate-400 group-hover:visible hover:text-red-500"
-                  onClick={() => void removePeriod(p.ids)}
-                >
-                  删除
-                </button>
-              </li>
-            ))}
-          </ul>
+          <>
+            {hoursWithRecords.length > 1 && (
+              <div className="mb-2 flex flex-wrap gap-1">
+                {hoursWithRecords.map((hh) => (
+                  <button
+                    key={hh}
+                    className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500 hover:bg-brand-soft hover:text-brand"
+                    onClick={() => jumpToHour(hh)}
+                  >
+                    {hh}:00
+                  </button>
+                ))}
+              </div>
+            )}
+            <div ref={recordListRef} className="max-h-72 overflow-y-auto">
+              <ul className="flex flex-col">
+                {periods.map((p) => (
+                  <li
+                    key={p.start + p.summary}
+                    data-hour={p.start.slice(11, 13)}
+                    className="group flex items-baseline gap-3 border-b border-slate-100 py-2 text-sm last:border-b-0"
+                  >
+                    <span className="w-24 shrink-0 font-mono text-xs text-slate-400">{periodLabel(p)}</span>
+                    {p.app && (
+                      <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+                        {p.app}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 leading-5">
+                      {p.summary}
+                      {p.activities.length > 1 && (
+                        <span className="ml-1.5 text-xs text-slate-400">等 {p.activities.length} 项</span>
+                      )}
+                    </span>
+                    <button
+                      className="invisible shrink-0 px-1 text-xs text-slate-400 group-hover:visible hover:text-red-500"
+                      onClick={() => void removePeriod(p.ids)}
+                    >
+                      删除
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
         )}
       </section>
 
@@ -171,6 +224,56 @@ export default function Reports(): React.JSX.Element {
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
+        <h2 className="mb-1 text-sm font-semibold">任务专注</h2>
+        <p className="mb-3 text-xs text-slate-400">
+          按任务归并的专注时长（模型自动归类）。删除或添加任务名可校正模型的归类。
+        </p>
+        {focusList.length === 0 ? (
+          <p className="py-2 text-sm text-slate-400">暂无任务归类，积累一些工作记录后自动出现。</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {focusList.map((f) => (
+              <li key={f.task} className="group flex items-center gap-3 text-sm">
+                <span className="w-36 shrink-0 truncate text-slate-600">{f.task}</span>
+                <div className="h-2 min-w-0 flex-1 rounded-full bg-slate-100">
+                  <div
+                    className="h-2 rounded-full bg-brand/70"
+                    style={{ width: `${Math.max(2, Math.round((f.seconds / maxFocus) * 100))}%` }}
+                  />
+                </div>
+                <span className="w-24 shrink-0 text-right text-xs text-slate-400">
+                  {f.seconds ? formatDuration(f.seconds) : '—'}
+                </span>
+                <button
+                  className="invisible shrink-0 px-1 text-xs text-slate-400 group-hover:visible hover:text-red-500"
+                  onClick={() => void hideTask(f.task)}
+                >
+                  删除
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3 flex gap-2">
+          <input
+            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
+            placeholder="添加任务名（模型会优先把活动归到已知任务）"
+            value={newTask}
+            onChange={(e) => setNewTask(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void addTask()
+            }}
+          />
+          <button
+            className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+            onClick={() => void addTask()}
+          >
+            添加
+          </button>
+        </div>
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">

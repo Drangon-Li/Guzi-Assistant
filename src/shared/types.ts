@@ -177,6 +177,8 @@ export interface WorkRecord {
   content: string
   /** 记录时的前台应用；手动扫描等场景为 null */
   app: string | null
+  /** 任务级标签（模型归并，如「开发纸壳助手」）；无法归属为 null */
+  task: string | null
   createdAt: string
 }
 

@@ -96,7 +96,19 @@ export function initDb(): void {
       content TEXT NOT NULL DEFAULT '',
       updated_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS focus_tasks (
+      name TEXT PRIMARY KEY,
+      hidden INTEGER NOT NULL DEFAULT 0,
+      custom INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
   `)
+  // 老库迁移：work_records 后加 task 列（专注归并）、personal_memory 后加 base_content（基本画像）
+  const wrCols = (db.prepare('PRAGMA table_info(work_records)').all() as { name: string }[]).map((c) => c.name)
+  if (!wrCols.includes('task')) db.exec('ALTER TABLE work_records ADD COLUMN task TEXT')
+  const pmCols = (db.prepare('PRAGMA table_info(personal_memory)').all() as { name: string }[]).map((c) => c.name)
+  if (!pmCols.includes('base_content'))
+    db.exec("ALTER TABLE personal_memory ADD COLUMN base_content TEXT NOT NULL DEFAULT ''")
   // 老数据清理：应用时长早期把自己（dev 下前台名是 Electron）也计了进去，启动时清掉（新数据已不再产生）
   db.exec("DELETE FROM app_usage WHERE app IN ('Electron', 'EShell', '纸壳助手')")
 
@@ -605,21 +617,30 @@ interface WorkRecordRow {
   id: string
   content: string
   app: string | null
+  task: string | null
   created_at: string
 }
 const rowToWorkRecord = (r: WorkRecordRow): WorkRecord => ({
   id: r.id,
   content: r.content,
   app: r.app,
+  task: r.task,
   createdAt: r.created_at
 })
 
-export function addWorkRecord(w: { content: string; app: string | null }): WorkRecord {
-  const rec = { id: randomUUID(), content: w.content.slice(0, 200), app: w.app, createdAt: localNow() }
-  db.prepare('INSERT INTO work_records (id, content, app, created_at) VALUES (?, ?, ?, ?)').run(
+export function addWorkRecord(w: { content: string; app: string | null; task?: string | null }): WorkRecord {
+  const rec = {
+    id: randomUUID(),
+    content: w.content.slice(0, 200),
+    app: w.app,
+    task: w.task ?? null,
+    createdAt: localNow()
+  }
+  db.prepare('INSERT INTO work_records (id, content, app, task, created_at) VALUES (?, ?, ?, ?, ?)').run(
     rec.id,
     rec.content,
     rec.app,
+    rec.task,
     rec.createdAt
   )
   db.prepare(
@@ -705,26 +726,92 @@ export function deleteReport(id: string): void {
   db.prepare('DELETE FROM reports WHERE id = ?').run(id)
 }
 
-// ---------- personal_memory（个人长期画像：AI 从历史工作记录+任务归纳，注入解析/助手 prompt）----------
+// ---------- personal_memory（两段画像：base=用户身份的长期定义（手动维护），recent=近期行为/任务画像（AI 归纳））----------
 
 export interface PersonalMemory {
-  content: string
+  /** 基本画像：用户身份的长期定义，手动维护 */
+  base: string
+  /** 近期行为画像：AI 从近期工作记录归纳，可刷新 */
+  recent: string
   updatedAt: string | null
 }
 
 export function getPersonalMemory(): PersonalMemory {
-  const row = db.prepare('SELECT content, updated_at FROM personal_memory WHERE id = 1').get() as
-    | { content: string; updated_at: string | null }
-    | undefined
-  return { content: row?.content ?? '', updatedAt: row?.updated_at ?? null }
+  const row = db
+    .prepare('SELECT base_content, content, updated_at FROM personal_memory WHERE id = 1')
+    .get() as { base_content: string; content: string; updated_at: string | null } | undefined
+  return { base: row?.base_content ?? '', recent: row?.content ?? '', updatedAt: row?.updated_at ?? null }
 }
 
-export function setPersonalMemory(content: string): PersonalMemory {
+/** 更新画像的某一段（另一段保持原值），返回最新完整画像。 */
+export function setPersonalMemory(part: 'base' | 'recent', content: string): PersonalMemory {
+  const cur = getPersonalMemory()
+  const next = { base: part === 'base' ? content : cur.base, recent: part === 'recent' ? content : cur.recent }
   const updatedAt = localNow()
   db.prepare(
-    'INSERT INTO personal_memory (id, content, updated_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at'
-  ).run(content, updatedAt)
-  return { content, updatedAt }
+    'INSERT INTO personal_memory (id, base_content, content, updated_at) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET base_content = excluded.base_content, content = excluded.content, updated_at = excluded.updated_at'
+  ).run(next.base, next.recent, updatedAt)
+  return { ...next, updatedAt }
+}
+
+/** 注入 prompt 用：两段画像拼接（空段省略）。 */
+export function personalMemoryText(): string {
+  const m = getPersonalMemory()
+  const parts: string[] = []
+  if (m.base.trim()) parts.push(`【基本画像】\n${m.base.trim()}`)
+  if (m.recent.trim()) parts.push(`【近期行为画像】\n${m.recent.trim()}`)
+  return parts.join('\n')
+}
+
+// ---------- focus_tasks（任务专注：用户自定义/隐藏的任务名偏好，用于校正模型的任务归并）----------
+
+export interface FocusTaskPref {
+  name: string
+  hidden: boolean
+  custom: boolean
+}
+
+export function listFocusTaskPrefs(): FocusTaskPref[] {
+  const rows = db.prepare('SELECT name, hidden, custom FROM focus_tasks').all() as {
+    name: string
+    hidden: number
+    custom: number
+  }[]
+  return rows.map((r) => ({ name: r.name, hidden: !!r.hidden, custom: !!r.custom }))
+}
+
+export function addFocusTask(name: string): void {
+  const n = name.trim().slice(0, 60)
+  if (!n) return
+  db.prepare(
+    'INSERT INTO focus_tasks (name, hidden, custom, created_at) VALUES (?, 0, 1, ?) ON CONFLICT(name) DO UPDATE SET hidden = 0'
+  ).run(n, localNow())
+}
+
+/** 「删除」一个任务：标记隐藏（不进展示、不进模型候选）。 */
+export function hideFocusTask(name: string): void {
+  db.prepare(
+    'INSERT INTO focus_tasks (name, hidden, custom, created_at) VALUES (?, 1, 0, ?) ON CONFLICT(name) DO UPDATE SET hidden = 1'
+  ).run(name, localNow())
+}
+
+/** 模型的任务名候选：近 3 天出现过的任务 + 用户自定义，剔除隐藏，最多 12 个。 */
+export function listFocusTaskCandidates(): string[] {
+  const since = new Date()
+  since.setDate(since.getDate() - 3)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const sinceKey = `${since.getFullYear()}-${pad(since.getMonth() + 1)}-${pad(since.getDate())}`
+  const derived = (
+    db
+      .prepare(
+        'SELECT DISTINCT task FROM work_records WHERE task IS NOT NULL AND created_at >= ? ORDER BY created_at DESC'
+      )
+      .all(sinceKey) as { task: string }[]
+  ).map((r) => r.task)
+  const prefs = listFocusTaskPrefs()
+  const hidden = new Set(prefs.filter((p) => p.hidden).map((p) => p.name))
+  const custom = prefs.filter((p) => p.custom && !p.hidden).map((p) => p.name)
+  return [...new Set([...custom, ...derived])].filter((n) => !hidden.has(n)).slice(0, 12)
 }
 
 /** 近 N 天工作记录（供个人记忆归纳/活动时间线）。 */
@@ -735,9 +822,34 @@ export function listWorkRecordsSince(sinceDay: string): WorkRecord[] {
   return rows.map(rowToWorkRecord)
 }
 
+/** 数据导出：某时间范围（含端点，日键比较）内的工作记录/日报/应用时长/检测。 */
+export function exportRange(fromDay: string, toDay: string): Record<string, unknown> {
+  const hi = `${toDay}￿`
+  return {
+    exportedAt: localNow(),
+    range: { from: fromDay, to: toDay },
+    workRecords: (
+      db
+        .prepare('SELECT * FROM work_records WHERE created_at >= ? AND created_at <= ? ORDER BY created_at')
+        .all(fromDay, hi) as WorkRecordRow[]
+    ).map(rowToWorkRecord),
+    reports: db
+      .prepare('SELECT id, day, type, title, content, created_at AS createdAt FROM reports WHERE day >= ? AND day <= ? ORDER BY day')
+      .all(fromDay, toDay),
+    appUsage: db
+      .prepare('SELECT day, app, seconds FROM app_usage WHERE day >= ? AND day <= ? ORDER BY day, seconds DESC')
+      .all(fromDay, toDay),
+    detections: db
+      .prepare(
+        'SELECT id, title, time_iso AS timeIso, status, app, created_at AS createdAt FROM detections WHERE created_at >= ? AND created_at <= ? ORDER BY created_at'
+      )
+      .all(fromDay, hi)
+  }
+}
+
 export function wipeAll(): void {
   db.exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory;'
+    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks;'
   )
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
@@ -747,7 +859,7 @@ export function wipeAll(): void {
 /** 清空「记忆」：来源历史(sources+FTS)、屏幕识别历史(detections)、工作记录与个人画像。保留任务/档案/日报。 */
 export function wipeMemory(): void {
   db.exec(
-    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory;'
+    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory; DELETE FROM focus_tasks;'
   )
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')

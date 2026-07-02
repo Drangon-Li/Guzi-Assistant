@@ -80,6 +80,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [cat, setCat] = useState<(typeof CATS)[number]>('通用')
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const weekAgoStr = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)
+  const [exportFrom, setExportFrom] = useState(weekAgoStr)
+  const [exportTo, setExportTo] = useState(todayStr)
 
   const loadPerms = (): void => {
     void api.permissions().then(setPerms)
@@ -719,6 +723,36 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         )}
         {cat === '数据' && (
           <>
+      <Section title="数据导出">
+        <p className="mb-3 text-xs leading-5 text-slate-400">
+          导出指定时间范围内的工作记录、日报、应用使用时长与屏幕识别历史为 JSON 文件。
+        </p>
+        <div className="flex items-center gap-2 text-sm">
+          <input
+            type="date"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+            value={exportFrom}
+            onChange={(e) => setExportFrom(e.target.value)}
+          />
+          <span className="text-slate-400">至</span>
+          <input
+            type="date"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+            value={exportTo}
+            onChange={(e) => setExportTo(e.target.value)}
+          />
+          <button
+            className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-50"
+            disabled={!exportFrom || !exportTo || exportFrom > exportTo}
+            onClick={async () => {
+              const ok = await api.exportRange(exportFrom, exportTo)
+              if (ok) flash('已导出')
+            }}
+          >
+            导出 JSON
+          </button>
+        </div>
+      </Section>
       <Section title="数据管理">
         <p className="mb-3 text-xs leading-5 text-slate-400">
           所有数据仅保存在本机（用户目录下的 SQLite 数据库），不会自动上传。提交解析时，所选内容会发送至 纸壳助手 云端解析服务。

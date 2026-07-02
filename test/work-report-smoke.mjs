@@ -6,9 +6,10 @@ import {
   splitTasksForDay,
   buildDailyReportPrompt,
   groupWorkPeriods,
-  periodLabel
+  periodLabel,
+  focusDurations
 } from '../src/shared/work-report.ts'
-import { parseWorkSummary } from '../src/shared/parsing.ts'
+import { parseWorkSummary, parseFocusTask } from '../src/shared/parsing.ts'
 
 let failed = 0
 function check(name, ok) {
@@ -112,6 +113,23 @@ check('乱序输入按时间排序', (() => {
   const p = groupWorkPeriods([wr('09:06', 'x'), wr('09:00', 'x'), wr('09:03', 'x')])
   return p.length === 1 && p[0].start.endsWith('09:00')
 })())
+
+// ---- focusDurations ----
+const fr = (t, task) => ({ id: t, content: 'x', app: 'Code', task, createdAt: `2026-07-02T${t}` })
+const fd = focusDurations([
+  fr('09:00', '开发纸壳助手'),
+  fr('09:05', '开发纸壳助手'),
+  fr('09:10', '开发纸壳助手'), // 连续段 10min + 1min = 660s
+  fr('10:00', '写论文'), // 单条 = 60s
+  fr('11:00', '开发纸壳助手') // 间隔 >15min → 新段 60s，累计 720s
+])
+check('专注按任务累计且降序', fd[0].task === '开发纸壳助手' && fd[0].seconds === 720)
+check('单条记录算 1 分钟', fd[1].task === '写论文' && fd[1].seconds === 60)
+check('无 task 的记录不参与', focusDurations([{ ...fr('09:00', null) }]).length === 0)
+
+// ---- parseFocusTask ----
+check('focus_task 正常解析', parseFocusTask('{"items":[],"focus_task":"开发纸壳助手"}') === '开发纸壳助手')
+check('focus_task 缺失 → null', parseFocusTask('{"items":[]}') === null)
 
 // ---- parseWorkSummary ----
 check('正常解析', parseWorkSummary('{"items":[],"work_summary":"在浏览器查资料"}') === '在浏览器查资料')

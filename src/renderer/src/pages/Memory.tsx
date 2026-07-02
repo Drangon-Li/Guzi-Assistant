@@ -150,11 +150,13 @@ function ActivityTab(): React.JSX.Element {
   )
 }
 
-/** 个人记忆：AI 归纳的长期画像，可查看/编辑/立即刷新；注入解析与助手 prompt。 */
+/** 个人记忆：基本画像（长期身份定义，手动维护）+ 近期行为画像（AI 归纳，可刷新）。 */
 function PersonalTab(): React.JSX.Element {
-  const [content, setContent] = useState('')
+  const [base, setBase] = useState('')
+  const [recent, setRecent] = useState('')
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
-  const [dirty, setDirty] = useState(false)
+  const [dirtyBase, setDirtyBase] = useState(false)
+  const [dirtyRecent, setDirtyRecent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
@@ -165,15 +167,17 @@ function PersonalTab(): React.JSX.Element {
 
   useEffect(() => {
     void api.getPersonalMemory().then((m) => {
-      setContent(m.content)
+      setBase(m.base)
+      setRecent(m.recent)
       setUpdatedAt(m.updatedAt)
     })
   }, [])
 
-  const save = async (): Promise<void> => {
-    const m = await api.setPersonalMemory(content)
+  const save = async (part: 'base' | 'recent'): Promise<void> => {
+    const m = await api.setPersonalMemory(part, part === 'base' ? base : recent)
     setUpdatedAt(m.updatedAt)
-    setDirty(false)
+    if (part === 'base') setDirtyBase(false)
+    else setDirtyRecent(false)
     flash('已保存')
   }
 
@@ -181,10 +185,10 @@ function PersonalTab(): React.JSX.Element {
     setBusy(true)
     try {
       const m = await api.refreshPersonalMemory()
-      setContent(m.content)
+      setRecent(m.recent)
       setUpdatedAt(m.updatedAt)
-      setDirty(false)
-      flash('记忆已更新')
+      setDirtyRecent(false)
+      flash('近期画像已更新')
     } catch (e) {
       flash(e instanceof Error ? e.message : String(e))
     } finally {
@@ -193,40 +197,66 @@ function PersonalTab(): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs leading-5 text-slate-400">
-          AI 基于近期活动与任务归纳「你是谁、在做什么」，供助手理解上下文。可手动编辑。
-        </p>
-        <button
-          className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-50"
-          onClick={() => void refresh()}
-          disabled={busy}
-        >
-          {busy ? '正在归纳…' : '立即更新记忆'}
-        </button>
-      </div>
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium">基本画像</h3>
+            <p className="text-xs text-slate-400">你是谁：身份、方向、长期项目与偏好。长期维护，只存本地。</p>
+          </div>
+          <button
+            className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            onClick={() => void save('base')}
+            disabled={!dirtyBase}
+          >
+            保存
+          </button>
+        </div>
+        <textarea
+          className={`${input} min-h-[120px] resize-y font-mono leading-6`}
+          placeholder="例如：博士生，研究方向蛋白质设计；同时开发纸壳助手；常用 VS Code / Notion…"
+          value={base}
+          onChange={(e) => {
+            setBase(e.target.value)
+            setDirtyBase(true)
+          }}
+        />
+      </section>
 
-      <textarea
-        className={`${input} min-h-[240px] resize-y font-mono leading-6`}
-        placeholder="还没有个人记忆。点「立即更新记忆」让 AI 从你的活动里归纳，或直接在这里写下希望助手记住的信息。"
-        value={content}
-        onChange={(e) => {
-          setContent(e.target.value)
-          setDirty(true)
-        }}
-      />
-
-      <div className="flex items-center justify-between text-xs text-slate-400">
-        <span>{updatedAt ? `上次更新：${updatedAt.replace('T', ' ')}` : '尚未生成'}</span>
-        <button
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-          onClick={() => void save()}
-          disabled={!dirty}
-        >
-          保存修改
-        </button>
-      </div>
+      <section className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium">近期行为画像</h3>
+            <p className="text-xs text-slate-400">最近在推进什么：AI 从近期活动与任务自动归纳，可手动修正。</p>
+          </div>
+          <button
+            className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-50"
+            onClick={() => void refresh()}
+            disabled={busy}
+          >
+            {busy ? '正在归纳…' : '立即更新'}
+          </button>
+        </div>
+        <textarea
+          className={`${input} min-h-[180px] resize-y font-mono leading-6`}
+          placeholder="还没有近期画像。点「立即更新」让 AI 从你的活动里归纳。"
+          value={recent}
+          onChange={(e) => {
+            setRecent(e.target.value)
+            setDirtyRecent(true)
+          }}
+        />
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <span>{updatedAt ? `上次更新：${updatedAt.replace('T', ' ')}` : '尚未生成'}</span>
+          <button
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            onClick={() => void save('recent')}
+            disabled={!dirtyRecent}
+          >
+            保存修改
+          </button>
+        </div>
+      </section>
 
       {note && <div className="text-xs text-emerald-600">{note}</div>}
     </div>

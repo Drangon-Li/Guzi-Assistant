@@ -307,6 +307,17 @@ export function parseWorkSummary(text: string): string | null {
   }
 }
 
+/** 从屏幕扫描模型输出中取顶层 focus_task（任务级标签，专注时长用）；无/非法返回 null */
+export function parseFocusTask(text: string): string | null {
+  try {
+    const parsed = extractJson(text)
+    const s = typeof parsed.focus_task === 'string' ? parsed.focus_task.trim() : ''
+    return s ? s.slice(0, 60) : null
+  } catch {
+    return null
+  }
+}
+
 /** 从捕获解析的模型输出中规整 ParsedItem 列表 */
 export function parseModelOutput(text: string): ParsedItem[] {
   const parsed = extractJson(text)

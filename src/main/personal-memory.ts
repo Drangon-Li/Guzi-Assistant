@@ -45,7 +45,8 @@ export async function refreshPersonalMemory(): Promise<PersonalMemory> {
     profile.name,
     activityLines.slice(-120),
     tasks,
-    getPersonalMemory().content
+    getPersonalMemory().recent,
+    getPersonalMemory().base
   )
   const output = await callModel(
     instructions,
@@ -58,5 +59,5 @@ export async function refreshPersonalMemory(): Promise<PersonalMemory> {
     .replace(/\n?```$/, '')
     .trim()
   if (!content) throw new Error('记忆生成失败：模型无输出')
-  return setPersonalMemory(content)
+  return setPersonalMemory('recent', content)
 }

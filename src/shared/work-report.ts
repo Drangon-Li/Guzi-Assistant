@@ -94,25 +94,29 @@ export function periodLabel(p: WorkPeriod): string {
 }
 
 /**
- * 个人记忆生成 prompt：从多日工作记录 + 任务归纳「这个用户是谁、在做什么」的稳定画像，
- * 供后续解析/助手注入（越用越懂用户）。区别于日报——记忆是长期画像，日报是当日汇报。
+ * 近期行为画像生成 prompt：从近期工作记录 + 任务归纳「用户最近在做什么、关注什么」。
+ * 与「基本画像」分工：基本画像是用户身份的长期定义（手动维护），这里只写近期任务与关注点。
  */
 export function buildPersonalMemoryPrompt(
   userName: string,
   activityLines: string[],
   taskTitles: string[],
-  prevMemory: string
+  prevMemory: string,
+  baseMemory = ''
 ): { instructions: string; text: string } {
-  const instructions = `你在为个人助手维护关于用户「${userName}」的长期记忆画像。基于其近期工作活动记录与任务，归纳这个人**在做什么、关注什么、有哪些长期项目/角色/协作方与习惯**，供助手日后更懂 TA。
+  const instructions = `你在为个人助手维护用户「${userName}」的**近期行为画像**：基于其近期工作活动与任务，归纳 TA 最近在推进哪些任务/项目、关注什么、和谁协作。
 要求：
 - 输出 4~8 条要点，每条一句话，以「- 」开头；只写能从数据里稳定看出的事实与倾向，不臆测
-- 侧重可复用的画像（在做的项目、常用工具、角色职责、协作对象、作息倾向），不要罗列流水账或一次性琐事
-- 若给了「已有记忆」，在其基础上更新演进：保留仍成立的、修订过时的、补充新出现的
-- 只输出记忆正文，不要标题、不要代码块围栏、不要多余说明`
+- 只写**近期**的任务与关注点；用户的长期身份定义已在「基本画像」里，不要复述它
+- 若给了「已有近期画像」，在其基础上更新演进：保留仍在进行的、修订过时的、补充新出现的
+- 只输出画像正文，不要标题、不要代码块围栏、不要多余说明`
   const text = `# 用户
 ${userName}
 
-# 已有记忆
+# 基本画像（背景参考，勿复述）
+${baseMemory.trim() || '（无）'}
+
+# 已有近期画像
 ${prevMemory.trim() || '（无，首次生成）'}
 
 # 近期工作活动（按时段）
@@ -121,6 +125,47 @@ ${activityLines.join('\n') || '（无）'}
 # 近期任务
 ${taskTitles.join('\n') || '（无）'}`
   return { instructions, text }
+}
+
+/**
+ * 任务专注时长：按 task 标签把记录切成连续段（同任务、相邻间隔 ≤gapMinutes），
+ * 每段时长 = 末条-首条 + 1 分钟（单条记录也算 1 分钟专注）。返回按累计时长降序。
+ */
+export function focusDurations(
+  records: WorkRecord[],
+  gapMinutes = 15
+): { task: string; seconds: number }[] {
+  const sorted = records
+    .filter((r) => r.task)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const total = new Map<string, number>()
+  let runTask: string | null = null
+  let runStart = ''
+  let runEnd = ''
+  const flush = (): void => {
+    if (!runTask) return
+    const span = (new Date(runEnd).getTime() - new Date(runStart).getTime()) / 1000 + 60
+    total.set(runTask, (total.get(runTask) ?? 0) + span)
+    runTask = null
+  }
+  for (const r of sorted) {
+    const task = r.task!
+    if (
+      runTask === task &&
+      new Date(r.createdAt).getTime() - new Date(runEnd).getTime() <= gapMinutes * 60_000
+    ) {
+      runEnd = r.createdAt
+      continue
+    }
+    flush()
+    runTask = task
+    runStart = r.createdAt
+    runEnd = r.createdAt
+  }
+  flush()
+  return [...total.entries()]
+    .map(([task, seconds]) => ({ task, seconds: Math.round(seconds) }))
+    .sort((a, b) => b.seconds - a.seconds)
 }
 
 /** 从全部任务切出「这一天完成的」与「仍待办的」标题（日报素材；待办作明日计划候选）。 */

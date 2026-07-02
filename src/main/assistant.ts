@@ -3,9 +3,9 @@ import {
   createTask,
   deleteSourceRow,
   findDuplicateTitle,
-  getPersonalMemory,
   getProfile,
-  listTasks
+  listTasks,
+  personalMemoryText
 } from './db'
 import { broadcast } from './windows'
 import { callModel } from './parser'
@@ -112,7 +112,7 @@ export async function assistantChat(payload: {
         profile,
         JSON.stringify(tasks),
         payload.candidates?.items ?? null,
-        getPersonalMemory().content
+        personalMemoryText()
       ),
       input
     )
