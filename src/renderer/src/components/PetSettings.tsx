@@ -14,12 +14,14 @@ export default function PetSettings(): React.JSX.Element {
   const [enabled, setEnabled] = useState(true)
   const [scale, setScale] = useState(0.3) // 与 state.ts 默认一致，避免拉取前显示错档
   const [paused, setPaused] = useState(false)
+  const [bubbles, setBubbles] = useState(true)
 
   useEffect(() => {
     void api.petGetPrefs().then((p) => {
       setEnabled(p.enabled)
       setScale(p.scale)
       setPaused(p.paused)
+      setBubbles(p.bubbles)
     })
   }, [])
 
@@ -64,6 +66,23 @@ export default function PetSettings(): React.JSX.Element {
             const v = e.target.checked
             setPaused(v)
             void api.petSetPaused(v)
+          }}
+        />
+      </label>
+      <label className="flex items-center justify-between gap-4">
+        <span className="text-slate-500">
+          气泡提醒
+          <span className="ml-2 text-xs text-slate-400">
+            处理中 / 发现日程 / 久坐提醒（连续使用 50 分钟）等主动气泡
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={bubbles}
+          onChange={(e) => {
+            const v = e.target.checked
+            setBubbles(v)
+            void api.petSetBubbles(v)
           }}
         />
       </label>

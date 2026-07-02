@@ -20,9 +20,11 @@ import {
   hidePet,
   isPetVisible,
   getPetPausedState,
-  setPetPausedState
+  setPetPausedState,
+  setPetListening
 } from './pet/controller'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
+import { startWellnessReminder, stopWellnessReminder } from './wellness-reminder'
 import { readFileSync } from 'fs'
 import trayIcon from '../../resources/trayTemplate.png?asset'
 import trayIcon2x from '../../resources/trayTemplate@2x.png?asset'
@@ -104,7 +106,10 @@ if (!app.requestSingleInstanceLock()) {
     createMainWindow()
     createPetWindow({
       onClick: () => togglePetChat(),
-      onDblClick: () => toggleMainWindow()
+      onDblClick: () => toggleMainWindow(),
+      // 长按桌宠 → 聆听特效 + 「我正在听～」气泡（语音助手第一步；STT/对话后续接入这两个回调）
+      onLongPressStart: () => setPetListening(true),
+      onLongPressEnd: () => setPetListening(false)
     })
     createPetChatWindow() // 预创建桌宠对话窗口（隐藏），点击/拖文件即时可用
     createTray()
@@ -115,6 +120,7 @@ if (!app.requestSingleInstanceLock()) {
     ensureFeishu()
     applyScreenSenseSettings()
     startDailyBrief()
+    startWellnessReminder()
   })
 
   // macOS 惯例：仅在没有可见窗口时（如点 Dock 图标重开）才显示主窗；
@@ -128,6 +134,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('will-quit', () => {
     stopHotkey()
     stopDailyBrief()
+    stopWellnessReminder()
   })
   // 常驻托盘：所有窗口关闭后不退出
   app.on('window-all-closed', () => {})

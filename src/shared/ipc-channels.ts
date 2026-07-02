@@ -57,6 +57,7 @@ export const INVOKE_CHANNELS = [
   'payment:close',
   'pet:get-prefs',
   'pet:set-enabled',
+  'pet:set-bubbles',
   'pet:set-scale',
   'pet:set-paused',
   'pet:reset-position',

@@ -9,6 +9,9 @@ let suppressClickUntil = 0
 // 单击延迟定时器：双击时取消它，避免双击连带触发两次单击（开/关助手）。
 let singleClickTimer = null
 const DBLCLICK_WINDOW_MS = 280
+// 长按桌宠（按住不动 > LONGPRESS_MS）→ 唤起语音助手（按住说话）。按住期间移动超过阈值则判为拖动、取消长按。
+const LONGPRESS_MS = 500
+const LONGPRESS_MOVE_PX = 4
 
 const applyWhenReady = (fn) => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true })
@@ -40,6 +43,13 @@ ipcRenderer.on('openpets:pet-scanning', (_event, on) => {
   })
 })
 
+// 长按聆听中：切 pet-listening 类触发橙色声波涟漪（与处理光环视觉区分）。
+ipcRenderer.on('openpets:pet-listening', (_event, on) => {
+  applyWhenReady(() => {
+    document.documentElement.classList.toggle('pet-listening', !!on)
+  })
+})
+
 const getInteractiveTarget = (event) => {
   const target = document.elementFromPoint(event.clientX, event.clientY)
   return target && target.closest('.pet-hitbox, .pet-shell, .bubble')
@@ -62,6 +72,8 @@ const installMouseInterop = () => {
   lastInteractiveHit = null
   dragging = false
   let dragStartPoint = null
+  let longPressTimer = null
+  let longPressing = false
 
   // 单击桌宠 → 开/关助手；双击桌宠 → 开/关主窗。
   // click 先于 dblclick 触发，故单击动作延迟 DBLCLICK_WINDOW_MS 执行：期间若来 dblclick 就取消它，
@@ -95,7 +107,17 @@ const installMouseInterop = () => {
     'mousemove',
     (event) => {
       updateInteractiveHit(event)
-      if (dragging) ipcRenderer.send('openpets:pet-drag-move', { screenX: event.screenX, screenY: event.screenY })
+      if (!dragging) return
+      // 移动超过阈值 → 判定为拖动，取消长按计时
+      if (
+        longPressTimer &&
+        dragStartPoint &&
+        Math.hypot(event.screenX - dragStartPoint.screenX, event.screenY - dragStartPoint.screenY) > LONGPRESS_MOVE_PX
+      ) {
+        clearTimeout(longPressTimer)
+        longPressTimer = null
+      }
+      ipcRenderer.send('openpets:pet-drag-move', { screenX: event.screenX, screenY: event.screenY })
     },
     { passive: true }
   )
@@ -109,9 +131,29 @@ const installMouseInterop = () => {
     dragStartPoint = { screenX: event.screenX, screenY: event.screenY }
     setInteractiveHit(true)
     ipcRenderer.send('openpets:pet-drag-start', { screenX: event.screenX, screenY: event.screenY })
+    // 长按检测：按住不动到点 → 从"伪拖动"切换成长按（语音）
+    if (longPressTimer) clearTimeout(longPressTimer)
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null
+      dragging = false
+      ipcRenderer.send('openpets:pet-drag-end') // 收掉这次未移动的拖动（位置没变）
+      longPressing = true
+      ipcRenderer.send('openpets:pet-longpress-start')
+    }, LONGPRESS_MS)
   })
 
   document.addEventListener('mouseup', (event) => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer)
+      longPressTimer = null
+    }
+    if (longPressing) {
+      longPressing = false
+      suppressClickUntil = Date.now() + 300 // 长按松开不连带触发单击（开助手）
+      dragStartPoint = null
+      ipcRenderer.send('openpets:pet-longpress-end')
+      return
+    }
     if (!dragging) return
     dragging = false
     if (dragStartPoint && Math.hypot(event.screenX - dragStartPoint.screenX, event.screenY - dragStartPoint.screenY) > 4) {

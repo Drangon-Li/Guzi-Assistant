@@ -7,7 +7,8 @@ import {
   buildDailyReportPrompt,
   groupWorkPeriods,
   periodLabel,
-  focusDurations
+  focusDurations,
+  daySegmentOf
 } from '../src/shared/work-report.ts'
 import { parseWorkSummary, parseFocusTask } from '../src/shared/parsing.ts'
 
@@ -126,6 +127,14 @@ const fd = focusDurations([
 check('专注按任务累计且降序', fd[0].task === '开发纸壳助手' && fd[0].seconds === 720)
 check('单条记录算 1 分钟', fd[1].task === '写论文' && fd[1].seconds === 60)
 check('无 task 的记录不参与', focusDurations([{ ...fr('09:00', null) }]).length === 0)
+
+// ---- daySegmentOf ----
+check('5 点=清晨', daySegmentOf('2026-07-02T05:00').label === '清晨')
+check('8 点=上午（边界左闭）', daySegmentOf('2026-07-02T08:00').label === '上午')
+check('13 点=中午', daySegmentOf('2026-07-02T13:59').label === '中午')
+check('18 点=下午', daySegmentOf('2026-07-02T18:00').label === '下午')
+check('23 点=晚间', daySegmentOf('2026-07-02T23:30').label === '晚间')
+check('凌晨 2 点=深夜', daySegmentOf('2026-07-02T02:00').label === '深夜')
 
 // ---- parseFocusTask ----
 check('focus_task 正常解析', parseFocusTask('{"items":[],"focus_task":"开发纸壳助手"}') === '开发纸壳助手')

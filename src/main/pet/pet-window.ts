@@ -22,6 +22,8 @@ const records = new WeakMap<BrowserWindow, PetRecord>()
 let currentPet: BrowserWindow | null = null
 let onClickHandler: (() => void) | null = null
 let onDblClickHandler: (() => void) | null = null
+let onLongPressStartHandler: (() => void) | null = null
+let onLongPressEndHandler: (() => void) | null = null
 let ipcInstalled = false
 
 // 拖拽状态（单例桌宠）
@@ -39,12 +41,18 @@ function accessor(): BrowserWindow | null {
 export interface CreatePetOptions {
   onClick: () => void
   onDblClick: () => void
+  /** 长按开始（按住桌宠到点）：唤起语音助手，同时给桌宠"聆听中"反馈。 */
+  onLongPressStart?: () => void
+  /** 长按松开：结束语音会话。 */
+  onLongPressEnd?: () => void
 }
 
 export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
   if (currentPet && !currentPet.isDestroyed()) return currentPet
   onClickHandler = opts.onClick
   onDblClickHandler = opts.onDblClick
+  onLongPressStartHandler = opts.onLongPressStart ?? null
+  onLongPressEndHandler = opts.onLongPressEnd ?? null
 
   const prefs = getPetPrefs()
   const pos = prefs.position ?? defaultPosition()
@@ -150,6 +158,12 @@ export function setPetScanning(on: boolean): void {
   if (win) win.webContents.send('openpets:pet-scanning', on)
 }
 
+/** 长按聆听中：桌宠显示橙色声波涟漪（切 class，不重渲染；与处理光环视觉区分）。 */
+export function setPetListening(on: boolean): void {
+  const win = accessor()
+  if (win) win.webContents.send('openpets:pet-listening', on)
+}
+
 export function setPetScale(scale: PetScaleValue): void {
   savePetPrefs({ scale })
   const win = accessor()
@@ -232,6 +246,14 @@ function installIpc(): void {
   ipcMain.on('openpets:pet-dblclicked', (e) => {
     if (!fromPet(e)) return
     onDblClickHandler?.()
+  })
+  ipcMain.on('openpets:pet-longpress-start', (e) => {
+    if (!fromPet(e)) return
+    onLongPressStartHandler?.()
+  })
+  ipcMain.on('openpets:pet-longpress-end', (e) => {
+    if (!fromPet(e)) return
+    onLongPressEndHandler?.()
   })
   ipcMain.on('openpets:pet-ready', () => {
     /* 渲染层就绪：当前无需额外动作，hit-test 已接管穿透。 */
@@ -352,7 +374,13 @@ function windowCss(paused: boolean, scale: PetScaleValue, isDark: boolean): stri
     html.pet-scanning .pet-shell::before { content: ""; position: absolute; inset: -4px; border-radius: 50%; background: conic-gradient(from 0deg, #f59e0b, #fbbf24, #fb7185, #a78bfa, #38bdf8, #34d399, #f59e0b); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); filter: blur(0.7px); opacity: 0.5; z-index: -1; animation: scan-spin 1.3s linear infinite; }
     @keyframes scan-spin { to { transform: rotate(1turn); } }
     @keyframes scan-breathe { 0%, 100% { filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.2)); transform: scale(1); } 50% { filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.2)) drop-shadow(0 0 7px rgba(251, 146, 60, 0.3)); transform: scale(1.02); } }
-    @media (prefers-reduced-motion: reduce) { .bubble, .pet-shell, html.pet-scanning .pet-shell::before { animation: none !important; } }
+    /* 长按聆听中：品牌橙声波涟漪（两圈交错向外扩散）+ 轻呼吸。规则放在扫描之后，两态同时命中时聆听优先 */
+    html.pet-listening .pet-shell { animation: listen-breathe 1.6s ease-in-out infinite; }
+    html.pet-listening .pet-shell::before, html.pet-listening .pet-shell::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid rgba(232, 116, 59, 0.55); background: none; -webkit-mask: none; mask: none; filter: none; opacity: 0; z-index: -1; animation: listen-ripple 1.8s ease-out infinite; }
+    html.pet-listening .pet-shell::after { animation-delay: 0.9s; }
+    @keyframes listen-ripple { 0% { transform: scale(1); opacity: 0.75; } 70% { transform: scale(1.65); opacity: 0; } 100% { transform: scale(1.65); opacity: 0; } }
+    @keyframes listen-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.045); filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.2)) drop-shadow(0 0 8px rgba(232, 116, 59, 0.35)); } }
+    @media (prefers-reduced-motion: reduce) { .bubble, .pet-shell, html.pet-scanning .pet-shell::before, html.pet-listening .pet-shell::before, html.pet-listening .pet-shell::after { animation: none !important; } }
   `
 }
 

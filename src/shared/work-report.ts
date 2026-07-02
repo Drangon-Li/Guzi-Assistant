@@ -93,6 +93,24 @@ export function periodLabel(p: WorkPeriod): string {
   return s === e ? s : `${s}–${e}`
 }
 
+/** 一天的六个时段分区（锚点导航用）。深夜跨零点，在单日数据里即 0:00–5:00。 */
+export const DAY_SEGMENTS = [
+  { key: 'dawn', label: '清晨', from: 5, to: 8 },
+  { key: 'morning', label: '上午', from: 8, to: 12 },
+  { key: 'noon', label: '中午', from: 12, to: 14 },
+  { key: 'afternoon', label: '下午', from: 14, to: 19 },
+  { key: 'evening', label: '晚间', from: 19, to: 24 },
+  { key: 'night', label: '深夜', from: 0, to: 5 }
+] as const
+
+export type DaySegment = (typeof DAY_SEGMENTS)[number]
+
+/** 时间戳（YYYY-MM-DDTHH:mm）落在哪个时段分区。 */
+export function daySegmentOf(iso: string): DaySegment {
+  const h = Number(iso.slice(11, 13))
+  return DAY_SEGMENTS.find((s) => h >= s.from && h < s.to) ?? DAY_SEGMENTS[5]
+}
+
 /**
  * 近期行为画像生成 prompt：从近期工作记录 + 任务归纳「用户最近在做什么、关注什么」。
  * 与「基本画像」分工：基本画像是用户身份的长期定义（手动维护），这里只写近期任务与关注点。
@@ -123,6 +141,36 @@ ${prevMemory.trim() || '（无，首次生成）'}
 ${activityLines.join('\n') || '（无）'}
 
 # 近期任务
+${taskTitles.join('\n') || '（无）'}`
+  return { instructions, text }
+}
+
+/**
+ * 基本画像生成 prompt：归纳用户的**长期身份定义**（身份/方向/长期项目/工具习惯）。
+ * 比近期画像更稳定精简；在用户手写内容基础上小幅演进，不覆盖其自我定义。
+ */
+export function buildBaseMemoryPrompt(
+  userName: string,
+  profileDesc: string,
+  activityLines: string[],
+  taskTitles: string[],
+  prevBase: string
+): { instructions: string; text: string } {
+  const instructions = `你在为个人助手维护用户「${userName}」的**基本画像**：TA 是谁——身份/角色、研究或业务方向、长期在做的项目、常用工具与工作习惯。
+要求：
+- 输出 3~6 条要点，每条一句话，以「- 」开头；只写长期稳定的事实，不写近期临时任务（那属于近期画像）
+- 若给了「已有基本画像」，在其基础上**小幅演进**：用户手写的自我定义保留原意，只修订明显过时、补充明显缺失的
+- 只输出画像正文，不要标题、不要代码块围栏、不要多余说明`
+  const text = `# 用户档案
+${profileDesc || '（无）'}
+
+# 已有基本画像
+${prevBase.trim() || '（无，首次生成）'}
+
+# 近期工作活动（推断长期模式的参考）
+${activityLines.join('\n') || '（无）'}
+
+# 近期任务（参考）
 ${taskTitles.join('\n') || '（无）'}`
   return { instructions, text }
 }
