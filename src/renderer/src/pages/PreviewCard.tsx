@@ -38,7 +38,7 @@ export default function PreviewCard(): React.JSX.Element | null {
   const [seq, setSeq] = useState(0)
   // 检测卡/AI 建议卡闲置自动隐藏秒数（设置里可调；0=不自动隐藏）
   const [autoHideSec, setAutoHideSec] = useState(60)
-  // 桌宠模式：卡片贴在桌宠旁，隐藏顶部冗余的「纸壳助手」品牌行（桌宠已在旁边）
+  // 桌宠模式：卡片贴在桌宠旁，隐藏顶部冗余的「谷子助手」品牌行（桌宠已在旁边）
   const [petMode, setPetMode] = useState(false)
 
   // 关闭前先播放淡出动画，再执行真正的隐藏 */
@@ -213,7 +213,7 @@ export default function PreviewCard(): React.JSX.Element | null {
           {!petMode && (
             <>
               <img src={brandMark} alt="" className="size-4 shrink-0" />
-              <span className="text-xs font-medium text-slate-500">纸壳助手</span>
+              <span className="text-xs font-medium text-slate-500">谷子助手</span>
             </>
           )}
           {state.phase === 'preview' && (
@@ -287,7 +287,7 @@ export default function PreviewCard(): React.JSX.Element | null {
         {state.phase === 'loading' && (
           <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
             <span className="size-3 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
-            {state.message ?? '纸壳助手正在解析…'}
+            {state.message ?? '谷子助手正在解析…'}
           </div>
         )}
 

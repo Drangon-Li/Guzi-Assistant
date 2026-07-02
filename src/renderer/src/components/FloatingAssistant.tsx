@@ -66,8 +66,8 @@ export default function FloatingAssistant({
         >
           <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2.5">
             <div className="flex items-center gap-2">
-              <img src={agentAvatar} alt="纸壳助手" className="size-6" />
-              <span className="text-sm font-semibold">纸壳助手</span>
+              <img src={agentAvatar} alt="谷子助手" className="size-6" />
+              <span className="text-sm font-semibold">谷子助手</span>
             </div>
             <button
               onClick={() => onOpenChange(false)}

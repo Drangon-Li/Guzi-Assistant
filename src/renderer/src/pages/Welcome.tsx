@@ -32,8 +32,8 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
         <div className="flex items-center gap-3">
           <img src={brandMark} alt="" className="size-10 rounded-xl border border-slate-200 p-1.5" />
           <div>
-            <div className="text-xl font-semibold">纸壳助手</div>
-            <div className="text-xs text-slate-400">你只管工作，待办和日报交给我</div>
+            <div className="text-xl font-semibold">谷子助手</div>
+            <div className="text-xs text-slate-400">把每天的忙碌，攒成看得见的收获</div>
           </div>
           <button
             className="ml-auto rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-100"

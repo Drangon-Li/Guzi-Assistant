@@ -39,7 +39,7 @@ export default function ScreenPermissionGate({ onDone }: Props): React.JSX.Eleme
       <div className="w-[520px] rounded-2xl border border-slate-200 bg-surface p-8 shadow-sm">
         <div className="text-xl font-semibold">开启屏幕感知</div>
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          纸壳助手 会持续感知你屏幕上的文字，自动把通知、聊天、邮件里「该你做的事」沉淀成待办——这是它的核心。
+          谷子助手 会持续感知你屏幕上的文字，自动把通知、聊天、邮件里「该你做的事」沉淀成待办——这是它的核心。
           为此需要 macOS 的「屏幕录制」权限。
         </p>
         <p className="mt-2 text-xs leading-5 text-slate-400">
@@ -51,14 +51,14 @@ export default function ScreenPermissionGate({ onDone }: Props): React.JSX.Eleme
           <div className="font-medium text-slate-700">三步开启</div>
           <div>1. 点下方「打开系统设置」</div>
           <div>
-            2. 进「隐私与安全性 › 屏幕录制」，打开 <span className="font-medium">纸壳助手</span>
+            2. 进「隐私与安全性 › 屏幕录制」，打开 <span className="font-medium">谷子助手</span>
           </div>
-          <div>3. 授权后这里会自动继续（如未生效，重启 纸壳助手 一次）</div>
+          <div>3. 授权后这里会自动继续（如未生效，重启 谷子助手 一次）</div>
         </div>
 
         {denied && (
           <p className="mt-3 text-xs leading-5 text-amber-600">
-            当前是「已拒绝」状态——需要你在系统设置的列表里手动打开 纸壳助手 的开关。
+            当前是「已拒绝」状态——需要你在系统设置的列表里手动打开 谷子助手 的开关。
           </p>
         )}
 

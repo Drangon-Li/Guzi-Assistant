@@ -110,7 +110,7 @@ export function initDb(): void {
   if (!pmCols.includes('base_content'))
     db.exec("ALTER TABLE personal_memory ADD COLUMN base_content TEXT NOT NULL DEFAULT ''")
   // 老数据清理：应用时长早期把自己（dev 下前台名是 Electron）也计了进去，启动时清掉（新数据已不再产生）
-  db.exec("DELETE FROM app_usage WHERE app IN ('Electron', 'EShell', '纸壳助手')")
+  db.exec("DELETE FROM app_usage WHERE app IN ('Electron', 'EShell', 'Gooz', '谷子助手', '纸壳助手')")
 
   // 老库迁移：早期版本没有 notes 列
   const taskCols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(

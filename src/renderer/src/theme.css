@@ -40,8 +40,4 @@
   --color-red-600: #f87171 !important;
 }
 
-/* 品牌字标是黑色 PNG，深色下反相为白字（橙色 logo 图标不受影响，不加此 class）。 */
-:root.dark .brand-wordmark {
-  filter: invert(1);
-}
 

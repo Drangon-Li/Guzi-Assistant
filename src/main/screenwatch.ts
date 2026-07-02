@@ -49,7 +49,7 @@ function workSummaryHint(prevSummary: string, taskCandidates: string[]): string 
   const base =
     '另外，在返回的 JSON 中额外加两个顶层字段：' +
     '① "work_summary"：一句不超过 40 字的中文，客观描述屏幕上正在进行的**工作/学习活动**（如「在 VS Code 中编辑项目代码」）。与工作学习无关或信息量极低的画面（随意浏览文件夹、刷聊天/社交消息、系统设置页、视频娱乐等）填 null，不要硬凑。' +
-    `② "focus_task"：该活动归属的任务名——任务级、粗粒度、名称稳定（如「开发纸壳助手」「撰写博资考 PPT」）。${cand}优先复用已知任务名，确实是新任务再起新名；work_summary 为 null 时它也为 null。`
+    `② "focus_task"：该活动归属的任务名——任务级、粗粒度、名称稳定（如「开发谷子助手」「撰写博资考 PPT」）。${cand}优先复用已知任务名，确实是新任务再起新名；work_summary 为 null 时它也为 null。`
   // 传入上一条描述：同一活动持续中 → 原样返回同一句，让相邻记录能聚合成时段（避免措辞漂移拆成多段）
   return prevSummary
     ? `${base}\n若当前活动与上一条描述「${prevSummary}」本质相同，work_summary 请原样返回完全一致的字符串。`
@@ -433,11 +433,14 @@ function debugShot(png: string): void {
   }
 }
 
-/** 是否纸壳助手自己在前台：停在本应用页面时不该扫描自己的窗口（否则把已有日程当成新检测）。 */
+/** 是否谷子助手自己在前台：停在本应用页面时不该扫描自己的窗口（否则把已有日程当成新检测）。 */
 function isOwnApp(frontApp: string | null): boolean {
   if (!frontApp) return false
   const f = frontApp.trim().toLowerCase()
-  return [app.getName(), 'electron', '纸壳助手', 'eshell'].some((n) => n && f.includes(n.toLowerCase()))
+  // 保留旧名（纸壳助手/eshell）：改名前打包的旧进程名仍需排除
+  return [app.getName(), 'electron', '谷子助手', 'gooz', '纸壳助手', 'eshell'].some(
+    (n) => n && f.includes(n.toLowerCase())
+  )
 }
 
 /** 云端解析可用性：已登录（网关）或已配直连 API，且完成档案设置。未就绪时监控静默跳过，不白跑截图/OCR。 */
@@ -481,13 +484,13 @@ async function watchTick(): Promise<void> {
       screenSenseVlmConfirm,
       screenSenseIntervalSec
     } = getSettings()
-    // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己。全屏感知，不再按进程名单过滤。
+    // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控谷子助手自己。全屏感知，不再按进程名单过滤。
     const frontApp = await getFrontmostApp()
     const appChanged = frontApp !== lastDebugApp
     lastDebugApp = frontApp
     if (appChanged) debugEvent('frontapp', `前台应用：${frontApp ?? '(未知)'}`)
     // 应用使用时长：每轮给前台 App 记一个间隔（只存应用名+秒数；排除名单 App 也计时，但不截图；
-    // 自己在前台不计——dev 下进程名是 Electron，正式包是纸壳助手，统计自己只会污染榜单）
+    // 自己在前台不计——dev 下进程名是 Electron，正式包是谷子助手，统计自己只会污染榜单）
     if (frontApp && !isOwnApp(frontApp))
       addAppUsage(dayKey(new Date()), frontApp, Math.max(1, screenSenseIntervalSec))
     if (screenSenseExcludedApps.length && isAppExcluded(frontApp, screenSenseExcludedApps)) {
@@ -495,7 +498,7 @@ async function watchTick(): Promise<void> {
       return
     }
     if (isOwnApp(frontApp)) {
-      if (appChanged) debugEvent('skip', '纸壳助手自己在前台，跳过')
+      if (appChanged) debugEvent('skip', '谷子助手自己在前台，跳过')
       return
     }
 

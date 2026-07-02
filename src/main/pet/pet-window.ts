@@ -1,4 +1,4 @@
-// 桌宠窗口 —— 静态品牌标（纸壳助手橙色 mark），透明无边框置顶窗口。
+// 桌宠窗口 —— 静态品牌标（谷子助手橙色 mark），透明无边框置顶窗口。
 // 点击穿透、手动拖拽、事件气泡 移植/精简自 openpets pet-window.ts（MIT，见 ./THIRD_PARTY_NOTICES.md）。
 // 动画/运动引擎/反应映射 已全部移除：桌宠是一张静态图标，事件只通过气泡通知。单例。
 import { app, BrowserWindow, ipcMain, nativeTheme, screen } from 'electron'
@@ -288,9 +288,9 @@ function bodyMarkup(reaction: PetReaction, bubbleText: string | null): string {
   const markUrl = pathToFileURL(petMark).toString()
   // 有气泡（新消息）时给图标加一次性弹跳，吸引注意；无气泡则静止。
   const alert = bubbleText ? ' is-alert' : ''
-  const mark = `<img class="mark" src="${escapeHtml(markUrl)}" alt="纸壳助手" draggable="false" />`
+  const mark = `<img class="mark" src="${escapeHtml(markUrl)}" alt="谷子助手" draggable="false" />`
   const bubble = bubbleText ? bubbleMarkup(bubbleText, reaction) : ''
-  return `<div class="stage" aria-label="纸壳助手桌宠">
+  return `<div class="stage" aria-label="谷子助手桌宠">
     ${bubble}
     <div class="pet-hitbox" aria-hidden="true"><div class="pet-shell${alert}">${mark}</div></div>
   </div>`
@@ -318,7 +318,7 @@ function fullHtml(reaction: PetReaction, bubbleText: string | null): string {
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>纸壳助手桌宠</title>
+    <title>谷子助手桌宠</title>
     <style>
       ${windowCss(prefs.paused, scale, nativeTheme.shouldUseDarkColors)}
     </style>

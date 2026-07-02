@@ -140,7 +140,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
           <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
             <div className="text-base font-semibold text-slate-800">还没有任何日程</div>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              纸壳助手会自动留意你的通知、消息和截图，从中帮你拎出该办的事，发现后在右下角的助手里提给你确认。
+              谷子助手会自动留意你的通知、消息和截图，从中帮你拎出该办的事，发现后在右下角的助手里提给你确认。
             </p>
             <p className="mt-1 text-sm leading-6 text-slate-500">
               也可以手动添加：复制内容后按 <b>{hotkeyLabel}</b>，或点右下角的助手直接问我 / 把文件拖进窗口。

@@ -13,7 +13,7 @@ function fire(): void {
   try {
     const brief = buildDailyBrief(listTasks(), new Date())
     if (brief.count > 0 && Notification.isSupported()) {
-      const n = new Notification({ title: '纸壳助手 · 今日简报', body: brief.message })
+      const n = new Notification({ title: '谷子助手 · 今日简报', body: brief.message })
       n.on('click', () => focusMain('schedule')) // 时间轴已并入日程页
       n.show()
     }
