@@ -4,7 +4,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
 import { deleteShot } from './shotvault'
-import { localNow } from '@shared/parsing'
+import { localNow, localNowSec } from '@shared/parsing'
 import { dayKey } from '@shared/work-report'
 import { buildFtsQuery } from '@shared/fts-query'
 import type {
@@ -702,8 +702,9 @@ export function appUsageRange(fromDay: string, toDay: string): (AppUsageEntry & 
 // ---------- app_switches（前台应用切换事件；只存应用名与时刻，不存内容。注意力分析素材）----------
 
 export function addAppSwitch(fromApp: string | null, toApp: string): void {
+  // 秒级时间戳：同一分钟内多次切换需稳定排序，短停留判定也依赖亚分钟精度
   db.prepare('INSERT INTO app_switches (ts, from_app, to_app) VALUES (?, ?, ?)').run(
-    localNow(),
+    localNowSec(),
     fromApp,
     toApp
   )
