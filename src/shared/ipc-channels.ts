@@ -34,6 +34,13 @@ export const INVOKE_CHANNELS = [
   'detections:list',
   'detections:accept',
   'detections:dismiss',
+  'work-records:list',
+  'work-records:delete',
+  'app-usage:summary',
+  'reports:generate',
+  'reports:list',
+  'reports:delete',
+  'report:export',
   'assistant:chat',
   'assistant:add',
   'app:focus-main',
@@ -57,6 +64,7 @@ export const EVENT_CHANNELS = [
   'eshell:tasks-updated',
   'eshell:debug',
   'eshell:pet-chat-drop',
+  'eshell:reports-updated',
   'eshell:theme'
 ] as const
 

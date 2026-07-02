@@ -90,11 +90,12 @@ export async function callModel(
   }
 }
 
-export async function parseToItems(input: {
+/** 同 parseToItems，但额外返回模型原始输出（供屏幕感知从同一次调用里再解析 work_summary）。 */
+export async function parseToItemsRaw(input: {
   text?: string
   imageDataUrl?: string
   hint: string
-}): Promise<ParsedItem[]> {
+}): Promise<{ items: ParsedItem[]; raw: string }> {
   const profile = getProfile()
   if (!profile) throw new Error('尚未完成用户档案设置')
 
@@ -116,5 +117,13 @@ export async function parseToItems(input: {
     [{ role: 'user', content }],
     input.imageDataUrl ? 'parse_vision' : 'parse_text'
   )
-  return parseModelOutput(output)
+  return { items: parseModelOutput(output), raw: output }
+}
+
+export async function parseToItems(input: {
+  text?: string
+  imageDataUrl?: string
+  hint: string
+}): Promise<ParsedItem[]> {
+  return (await parseToItemsRaw(input)).items
 }

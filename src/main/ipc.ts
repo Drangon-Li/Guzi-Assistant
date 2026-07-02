@@ -1,13 +1,19 @@
-import { ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
+import { dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
+import { writeFileSync } from 'fs'
 import {
+  appUsageSummary,
   bulkUpdateStatus,
+  deleteReport,
   deleteSourceContent,
+  deleteWorkRecord,
   getProfile,
   getSettings,
   getSource,
   getTask,
   listDetections,
+  listReports,
   listTasks,
+  listWorkRecords,
   saveProfile,
   saveSettings,
   searchSources,
@@ -15,6 +21,7 @@ import {
   wipeAll,
   wipeMemory
 } from './db'
+import { generateDailyReport } from './report'
 import { learnNotMine } from '@shared/belonging-learn'
 import {
   cancelPending,
@@ -115,7 +122,8 @@ export function registerIpc(): void {
       patch.screenSenseEnabled !== undefined ||
       patch.screenSenseHotkey !== undefined ||
       patch.screenSenseContinuous !== undefined ||
-      patch.screenSenseIntervalSec !== undefined
+      patch.screenSenseIntervalSec !== undefined ||
+      patch.dailyReportTime !== undefined
     )
       applyScreenSenseSettings()
     broadcast('eshell:settings-updated')
@@ -228,6 +236,28 @@ export function registerIpc(): void {
   ipcMain.handle('detections:list', () => listDetections())
   ipcMain.handle('detections:accept', (_e, id: string) => acceptDetection(id))
   ipcMain.handle('detections:dismiss', (_e, id: string) => dismissDetection(id))
+
+  // 工作记录 / 应用时长 / 日报（「日报」页）
+  ipcMain.handle('work-records:list', (_e, day: string) => listWorkRecords(day))
+  ipcMain.handle('work-records:delete', (_e, id: string) => deleteWorkRecord(id))
+  ipcMain.handle('app-usage:summary', (_e, day: string) => appUsageSummary(day))
+  ipcMain.handle('reports:generate', async (_e, day: string) => {
+    const r = await generateDailyReport(day)
+    broadcast('eshell:reports-updated')
+    return r
+  })
+  ipcMain.handle('reports:list', () => listReports())
+  ipcMain.handle('reports:delete', (_e, id: string) => deleteReport(id))
+  ipcMain.handle('report:export', async (_e, r: { title: string; content: string }) => {
+    const res = await dialog.showSaveDialog({
+      title: '导出日报',
+      defaultPath: `${r.title}.md`,
+      filters: [{ name: 'Markdown', extensions: ['md'] }]
+    })
+    if (res.canceled || !res.filePath) return false
+    writeFileSync(res.filePath, r.content, 'utf8')
+    return true
+  })
 
   ipcMain.handle(
     'assistant:chat',

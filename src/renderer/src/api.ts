@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  AppUsageEntry,
   DetectionRecord,
   FeishuStatus,
   MemoryHit,
@@ -7,10 +8,12 @@ import type {
   PendingCapture,
   PermissionStatus,
   Profile,
+  ReportRecord,
   ScanResult,
   SourceRecord,
   TaskRecord,
-  TaskStatus
+  TaskStatus,
+  WorkRecord
 } from '@shared/types'
 import type {
   AddedInfo,
@@ -68,6 +71,14 @@ export const api = {
   listDetections: () => inv<DetectionRecord[]>('detections:list'),
   acceptDetection: (id: string) => inv<AddedInfo | null>('detections:accept', id),
   dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
+
+  listWorkRecords: (day: string) => inv<WorkRecord[]>('work-records:list', day),
+  deleteWorkRecord: (id: string) => inv<void>('work-records:delete', id),
+  appUsageSummary: (day: string) => inv<AppUsageEntry[]>('app-usage:summary', day),
+  generateReport: (day: string) => inv<ReportRecord>('reports:generate', day),
+  listReports: () => inv<ReportRecord[]>('reports:list'),
+  deleteReport: (id: string) => inv<void>('reports:delete', id),
+  exportReport: (r: { title: string; content: string }) => inv<boolean>('report:export', r),
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),

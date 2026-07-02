@@ -288,6 +288,17 @@ function extractJson(text: string): Record<string, unknown> {
   }
 }
 
+/** 从屏幕扫描模型输出中取顶层 work_summary（「在做什么」一句话，工作记录用）；无/非法返回 null */
+export function parseWorkSummary(text: string): string | null {
+  try {
+    const parsed = extractJson(text)
+    const s = typeof parsed.work_summary === 'string' ? parsed.work_summary.trim() : ''
+    return s ? s.slice(0, 200) : null
+  } catch {
+    return null
+  }
+}
+
 /** 从捕获解析的模型输出中规整 ParsedItem 列表 */
 export function parseModelOutput(text: string): ParsedItem[] {
   const parsed = extractJson(text)

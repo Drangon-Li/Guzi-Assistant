@@ -1,10 +1,12 @@
 import { unlink } from 'fs/promises'
-import { app, nativeImage } from 'electron'
+import { app, nativeImage, powerMonitor } from 'electron'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImageDetailed } from './ocr'
-import { parseToItems } from './parser'
+import { parseToItemsRaw } from './parser'
 import {
+  addAppUsage,
   addDetection,
+  addWorkRecord,
   createSource,
   createTask,
   deleteSourceRow,
@@ -15,6 +17,8 @@ import {
   setDetectionStatus,
   findDuplicateTitle
 } from './db'
+import { applyReportSchedule } from './report-scheduler'
+import { dayKey } from '@shared/work-report'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
@@ -25,7 +29,7 @@ import { isAppExcluded } from '@shared/app-exclude'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox } from '@shared/chat-layout'
 import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
-import type { AddedInfo, ParsedItem } from '@shared/parsing'
+import { parseWorkSummary, type AddedInfo, type ParsedItem } from '@shared/parsing'
 import type { LocalExtraction, ParseSummary, ScanResult, TaskStatus } from '@shared/types'
 
 function emptySummary(error: string | null): ParseSummary {
@@ -37,10 +41,39 @@ interface DetectHit {
   item: ParsedItem
 }
 
-/** OCR 文字 → 云端解析 → **全部候选**（多任务）。只上传文字，不上传截图。空 → []。 */
-async function detectAll(text: string): Promise<DetectHit[]> {
-  const items = await parseToItems({ text, hint: HINTS.screen_scan })
-  return items.map((it) => ({ extraction: parsedToExtraction(it), item: it }))
+// 工作记录搭同一次识别调用的便车：让模型在 items 之外多回一个顶层 work_summary 字段
+const WORK_SUMMARY_HINT =
+  '另外，在返回的 JSON 中额外加一个顶层字段 "work_summary"：用一句不超过 40 字的中文客观描述屏幕上正在进行的主要活动（如「在 VS Code 中编辑项目代码」「在浏览器查阅 Python 文档」）；无法判断时填 null。'
+
+interface DetectResult {
+  hits: DetectHit[]
+  /** 「在做什么」一句话（工作记录开关关/模型没给时为 null） */
+  workSummary: string | null
+}
+
+/** OCR 文字 → 云端解析 → **全部候选**（多任务）+ 顺带的工作记录总结。只上传文字，不上传截图。 */
+async function detectAll(text: string, wantWorkLog: boolean): Promise<DetectResult> {
+  const hint = wantWorkLog ? `${HINTS.screen_scan}\n${WORK_SUMMARY_HINT}` : HINTS.screen_scan
+  const { items, raw } = await parseToItemsRaw({ text, hint })
+  return {
+    hits: items.map((it) => ({ extraction: parsedToExtraction(it), item: it })),
+    workSummary: wantWorkLog ? parseWorkSummary(raw) : null
+  }
+}
+
+// 工作记录节流：同一活动持续中不重复记；不同活动也至少间隔 1 分钟，防打字每帧都记
+const WORK_RECORD_MIN_GAP_MS = 60 * 1000
+let lastWorkRecordAt = 0
+let lastWorkRecordContent = ''
+function maybeAddWorkRecord(summary: string | null, frontApp: string | null): void {
+  if (!summary) return
+  const now = Date.now()
+  if (summary === lastWorkRecordContent) return
+  if (now - lastWorkRecordAt < WORK_RECORD_MIN_GAP_MS) return
+  lastWorkRecordAt = now
+  lastWorkRecordContent = summary
+  addWorkRecord({ content: summary, app: frontApp })
+  debugEvent('record', `工作记录：${summary}`)
 }
 
 /** 云端 ParsedItem → LocalExtraction（供 addDetection / 卡片显示）。 */
@@ -124,7 +157,7 @@ export async function scanOnce(): Promise<ScanResult> {
     }
     debugShot(png)
 
-    const { screenSenseKeepShots } = getSettings()
+    const { screenSenseKeepShots, screenSenseWorkLog } = getSettings()
     // png 保留到 OCR/存证之后再删，故包一层 try/finally
     try {
       const boxes = await ocrImageDetailed(png)
@@ -137,8 +170,9 @@ export async function scanOnce(): Promise<ScanResult> {
       debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
 
       const t0 = Date.now()
-      const hits = await detectAll(text)
+      const { hits, workSummary } = await detectAll(text, screenSenseWorkLog)
       debugEvent('timing', `云端解析耗时 ${Date.now() - t0}ms`)
+      maybeAddWorkRecord(workSummary, null)
       if (!hits.length) {
         debugEvent('detect', '云端未发现明确待办')
         showPreview({ error: '未发现可添加的日程' }) // 灰色提示卡，3s 自动消失
@@ -285,6 +319,7 @@ export function dismissDetection(id: string): void {
 
 const PHASH_THRESHOLD = 2 // 汉明距离 ≤ 此值视为"屏幕没变" → 跳过 OCR/解析（MineContext 实测默认）
 const COOLDOWN_MS = 10 * 60 * 1000 // 同一内容命中后冷却，避免反复弹卡
+const IDLE_SKIP_SEC = 120 // 键鼠闲置超此秒数视为人不在电脑前，整轮跳过（不截图/不统计/不上云）
 
 let watchTimer: ReturnType<typeof setInterval> | null = null
 let watchPaused = false
@@ -365,12 +400,21 @@ async function watchTick(): Promise<void> {
       return
     }
     cloudBlockLogged = false
-    const { screenSenseExcludedApps, screenSenseKeepShots, screenSensePopup } = getSettings()
+    if (powerMonitor.getSystemIdleTime() >= IDLE_SKIP_SEC) return // 人不在电脑前，静默跳过
+    const {
+      screenSenseExcludedApps,
+      screenSenseKeepShots,
+      screenSensePopup,
+      screenSenseWorkLog,
+      screenSenseIntervalSec
+    } = getSettings()
     // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己。全屏感知，不再按进程名单过滤。
     const frontApp = await getFrontmostApp()
     const appChanged = frontApp !== lastDebugApp
     lastDebugApp = frontApp
     if (appChanged) debugEvent('frontapp', `前台应用：${frontApp ?? '(未知)'}`)
+    // 应用使用时长：每轮给前台 App 记一个间隔（只存应用名+秒数；排除名单 App 也计时，但不截图）
+    if (frontApp) addAppUsage(dayKey(new Date()), frontApp, Math.max(1, screenSenseIntervalSec))
     if (screenSenseExcludedApps.length && isAppExcluded(frontApp, screenSenseExcludedApps)) {
       if (appChanged) debugEvent('skip', '在排除名单，跳过')
       return
@@ -413,8 +457,9 @@ async function watchTick(): Promise<void> {
     }
     cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
 
-    // 云端解析 → 全部候选（多任务）
-    const hits = await detectAll(text)
+    // 云端解析 → 全部候选（多任务）+ 顺带的工作记录
+    const { hits, workSummary } = await detectAll(text, screenSenseWorkLog)
+    maybeAddWorkRecord(workSummary, frontApp)
     if (!hits.length) {
       debugEvent('detect', '云端未发现明确待办')
       return
@@ -501,6 +546,7 @@ export function applyScreenSenseSettings(): void {
   else unregisterScanHotkey()
   if (screenSenseEnabled && screenSenseContinuous) startWatch(screenSenseIntervalSec)
   else stopWatch()
+  applyReportSchedule() // 每日定时日报跟随设置启停
   runShotRetention()
 }
 

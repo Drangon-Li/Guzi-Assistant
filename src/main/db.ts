@@ -8,8 +8,11 @@ import { localNow } from '@shared/parsing'
 import { buildFtsQuery } from '@shared/fts-query'
 import type {
   AppSettings,
+  AppUsageEntry,
   DetectionRecord,
   MemoryHit,
+  ReportRecord,
+  WorkRecord,
   Profile,
   SourceRecord,
   SourceType,
@@ -66,6 +69,26 @@ export function initDb(): void {
       hits TEXT NOT NULL DEFAULT '[]',
       app TEXT,
       status TEXT NOT NULL DEFAULT 'new',
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS work_records (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      app TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS app_usage (
+      day TEXT NOT NULL,
+      app TEXT NOT NULL,
+      seconds INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, app)
+    );
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      day TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'daily',
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
   `)
@@ -163,6 +186,8 @@ export function getSettings(): AppSettings {
     screenSenseKeepShots: map.screenSenseKeepShots !== 'false',
     screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
     screenSensePopup: map.screenSensePopup !== 'false',
+    screenSenseWorkLog: map.screenSenseWorkLog !== 'false',
+    dailyReportTime: map.dailyReportTime ?? '',
     screenSenseCardHideSec:
       map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 60,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
@@ -563,8 +588,118 @@ export function setDetectionStatus(id: string, status: DetectionRecord['status']
   db.prepare('UPDATE detections SET status = ? WHERE id = ?').run(status, id)
 }
 
+// ---------- work_records（工作记录：屏幕识别顺带的「在做什么」时间线，供日报生成）----------
+
+const WORK_RECORDS_CAP = 5000 // 只留最近 N 条，避免无界增长
+
+interface WorkRecordRow {
+  id: string
+  content: string
+  app: string | null
+  created_at: string
+}
+const rowToWorkRecord = (r: WorkRecordRow): WorkRecord => ({
+  id: r.id,
+  content: r.content,
+  app: r.app,
+  createdAt: r.created_at
+})
+
+export function addWorkRecord(w: { content: string; app: string | null }): WorkRecord {
+  const rec = { id: randomUUID(), content: w.content.slice(0, 200), app: w.app, createdAt: localNow() }
+  db.prepare('INSERT INTO work_records (id, content, app, created_at) VALUES (?, ?, ?, ?)').run(
+    rec.id,
+    rec.content,
+    rec.app,
+    rec.createdAt
+  )
+  db.prepare(
+    'DELETE FROM work_records WHERE id NOT IN (SELECT id FROM work_records ORDER BY created_at DESC LIMIT ?)'
+  ).run(WORK_RECORDS_CAP)
+  return rec
+}
+
+/** 某天（YYYY-MM-DD）的工作记录，按时间正序。 */
+export function listWorkRecords(day: string): WorkRecord[] {
+  const rows = db
+    .prepare('SELECT * FROM work_records WHERE created_at LIKE ? ORDER BY created_at')
+    .all(`${day}%`) as WorkRecordRow[]
+  return rows.map(rowToWorkRecord)
+}
+
+export function deleteWorkRecord(id: string): void {
+  db.prepare('DELETE FROM work_records WHERE id = ?').run(id)
+}
+
+// ---------- app_usage（前台应用使用时长，按天累计；只存应用名与秒数，不存内容）----------
+
+export function addAppUsage(day: string, app: string, seconds: number): void {
+  db.prepare(
+    'INSERT INTO app_usage (day, app, seconds) VALUES (?, ?, ?) ON CONFLICT(day, app) DO UPDATE SET seconds = seconds + excluded.seconds'
+  ).run(day, app, seconds)
+}
+
+/** 某天各应用使用时长，按时长降序。 */
+export function appUsageSummary(day: string): AppUsageEntry[] {
+  return db
+    .prepare('SELECT app, seconds FROM app_usage WHERE day = ? ORDER BY seconds DESC')
+    .all(day) as AppUsageEntry[]
+}
+
+// ---------- reports（AI 生成的工作日报）----------
+
+interface ReportRow {
+  id: string
+  day: string
+  type: string
+  title: string
+  content: string
+  created_at: string
+}
+const rowToReport = (r: ReportRow): ReportRecord => ({
+  id: r.id,
+  day: r.day,
+  type: 'daily',
+  title: r.title,
+  content: r.content,
+  createdAt: r.created_at
+})
+
+export function addReport(r: { day: string; title: string; content: string }): ReportRecord {
+  const rec = {
+    id: randomUUID(),
+    day: r.day,
+    type: 'daily' as const,
+    title: r.title,
+    content: r.content,
+    createdAt: localNow()
+  }
+  db.prepare('INSERT INTO reports (id, day, type, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+    rec.id,
+    rec.day,
+    rec.type,
+    rec.title,
+    rec.content,
+    rec.createdAt
+  )
+  return rec
+}
+
+export function listReports(limit = 100): ReportRecord[] {
+  const rows = db
+    .prepare('SELECT * FROM reports ORDER BY created_at DESC LIMIT ?')
+    .all(limit) as ReportRow[]
+  return rows.map(rowToReport)
+}
+
+export function deleteReport(id: string): void {
+  db.prepare('DELETE FROM reports WHERE id = ?').run(id)
+}
+
 export function wipeAll(): void {
-  db.exec('DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile;')
+  db.exec(
+    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports;'
+  )
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')

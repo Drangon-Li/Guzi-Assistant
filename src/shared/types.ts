@@ -147,6 +147,10 @@ export interface AppSettings {
   screenSenseRetentionDays: number
   /** 检测到日程时是否主动弹卡；false=完全被动（只进「记忆」历史，不打扰）。默认 true */
   screenSensePopup: boolean
+  /** 工作记录：屏幕识别时顺带记录「在做什么」（同一次云端调用，零额外成本）。默认 true */
+  screenSenseWorkLog: boolean
+  /** 每日定时自动生成日报的时间（HH:mm）；空 = 不自动生成。默认空 */
+  dailyReportTime: string
   /** 检测卡/AI 建议卡闲置自动隐藏秒数；0=不自动隐藏（一直挂着）。默认 60 */
   screenSenseCardHideSec: number
   /** 悬浮助手闲置自动收起秒数；0=不自动收起。默认 60 */
@@ -163,6 +167,33 @@ export interface FeishuStatus {
 export interface ScanResult {
   status: 'suggested' | 'empty' | 'error'
   message: string
+}
+
+/** 工作记录：屏幕识别顺带的「在做什么」一句话时间线（供日报生成）。 */
+export interface WorkRecord {
+  id: string
+  content: string
+  /** 记录时的前台应用；手动扫描等场景为 null */
+  app: string | null
+  createdAt: string
+}
+
+/** 某天某应用的前台使用时长（秒） */
+export interface AppUsageEntry {
+  app: string
+  seconds: number
+}
+
+/** AI 生成的工作日报 */
+export interface ReportRecord {
+  id: string
+  /** 报告覆盖的日期 YYYY-MM-DD */
+  day: string
+  type: 'daily'
+  title: string
+  /** Markdown 正文 */
+  content: string
+  createdAt: string
 }
 
 /** 屏幕检测候选：云端解析结果的卡片 / 检测历史载荷形状。 */

@@ -522,6 +522,44 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             <div className="border-t border-slate-100 pt-4">
               <label className="flex items-center justify-between gap-4 text-sm">
                 <span>
+                  工作记录
+                  <span className="ml-2 text-xs text-slate-400">
+                    识别时顺带记下「在做什么」，供「日报」页生成工作日报（不额外耗积分）
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSenseWorkLog}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    setSettings({ ...settings, screenSenseWorkLog: next })
+                    await api.saveSettings({ screenSenseWorkLog: next })
+                    flash(next ? '已开启工作记录' : '已关闭工作记录')
+                  }}
+                />
+              </label>
+              {settings.screenSenseWorkLog && (
+                <label className="mt-2 flex items-center gap-3 text-sm">
+                  <span className="text-slate-500">每日自动生成日报</span>
+                  <input
+                    type="time"
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                    value={settings.dailyReportTime}
+                    onChange={async (e) => {
+                      const v = e.target.value
+                      setSettings({ ...settings, dailyReportTime: v })
+                      await api.saveSettings({ dailyReportTime: v })
+                      flash(v ? `每天 ${v} 自动生成日报` : '已关闭定时日报')
+                    }}
+                  />
+                  <span className="text-xs text-slate-400">清空 = 不自动生成</span>
+                </label>
+              )}
+            </div>
+
+            <div className="border-t border-slate-100 pt-4">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
                   持续监控（自动）
                   <span className="ml-2 text-xs text-slate-400">屏幕变化时自动识别，无需手动扫描</span>
                 </span>

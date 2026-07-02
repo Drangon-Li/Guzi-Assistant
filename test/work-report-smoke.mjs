@@ -1,0 +1,100 @@
+// 纯函数单测：工作日报 work-report + 屏幕扫描 work_summary 解析。运行：npm run test:workreport
+import {
+  dayKey,
+  formatDuration,
+  defaultReportTitle,
+  splitTasksForDay,
+  buildDailyReportPrompt
+} from '../src/shared/work-report.ts'
+import { parseWorkSummary } from '../src/shared/parsing.ts'
+
+let failed = 0
+function check(name, ok) {
+  console.log(`${ok ? '✓' : '✗'} ${name}`)
+  if (!ok) failed++
+}
+
+// ---- dayKey ----
+check('dayKey 补零', dayKey(new Date(2026, 0, 5)) === '2026-01-05')
+check('dayKey 双位月日', dayKey(new Date(2026, 11, 31)) === '2026-12-31')
+
+// ---- formatDuration ----
+check('秒级', formatDuration(45) === '45 秒')
+check('分钟级', formatDuration(150) === '3 分钟')
+check('整小时', formatDuration(7200) === '2 小时')
+check('时+分', formatDuration(3900) === '1 小时 5 分钟')
+
+// ---- defaultReportTitle ----
+check('标题含日期', defaultReportTitle('2026-07-02') === '2026-07-02 工作日报')
+
+// ---- splitTasksForDay ----
+function mk(o) {
+  return {
+    id: 'x',
+    sourceId: null,
+    title: 't',
+    itemType: 'reminder',
+    belongsToUser: 'yes',
+    belongingReason: '',
+    userRole: 'owner',
+    startTime: null,
+    dueTime: null,
+    location: null,
+    priority: 'unknown',
+    confidence: 0.9,
+    suggestedAction: 'confirm',
+    evidence: [],
+    notes: [],
+    duplicateOf: null,
+    status: 'scheduled',
+    feedback: null,
+    createdAt: '',
+    updatedAt: '',
+    ...o
+  }
+}
+const tasks = [
+  mk({ title: '今天完成的', status: 'done', updatedAt: '2026-07-02T15:00' }),
+  mk({ title: '昨天完成的', status: 'done', updatedAt: '2026-07-01T15:00' }),
+  mk({ title: '待办中', status: 'scheduled' }),
+  mk({ title: '别人的', status: 'scheduled', belongsToUser: 'no' }),
+  mk({ title: '已忽略', status: 'ignored' })
+]
+const split = splitTasksForDay(tasks, '2026-07-02')
+check('done 只取当天完成', split.done.length === 1 && split.done[0] === '今天完成的')
+check('open 排除别人的/已忽略', split.open.length === 1 && split.open[0] === '待办中')
+
+// ---- buildDailyReportPrompt ----
+const { instructions, text } = buildDailyReportPrompt('张三', {
+  day: '2026-07-02',
+  records: [{ id: 'r1', content: '在 VS Code 编辑代码', app: 'Code', createdAt: '2026-07-02T09:30' }],
+  usage: [{ app: 'Code', seconds: 3600 }],
+  tasksDone: ['修好登录 bug'],
+  tasksOpen: ['写周报']
+})
+check('系统提示词含用户名', instructions.includes('张三'))
+check('系统提示词含结构要求', instructions.includes('## 今日概览') && instructions.includes('## 明日计划'))
+check('素材含时间线（时刻+应用+内容）', text.includes('09:30 [Code] 在 VS Code 编辑代码'))
+check('素材含应用时长', text.includes('Code：1 小时'))
+check('素材含完成任务与待办', text.includes('修好登录 bug') && text.includes('写周报'))
+
+const empty = buildDailyReportPrompt('张三', {
+  day: '2026-07-02',
+  records: [],
+  usage: [],
+  tasksDone: [],
+  tasksOpen: []
+})
+check('空素材各节标注（无）', (empty.text.match(/（无）/g) ?? []).length === 4)
+
+// ---- parseWorkSummary ----
+check('正常解析', parseWorkSummary('{"items":[],"work_summary":"在浏览器查资料"}') === '在浏览器查资料')
+check('带前后噪声可解析', parseWorkSummary('前缀 {"items":[],"work_summary":"写代码"} 后缀') === '写代码')
+check('null 值 → null', parseWorkSummary('{"items":[],"work_summary":null}') === null)
+check('缺字段 → null', parseWorkSummary('{"items":[]}') === null)
+check('空串 → null', parseWorkSummary('{"work_summary":"  "}') === null)
+check('坏 JSON → null', parseWorkSummary('not json') === null)
+check('超长截断到 200', parseWorkSummary(`{"work_summary":"${'长'.repeat(300)}"}`)?.length === 200)
+
+console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
+process.exit(failed ? 1 : 0)
