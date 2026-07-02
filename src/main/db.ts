@@ -6,10 +6,8 @@ import { loadEnv } from './env'
 import { deleteShot } from './shotvault'
 import { localNow } from '@shared/parsing'
 import { buildFtsQuery } from '@shared/fts-query'
-import type { Correction } from '@shared/correction-memory'
 import type {
   AppSettings,
-  Belongs,
   DetectionRecord,
   MemoryHit,
   Profile,
@@ -68,14 +66,6 @@ export function initDb(): void {
       hits TEXT NOT NULL DEFAULT '[]',
       app TEXT,
       status TEXT NOT NULL DEFAULT 'new',
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS corrections (
-      id TEXT PRIMARY KEY,
-      input_text TEXT NOT NULL,
-      is_todo INTEGER NOT NULL,
-      title TEXT,
-      belongs TEXT,
       created_at TEXT NOT NULL
     );
   `)
@@ -163,10 +153,8 @@ export function getSettings(): AppSettings {
     model: map.model || env.ESHELL_MODEL || 'gpt-5.5',
     feishuAppId: map.feishuAppId ?? env.ESHELL_FEISHU_APP_ID ?? '',
     feishuAppSecret: map.feishuAppSecret ?? env.ESHELL_FEISHU_APP_SECRET ?? '',
-    // 核心被动采集：默认开，仅当用户显式存 'false' 才关
-    screenSenseEnabled: map.screenSenseEnabled !== 'false',
-    screenSenseLocalModel: map.screenSenseLocalModel === 'true',
-    localModelEndpoint: map.localModelEndpoint ?? '',
+    // 核心被动采集：默认关（opt-in，检测走云端解析、消耗 credits）
+    screenSenseEnabled: map.screenSenseEnabled === 'true',
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',
     screenSenseContinuous: map.screenSenseContinuous !== 'false',
     screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,
@@ -175,7 +163,6 @@ export function getSettings(): AppSettings {
     screenSenseKeepShots: map.screenSenseKeepShots !== 'false',
     screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
     screenSensePopup: map.screenSensePopup !== 'false',
-    screenSenseCloudVerify: map.screenSenseCloudVerify === 'true',
     screenSenseCardHideSec:
       map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 60,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
@@ -576,53 +563,14 @@ export function setDetectionStatus(id: string, status: DetectionRecord['status']
   db.prepare('UPDATE detections SET status = ? WHERE id = ?').run(status, id)
 }
 
-// ---------- corrections（Phase 2 校正记忆：VLM 校正≠本地的案例，供本地越用越聪明）----------
-
-const CORRECTIONS_CAP = 50 // 只留最近 N 条，避免无界增长
-
-interface CorrectionRow {
-  input_text: string
-  is_todo: number
-  title: string | null
-  belongs: string | null
-  created_at: string
-}
-
-/** 记一条校正；超额淘汰最旧。 */
-export function addCorrection(c: { inputText: string; isTodo: boolean; title: string | null; belongs: Belongs | null }): void {
-  if (!c.inputText.trim()) return
-  db.prepare(
-    'INSERT INTO corrections (id, input_text, is_todo, title, belongs, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(randomUUID(), c.inputText.slice(0, 600), c.isTodo ? 1 : 0, c.title, c.belongs, localNow())
-  db.prepare(
-    'DELETE FROM corrections WHERE id NOT IN (SELECT id FROM corrections ORDER BY created_at DESC LIMIT ?)'
-  ).run(CORRECTIONS_CAP)
-}
-
-/** 取最近校正（供检索/few-shot）。 */
-export function listCorrections(limit = CORRECTIONS_CAP): Correction[] {
-  const rows = db
-    .prepare('SELECT input_text, is_todo, title, belongs, created_at FROM corrections ORDER BY created_at DESC LIMIT ?')
-    .all(limit) as CorrectionRow[]
-  return rows.map((r) => ({
-    inputText: r.input_text,
-    isTodo: !!r.is_todo,
-    title: r.title,
-    belongs: (r.belongs as Belongs) ?? null,
-    createdAt: r.created_at
-  }))
-}
-
 export function wipeAll(): void {
-  db.exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM corrections; DELETE FROM profile;'
-  )
+  db.exec('DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile;')
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')
 }
 
-/** 清空「记忆」：来源历史(sources + FTS)与屏幕识别历史(detections)。保留任务/校正记忆/档案。 */
+/** 清空「记忆」：来源历史(sources + FTS)与屏幕识别历史(detections)。保留任务/档案。 */
 export function wipeMemory(): void {
   db.exec('DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections;')
   db.pragma('wal_checkpoint(TRUNCATE)')

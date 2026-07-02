@@ -1,6 +1,5 @@
 import { unlink } from 'fs/promises'
 import { app, nativeImage } from 'electron'
-import type { NativeImage } from 'electron'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImageDetailed } from './ocr'
 import { parseToItems } from './parser'
@@ -14,81 +13,37 @@ import {
   getSettings,
   getSource,
   setDetectionStatus,
-  findDuplicateTitle,
-  addCorrection,
-  updateTask
+  findDuplicateTitle
 } from './db'
-import { textSimilarity } from '@shared/correction-memory'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
 import { getFrontmostApp } from './frontapp'
-import {
-  saveShotTempFromPng,
-  saveShotTempFromImage,
-  finalizeShot,
-  deleteShot,
-  listShotIds,
-  sweepTempShots
-} from './shotvault'
-import { extract, unloadLocalModel, startIdleSweep, stopIdleSweep } from './local-model/extractor'
-import { shouldEscalate } from '@shared/local-model-schema'
-import { isAmbiguous } from '@shared/screen-foreground'
-import { pickBest } from '@shared/suggest'
+import { saveShotTempFromPng, finalizeShot, deleteShot, listShotIds, sweepTempShots } from './shotvault'
+import { getSession } from './session'
 import { isAppExcluded } from '@shared/app-exclude'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox } from '@shared/chat-layout'
 import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
-import type { LocalExtraction, ParseSummary, ScanResult, TaskRecord, TaskStatus } from '@shared/types'
+import type { LocalExtraction, ParseSummary, ScanResult, TaskStatus } from '@shared/types'
 
 function emptySummary(error: string | null): ParseSummary {
   return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
 }
 
-/** 本地置信度低于此值（或模型自判 needsVlm）→ 自动上云 VLM 复核。 */
-const CONF_MIN = 0.6
-const FG_X_CUT = 0.18 // 升级裁前景图：去左侧栏/会话列表
-const FG_Y_TOP = 0.025 // 去顶部菜单栏
-
 interface DetectHit {
   extraction: LocalExtraction
   item: ParsedItem
-  refined: boolean
 }
 
-/**
- * OCR 框 → 本地小模型精筛（前景过滤 + 日期锚定）→ **全部候选**（多任务）；低置信/缺信息则一次
- * VLM 复核整帧并返回 VLM 的全部 items。裁前景截图发 parse_vision（去侧栏）。空 → []。
- */
-async function detectAll(
-  boxes: TextBox[],
-  text: string,
-  png: string,
-  cloudVerify = false
-): Promise<DetectHit[]> {
-  const profile = getProfile()
-  const selfNames = profile ? [profile.name, ...(profile.nicknames ?? [])].filter(Boolean) : []
-  const items = await extract(boxes, selfNames)
-  if (!items.length) return []
-  // 云端校正开启：不在此阻塞升级，本地全部候选先出卡，远端逐卡后台异步校正（见 verifyAndCorrect）
-  if (cloudVerify) return items.map((e) => ({ extraction: e, item: buildLocalItem(e), refined: false }))
-  // 否则按需阻塞升级：任一候选本地置信不足/模型自判，或多 strong 候选日期打架 → 一次 VLM 复核整帧
-  if (items.some((e) => shouldEscalate(e, CONF_MIN)) || isAmbiguous(items)) {
-    try {
-      const imageDataUrl = cropForegroundDataUrl(png)
-      const refined = await parseToItems(
-        imageDataUrl ? { imageDataUrl, hint: HINTS.screen_scan_vision } : { text, hint: HINTS.screen_scan }
-      )
-      if (refined.length) return refined.map((it) => ({ extraction: parsedToExtraction(it), item: it, refined: true }))
-    } catch {
-      // 升级失败（未登录/无档案/网络/裁剪失败）→ 回退本地全部候选
-    }
-  }
-  return items.map((e) => ({ extraction: e, item: buildLocalItem(e), refined: false }))
+/** OCR 文字 → 云端解析 → **全部候选**（多任务）。只上传文字，不上传截图。空 → []。 */
+async function detectAll(text: string): Promise<DetectHit[]> {
+  const items = await parseToItems({ text, hint: HINTS.screen_scan })
+  return items.map((it) => ({ extraction: parsedToExtraction(it), item: it }))
 }
 
-/** VLM 精修项 → LocalExtraction（供 addDetection / 卡片显示；VLM 路径无逐项坐标，证据/旧消息留空）。 */
+/** 云端 ParsedItem → LocalExtraction（供 addDetection / 卡片显示）。 */
 function parsedToExtraction(it: ParsedItem): LocalExtraction {
   const iso = it.due_time ?? it.start_time
   return {
@@ -98,37 +53,7 @@ function parsedToExtraction(it: ParsedItem): LocalExtraction {
     belongsToUser: it.belongs_to_user,
     hits: [],
     confidence: it.confidence,
-    needsVlm: false,
     strong: !!iso
-  }
-}
-
-/** 裁前景截图(去左侧栏/菜单栏)成 JPEG dataURL（供 VLM 升级，避免把侧栏/列表里别的会话当任务）；失败返回 null。 */
-function cropForegroundDataUrl(png: string): string | null {
-  try {
-    const img = nativeImage.createFromPath(png)
-    const { width, height } = img.getSize()
-    if (!width || !height) return null
-    const x = Math.round(width * FG_X_CUT)
-    const y = Math.round(height * FG_Y_TOP)
-    const cropped = img.crop({ x, y, width: width - x, height: height - y })
-    const sized = cropped.getSize().width > 2000 ? cropped.resize({ width: 2000 }) : cropped
-    return `data:image/jpeg;base64,${sized.toJPEG(72).toString('base64')}`
-  } catch {
-    return null
-  }
-}
-
-// ---------- 云端校正（B Phase 1）：本地先弹卡，远端后台异步校正同一张卡 ----------
-let currentPopDetectionId: string | null = null // 当前弹卡对应的检测；校正回来需一致才原地更新
-
-// B Phase 1.5：用户在校正回来前就接受了 → 记下「检测→已建任务」，校正回来去更新这条任务
-const acceptedTaskByDetection = new Map<string, string>()
-function rememberAcceptedTask(detectionId: string, taskId: string): void {
-  acceptedTaskByDetection.set(detectionId, taskId)
-  if (acceptedTaskByDetection.size > 30) {
-    const oldest = acceptedTaskByDetection.keys().next().value // Map 保插入序，删最旧
-    if (oldest) acceptedTaskByDetection.delete(oldest)
   }
 }
 
@@ -136,10 +61,6 @@ function rememberAcceptedTask(detectionId: string, taskId: string): void {
 interface QueuedCard {
   suggestion: Record<string, unknown> // localSuggestion 载荷（卡显示 + 接受）
   detectionId: string
-  cloudVerify: boolean
-  fg: string | null // 前景图 dataURL（趁 png 在时裁好，供后台 VLM 校正）
-  text: string
-  extraction: LocalExtraction
 }
 let cardQueue: QueuedCard[] = []
 let activeQueuedId: string | null = null // 当前显示的队列卡 detectionId；null=队列空闲
@@ -157,7 +78,7 @@ function enqueueCards(cards: QueuedCard[]): void {
   showNextQueued()
 }
 
-/** 弹队列下一张；空则归位。每张显示时设 currentPopDetectionId 并按需启动后台校正。 */
+/** 弹队列下一张；空则归位。 */
 function showNextQueued(): void {
   const card = cardQueue.shift()
   if (!card) {
@@ -165,9 +86,7 @@ function showNextQueued(): void {
     return
   }
   activeQueuedId = card.detectionId
-  currentPopDetectionId = card.detectionId
   showPreview({ localSuggestion: card.suggestion })
-  if (card.cloudVerify) void verifyAndCorrect(card.fg, card.text, card.detectionId, card.text, card.extraction)
 }
 
 /** 预览卡关闭（同意/拒绝/闲置/AI 解析后最终都走 preview:hide）→ 若是队列卡则弹下一张。 */
@@ -175,111 +94,6 @@ export function onPreviewHidden(): void {
   if (activeQueuedId === null) return
   activeQueuedId = null
   showNextQueued()
-}
-
-/** 远端精修 ParsedItem → 任务更新 patch（标题/起止时间/归属/地点）。 */
-function correctionPatch(refined: ParsedItem): Partial<TaskRecord> {
-  return {
-    title: refined.title,
-    startTime: refined.start_time,
-    dueTime: refined.due_time,
-    belongsToUser: refined.belongs_to_user,
-    location: refined.location
-  }
-}
-
-/** 远端精修 ParsedItem → localSuggestion 同形载荷（卡显示 title/isoTime、接受用 item）。 */
-function correctedSuggestion(refined: ParsedItem, sourceText: string, detectionId: string): Record<string, unknown> {
-  const iso = refined.due_time ?? refined.start_time
-  return {
-    localSuggestion: {
-      title: refined.title,
-      isoTime: iso,
-      deadline: !!refined.due_time,
-      belongsToUser: refined.belongs_to_user,
-      hits: [],
-      confidence: refined.confidence,
-      needsVlm: false,
-      strong: !!iso,
-      item: refined,
-      sourceText,
-      detectionId,
-      verified: true
-    }
-  }
-}
-
-/**
- * 后台异步校正：打远端 VLM；回来 ① 若与本地不同则存校正记忆(Phase 2，让本地越用越聪明)
- * ② 卡还在显示这条检测则原地更新，否则放弃(用户已操作/换屏)。
- */
-async function verifyAndCorrect(
-  imageDataUrl: string | null,
-  text: string,
-  detectionId: string,
-  sourceText: string,
-  local: LocalExtraction
-): Promise<void> {
-  try {
-    const refined = pickBest(
-      await parseToItems(
-        imageDataUrl ? { imageDataUrl, hint: HINTS.screen_scan_vision } : { text, hint: HINTS.screen_scan }
-      )
-    )
-    // Phase 2 捕获校正：以本地候选片段为键，记下 VLM 的纠正
-    const key = local.evidenceText || sourceText.slice(0, 200)
-    if (!refined) {
-      addCorrection({ inputText: key, isTodo: false, title: null, belongs: null }) // VLM 判非待办=本地假阳性
-      return
-    }
-    const titleDiff = textSimilarity(refined.title, local.title) < 0.85
-    const differs = titleDiff || refined.belongs_to_user !== local.belongsToUser
-    if (differs) {
-      addCorrection({ inputText: key, isTodo: true, title: refined.title, belongs: refined.belongs_to_user })
-      debugEvent('cloud', `校正入记忆：「${local.title}」→「${refined.title}」`)
-    }
-    const acceptedTaskId = acceptedTaskByDetection.get(detectionId)
-    if (acceptedTaskId) {
-      // B Phase 1.5：用户已接受（卡已关）→ 校正回来去更新这条已建任务
-      acceptedTaskByDetection.delete(detectionId)
-      if (differs) {
-        updateTask(acceptedTaskId, correctionPatch(refined))
-        broadcast('eshell:tasks-updated')
-        debugEvent('cloud', `云端校正已更新已建任务：「${refined.title}」`)
-      }
-    } else if (isPreviewVisible() && currentPopDetectionId === detectionId) {
-      // 卡还在显示这条检测 → 原地更新卡
-      showPreview(correctedSuggestion(refined, sourceText, detectionId))
-      debugEvent('cloud', `云端校正完成：「${refined.title}」`)
-    }
-  } catch {
-    /* 校正失败静默：本地结果已在卡上 */
-  }
-}
-
-/** 裁出「依据行」横条(去左侧栏 x≥FG_X_CUT，y 取证据区间)作任务证据；失败 null。 */
-function cropEvidenceImage(png: string, top: number, bottom: number): NativeImage | null {
-  try {
-    const img = nativeImage.createFromPath(png)
-    const { width, height } = img.getSize()
-    if (!width || !height) return null
-    const x = Math.round(width * FG_X_CUT)
-    const y0 = Math.max(0, Math.round(height * top))
-    const y1 = Math.min(height, Math.round(height * bottom))
-    return img.crop({ x, y: y0, width: width - x, height: Math.max(8, y1 - y0) })
-  } catch {
-    return null
-  }
-}
-
-/** 存任务证据缩略图(临时，按 textHash)：有证据区间则裁「依据行」横条，否则兜底整屏。 */
-function saveEvidenceShot(key: string, png: string, e: LocalExtraction): void {
-  const crop =
-    e.evidenceTop != null && e.evidenceBottom != null
-      ? cropEvidenceImage(png, e.evidenceTop, e.evidenceBottom)
-      : null
-  if (crop) saveShotTempFromImage(key, crop)
-  else saveShotTempFromPng(key, png)
 }
 
 /** 由 OCR 框拼解析用文字；若像聊天界面（#54），前置「谁说的」转写作归属信号，保留全文。 */
@@ -293,7 +107,7 @@ function buildOcrText(boxes: TextBox[]): string {
   return text
 }
 
-/** 扫描一次当前屏幕：截图 → 本地 OCR → 本地模型精筛（按需 VLM）→ 右下角弹建议卡 */
+/** 扫描一次当前屏幕：截图 → 本地 OCR → 云端解析 → 右下角弹建议卡 */
 export async function scanOnce(): Promise<ScanResult> {
   // 桌宠可见时用 Siri 式光环表达"正在扫描"；否则退回加载卡（让用户知道在工作）
   const petGlow = isPetVisible()
@@ -310,8 +124,8 @@ export async function scanOnce(): Promise<ScanResult> {
     }
     debugShot(png)
 
-    const { screenSenseKeepShots, screenSenseCloudVerify } = getSettings()
-    // png 保留到检测/升级裁剪之后再删（升级需原图裁前景），故包一层 try/finally
+    const { screenSenseKeepShots } = getSettings()
+    // png 保留到 OCR/存证之后再删，故包一层 try/finally
     try {
       const boxes = await ocrImageDetailed(png)
       const text = buildOcrText(boxes)
@@ -322,21 +136,17 @@ export async function scanOnce(): Promise<ScanResult> {
       }
       debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
 
-      // 本地优先：本地小模型即时精筛（前景+日期锚定）→ 全部候选；低置信自动升级 VLM（裁前景图）
       const t0 = Date.now()
-      const hits = await detectAll(boxes, text, png, screenSenseCloudVerify)
-      debugEvent('timing', `本地抽取耗时 ${Date.now() - t0}ms`)
+      const hits = await detectAll(text)
+      debugEvent('timing', `云端解析耗时 ${Date.now() - t0}ms`)
       if (!hits.length) {
-        debugEvent('detect', '本地模型未发现明确待办')
-        if (screenSenseKeepShots) saveShotTempFromPng(textHash(text), png) // 兜底整屏，供 AI 解析后留证
-        // 永远给 AI 解析兜底：本地没抽到也弹卡，让用户能手动上云精解
-        showPreview({ noLocalHit: { sourceText: text } })
-        return { status: 'empty', message: '本地未发现日程，可点 AI 解析' }
+        debugEvent('detect', '云端未发现明确待办')
+        showPreview({ error: '未发现可添加的日程' }) // 灰色提示卡，3s 自动消失
+        return { status: 'empty', message: '未发现可添加的日程' }
       }
-      if (screenSenseKeepShots) saveEvidenceShot(textHash(text), png, hits[0].extraction) // 整帧一张证据条
-      const fg = screenSenseCloudVerify ? cropForegroundDataUrl(png) : null // 趁 png 还在裁前景图（finally 才删）
-      const cards: QueuedCard[] = hits.map(({ extraction, item, refined }) => {
-        debugEvent('detect', `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'}${refined ? ' [VLM]' : ''}`)
+      if (screenSenseKeepShots) saveShotTempFromPng(textHash(text), png) // 整帧一张证据图
+      const cards: QueuedCard[] = hits.map(({ extraction, item }) => {
+        debugEvent('detect', `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'}`)
         const { detection } = addDetection({
           title: extraction.title,
           timeIso: extraction.isoTime,
@@ -346,12 +156,8 @@ export async function scanOnce(): Promise<ScanResult> {
           app: null
         })
         return {
-          suggestion: { ...extraction, item, sourceText: text, detectionId: detection.id, verifying: screenSenseCloudVerify },
-          detectionId: detection.id,
-          cloudVerify: screenSenseCloudVerify,
-          fg,
-          text,
-          extraction
+          suggestion: { ...extraction, item, sourceText: text, detectionId: detection.id },
+          detectionId: detection.id
         }
       })
       enqueueCards(cards) // 逐张弹（首张立即，后续随用户确认推进）
@@ -375,7 +181,7 @@ export async function scanOnce(): Promise<ScanResult> {
 /** 建议卡点"同意/修改"时入库：来源存 OCR 文字（非图），任务直接进日程 */
 export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string }): AddedInfo {
   const { item, sourceText } = payload
-  // 聚焦证据(云端 item.evidence / 本地 evidenceText)作来源内容；整屏全文只留给「AI 精确解析」兜底
+  // 聚焦证据(item.evidence)作来源内容；无证据时兜底整屏全文
   const evid = (item.evidence ?? []).map((s) => s.trim()).filter(Boolean)
   const evidenceText = evid.length ? evid.join('\n') : sourceText.slice(0, 1000)
   const source = createSource({
@@ -416,32 +222,13 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
   return { candidate: 0, title: item.title, time, duplicate: false, taskId: task.id }
 }
 
-/** 按需 AI 精修:对屏幕文字跑云端解析、挑最优项（供建议卡「AI 精确解析」按钮）。无明确事项返回 null。 */
-export async function aiParse(
-  sourceText: string
-): Promise<{ item: ParsedItem; sourceText: string; hits: string[] } | null> {
-  debugEvent('cloud', '云端 AI 解析中…')
-  setPetScanning(true)
-  const tc = Date.now()
-  try {
-    const items = await parseToItems({ text: sourceText, hint: HINTS.screen_scan })
-    debugEvent('timing', `云端解析耗时 ${Date.now() - tc}ms`)
-    const best = pickBest(items)
-    debugEvent('cloud', best ? `云端解析完成：「${best.title}」` : '云端解析完成：未发现明确事项')
-    if (!best) return null
-    return { item: best, sourceText, hits: [] }
-  } finally {
-    setPetScanning(false)
-  }
-}
-
-/** 本地抽取 → ParsedItem。同意本地候选/历史共用。 */
+/** 检测历史条目 → ParsedItem（「记忆」页同意一条检测时重建入库载荷）。 */
 function buildLocalItem(e: LocalExtraction): ParsedItem {
   return {
     title: e.title,
     item_type: 'other',
     belongs_to_user: e.belongsToUser,
-    belonging_reason: '本地模型识别',
+    belonging_reason: '屏幕识别',
     user_role: 'unclear',
     start_time: e.deadline ? null : e.isoTime,
     due_time: e.deadline ? e.isoTime : null,
@@ -450,23 +237,19 @@ function buildLocalItem(e: LocalExtraction): ParsedItem {
     confidence: e.confidence,
     suggested_action: 'confirm',
     notes: [],
-    evidence: e.evidenceText ? [e.evidenceText] : [],
+    evidence: [],
     duplicate_of: null
   }
 }
 
-/** 同意本地候选:直接入库（不上云）；item 已含本地或 VLM 精修结果。带 detectionId 则标记历史为已加入。 */
+/** 同意检测候选：直接入库；item 已含云端解析结果。带 detectionId 则标记历史为已加入。 */
 export function acceptLocal(payload: {
   item: ParsedItem
   sourceText: string
   detectionId?: string
 }): AddedInfo {
   const info = acceptSuggestion({ item: payload.item, sourceText: payload.sourceText })
-  if (payload.detectionId) {
-    setDetectionStatus(payload.detectionId, 'accepted')
-    // B Phase 1.5：记下「检测→已建任务」，云端校正若在接受后才回来，去更新这条任务
-    if (info.taskId) rememberAcceptedTask(payload.detectionId, info.taskId)
-  }
+  if (payload.detectionId) setDetectionStatus(payload.detectionId, 'accepted')
   return info
 }
 
@@ -482,7 +265,6 @@ export function acceptDetection(id: string): AddedInfo | null {
       belongsToUser: 'uncertain',
       hits: d.hits,
       confidence: 0.5,
-      needsVlm: false,
       strong: !!d.timeIso
     }),
     sourceText: d.sourceText
@@ -497,13 +279,12 @@ export function dismissDetection(id: string): void {
 }
 
 // ---------- 持续屏幕监控（#40 Phase 2）----------
-// 流水线：pHash 变化门 → OCR → 文本去重/冷却 → 本地模型精筛（按需 VLM）→ 建议卡。截图用完即弃、只文字上云。
+// 流水线：pHash 变化门 → OCR → 文本去重/冷却 → 云端解析 → 建议卡。截图用完即弃、只文字上云。
 // pHash 算法与参数沿用 volcengine/MineContext（imagehash.dhash hash_size=8 + 异或 popcount 汉明距离；
 // capture_interval 默认 5s、similarity_hash_threshold 默认 2），其为 Python+imagehash，此处用 TS 等价落地（见 @shared/phash）。
 
-const PHASH_THRESHOLD = 2 // 汉明距离 ≤ 此值视为"屏幕没变" → 跳过 OCR/模型（MineContext 实测默认）
+const PHASH_THRESHOLD = 2 // 汉明距离 ≤ 此值视为"屏幕没变" → 跳过 OCR/解析（MineContext 实测默认）
 const COOLDOWN_MS = 10 * 60 * 1000 // 同一内容命中后冷却，避免反复弹卡
-const IDLE_UNLOAD_MS = 10 * 60 * 1000 // 模型空闲超此时长自动卸载释放内存
 
 let watchTimer: ReturnType<typeof setInterval> | null = null
 let watchPaused = false
@@ -512,6 +293,7 @@ let lastHash: bigint | null = null
 let lastTextHash = ''
 let lastDebugApp: string | null | undefined = undefined // 调试日志：仅前台 App 变化时记一次，避免刷屏
 let previewBlockLogged = false // 调试日志：预览卡占用导致跳过只记一次，卡关掉后重置
+let cloudBlockLogged = false // 调试日志：解析服务未就绪导致跳过只记一次，恢复后重置
 const cooldown = new Map<string, number>()
 let trayRefresh: (() => void) | null = null
 
@@ -551,6 +333,14 @@ function isOwnApp(frontApp: string | null): boolean {
   return [app.getName(), 'electron', '纸壳助手', 'eshell'].some((n) => n && f.includes(n.toLowerCase()))
 }
 
+/** 云端解析可用性：已登录（网关）或已配直连 API，且完成档案设置。未就绪时监控静默跳过，不白跑截图/OCR。 */
+function cloudReady(): boolean {
+  const { functionsBase, token } = getSession()
+  const { apiBase, apiKey } = getSettings()
+  if (!((functionsBase && token) || (apiBase && apiKey))) return false
+  return !!getProfile()
+}
+
 /** 一轮静默监控；全程不打扰用户，只有真发现待办才弹建议卡 */
 async function watchTick(): Promise<void> {
   if (ticking || watchPaused) return
@@ -566,8 +356,16 @@ async function watchTick(): Promise<void> {
   ticking = true
   let png: string | null = null
   try {
-    const { screenSenseExcludedApps, screenSenseKeepShots, screenSensePopup, screenSenseCloudVerify } =
-      getSettings()
+    // 解析服务未就绪（未登录且未配直连 API/无档案）→ 静默跳过，不白跑截图/OCR/云调用
+    if (!cloudReady()) {
+      if (!cloudBlockLogged) {
+        debugEvent('skip', '解析服务未就绪（未登录或未完成档案），监控暂停')
+        cloudBlockLogged = true
+      }
+      return
+    }
+    cloudBlockLogged = false
+    const { screenSenseExcludedApps, screenSenseKeepShots, screenSensePopup } = getSettings()
     // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己。全屏感知，不再按进程名单过滤。
     const frontApp = await getFrontmostApp()
     const appChanged = frontApp !== lastDebugApp
@@ -615,20 +413,19 @@ async function watchTick(): Promise<void> {
     }
     cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
 
-    // 本地小模型精筛（前景+日期锚定）→ 全部候选 + 低置信自动升级 VLM（裁前景图）
-    const hits = await detectAll(boxes, text, png, screenSenseCloudVerify)
+    // 云端解析 → 全部候选（多任务）
+    const hits = await detectAll(text)
     if (!hits.length) {
-      debugEvent('detect', '本地模型未发现明确待办')
+      debugEvent('detect', '云端未发现明确待办')
       return
     }
 
-    const fg = screenSenseCloudVerify ? cropForegroundDataUrl(png) : null // 趁 png 还在裁前景图（finally 才删）
     let savedShot = false
     const cards: QueuedCard[] = []
-    for (const { extraction, item, refined } of hits) {
+    for (const { extraction, item } of hits) {
       debugEvent(
         'detect',
-        `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'} ${extraction.strong ? '[强]' : '[弱]'}${refined ? ' [VLM]' : ''}`
+        `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'} ${extraction.strong ? '[强]' : '[弱]'}`
       )
       // 被动留存 + 长期去重：跨状态按 标题+时间 去重；已记录过的内容不再重复抓取/弹窗
       const { detection, isNew } = addDetection({
@@ -644,26 +441,19 @@ async function watchTick(): Promise<void> {
         continue
       }
       debugEvent('record', '已记入「记忆」历史（新）')
-      // 截图持久化（#52/#53）：趁 png 还在存「依据行」证据条（整帧一张）
+      // 截图持久化（#52/#53）：趁 png 还在存整帧证据图（一张）
       if (screenSenseKeepShots && png && !savedShot) {
-        saveEvidenceShot(th, png, extraction)
+        saveShotTempFromPng(th, png)
         savedShot = true
       }
-      // 少量主动：仅强信号 + 弹窗开关开 + 非旧消息才进弹卡队列
-      if (!extraction.strong || !screenSensePopup || extraction.staleMessage) {
-        debugEvent(
-          'popup',
-          extraction.staleMessage ? '旧消息（非今天发）→ 只记历史不弹卡' : '不弹卡（弱信号或弹窗关），留在记忆历史'
-        )
+      // 少量主动：仅强信号 + 弹窗开关开才进弹卡队列
+      if (!extraction.strong || !screenSensePopup) {
+        debugEvent('popup', '不弹卡（弱信号或弹窗关），留在记忆历史')
         continue
       }
       cards.push({
-        suggestion: { ...extraction, item, sourceText: text, detectionId: detection.id, verifying: screenSenseCloudVerify },
-        detectionId: detection.id,
-        cloudVerify: screenSenseCloudVerify,
-        fg,
-        text,
-        extraction
+        suggestion: { ...extraction, item, sourceText: text, detectionId: detection.id },
+        detectionId: detection.id
       })
     }
     if (!cards.length) return
@@ -703,21 +493,14 @@ export function setWatchPaused(paused: boolean): void {
   trayRefresh?.()
 }
 
-/** 跟随设置开关注册/注销扫描快捷键 + 启停持续监控 + 模型生命周期（启动时 + settings:save 时调用） */
+/** 跟随设置开关注册/注销扫描快捷键 + 启停持续监控（启动时 + settings:save 时调用） */
 export function applyScreenSenseSettings(): void {
-  const { screenSenseEnabled, screenSenseLocalModel, screenSenseHotkey, screenSenseContinuous, screenSenseIntervalSec } =
+  const { screenSenseEnabled, screenSenseHotkey, screenSenseContinuous, screenSenseIntervalSec } =
     getSettings()
-  const on = screenSenseEnabled && screenSenseLocalModel
-  if (on) initScanHotkey(screenSenseHotkey, () => void scanOnce())
+  if (screenSenseEnabled) initScanHotkey(screenSenseHotkey, () => void scanOnce())
   else unregisterScanHotkey()
-  if (on && screenSenseContinuous) startWatch(screenSenseIntervalSec)
+  if (screenSenseEnabled && screenSenseContinuous) startWatch(screenSenseIntervalSec)
   else stopWatch()
-  if (on) {
-    startIdleSweep(IDLE_UNLOAD_MS) // 模型按需 lazy load；空闲自动卸载
-  } else {
-    stopIdleSweep()
-    void unloadLocalModel() // 关功能即释放内存
-  }
   runShotRetention()
 }
 

@@ -36,7 +36,7 @@ export function isShotVaultReady(): boolean {
 }
 
 /** 图像 → 缩略图(≤480w) → 加密落盘到临时键。加密不可用/失败 → 不落盘返 false。 */
-export function saveShotTempFromImage(key: string, img: NativeImage): boolean {
+function saveShotTempFromImage(key: string, img: NativeImage): boolean {
   if (!isShotVaultReady()) return false
   try {
     if (img.isEmpty()) return false
@@ -50,7 +50,7 @@ export function saveShotTempFromImage(key: string, img: NativeImage): boolean {
   }
 }
 
-/** 截图 png 路径 → 加密落盘临时键(整屏，证据裁剪走 saveShotTempFromImage)。 */
+/** 截图 png 路径 → 加密落盘临时键(整屏缩略图)。 */
 export function saveShotTempFromPng(key: string, pngPath: string): boolean {
   return saveShotTempFromImage(key, nativeImage.createFromPath(pngPath))
 }
