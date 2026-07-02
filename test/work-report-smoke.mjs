@@ -8,7 +8,9 @@ import {
   groupWorkPeriods,
   periodLabel,
   focusDurations,
-  daySegmentOf
+  daySegmentOf,
+  memoryToPlain,
+  plainToMemory
 } from '../src/shared/work-report.ts'
 import { parseWorkSummary, parseFocusTask } from '../src/shared/parsing.ts'
 
@@ -135,6 +137,21 @@ check('13 点=中午', daySegmentOf('2026-07-02T13:59').label === '中午')
 check('18 点=下午', daySegmentOf('2026-07-02T18:00').label === '下午')
 check('23 点=晚间', daySegmentOf('2026-07-02T23:30').label === '晚间')
 check('凌晨 2 点=深夜', daySegmentOf('2026-07-02T02:00').label === '深夜')
+
+// ---- memoryToPlain / plainToMemory ----
+check(
+  '去要点符号与加粗',
+  memoryToPlain('- **博士生**，研究`蛋白质设计`\n- 开发谷子助手') ===
+    '博士生，研究蛋白质设计\n开发谷子助手'
+)
+check('去编号与标题符', memoryToPlain('# 画像\n1. 第一条\n2、第二条') === '画像\n第一条\n第二条')
+check('纯文本原样', memoryToPlain('没有格式的一行') === '没有格式的一行')
+check('纯文本 → 要点存储', plainToMemory('第一条\n\n第二条') === '- 第一条\n- 第二条')
+check('已是要点不重复加', plainToMemory('- 已有要点') === '- 已有要点')
+check(
+  '往返一致',
+  memoryToPlain(plainToMemory('身份 A\n项目 B')) === '身份 A\n项目 B'
+)
 
 // ---- parseFocusTask ----
 check('focus_task 正常解析', parseFocusTask('{"items":[],"focus_task":"开发纸壳助手"}') === '开发纸壳助手')
