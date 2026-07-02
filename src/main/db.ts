@@ -6,12 +6,13 @@ import { loadEnv } from './env'
 import { deleteShot } from './shotvault'
 import { localNow } from '@shared/parsing'
 import { buildFtsQuery } from '@shared/fts-query'
-import type { Correction } from '@shared/correction-memory'
 import type {
   AppSettings,
-  Belongs,
+  AppUsageEntry,
   DetectionRecord,
   MemoryHit,
+  ReportRecord,
+  WorkRecord,
   Profile,
   SourceRecord,
   SourceType,
@@ -70,15 +71,30 @@ export function initDb(): void {
       status TEXT NOT NULL DEFAULT 'new',
       created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS corrections (
+    CREATE TABLE IF NOT EXISTS work_records (
       id TEXT PRIMARY KEY,
-      input_text TEXT NOT NULL,
-      is_todo INTEGER NOT NULL,
-      title TEXT,
-      belongs TEXT,
+      content TEXT NOT NULL,
+      app TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS app_usage (
+      day TEXT NOT NULL,
+      app TEXT NOT NULL,
+      seconds INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, app)
+    );
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      day TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'daily',
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
   `)
+  // 老数据清理：应用时长早期把自己（dev 下前台名是 Electron）也计了进去，启动时清掉（新数据已不再产生）
+  db.exec("DELETE FROM app_usage WHERE app IN ('Electron', 'EShell', '纸壳助手')")
+
   // 老库迁移：早期版本没有 notes 列
   const taskCols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(
     (c) => c.name
@@ -163,10 +179,8 @@ export function getSettings(): AppSettings {
     model: map.model || env.ESHELL_MODEL || 'gpt-5.5',
     feishuAppId: map.feishuAppId ?? env.ESHELL_FEISHU_APP_ID ?? '',
     feishuAppSecret: map.feishuAppSecret ?? env.ESHELL_FEISHU_APP_SECRET ?? '',
-    // 核心被动采集：默认开，仅当用户显式存 'false' 才关
-    screenSenseEnabled: map.screenSenseEnabled !== 'false',
-    screenSenseLocalModel: map.screenSenseLocalModel === 'true',
-    localModelEndpoint: map.localModelEndpoint ?? '',
+    // 核心被动采集：默认关（opt-in，检测走云端解析、消耗 credits）
+    screenSenseEnabled: map.screenSenseEnabled === 'true',
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',
     screenSenseContinuous: map.screenSenseContinuous !== 'false',
     screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,
@@ -175,7 +189,8 @@ export function getSettings(): AppSettings {
     screenSenseKeepShots: map.screenSenseKeepShots !== 'false',
     screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
     screenSensePopup: map.screenSensePopup !== 'false',
-    screenSenseCloudVerify: map.screenSenseCloudVerify === 'true',
+    screenSenseWorkLog: map.screenSenseWorkLog !== 'false',
+    dailyReportTime: map.dailyReportTime ?? '',
     screenSenseCardHideSec:
       map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 60,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
@@ -576,53 +591,124 @@ export function setDetectionStatus(id: string, status: DetectionRecord['status']
   db.prepare('UPDATE detections SET status = ? WHERE id = ?').run(status, id)
 }
 
-// ---------- corrections（Phase 2 校正记忆：VLM 校正≠本地的案例，供本地越用越聪明）----------
+// ---------- work_records（工作记录：屏幕识别顺带的「在做什么」时间线，供日报生成）----------
 
-const CORRECTIONS_CAP = 50 // 只留最近 N 条，避免无界增长
+const WORK_RECORDS_CAP = 5000 // 只留最近 N 条，避免无界增长
 
-interface CorrectionRow {
-  input_text: string
-  is_todo: number
-  title: string | null
-  belongs: string | null
+interface WorkRecordRow {
+  id: string
+  content: string
+  app: string | null
   created_at: string
 }
+const rowToWorkRecord = (r: WorkRecordRow): WorkRecord => ({
+  id: r.id,
+  content: r.content,
+  app: r.app,
+  createdAt: r.created_at
+})
 
-/** 记一条校正；超额淘汰最旧。 */
-export function addCorrection(c: { inputText: string; isTodo: boolean; title: string | null; belongs: Belongs | null }): void {
-  if (!c.inputText.trim()) return
+export function addWorkRecord(w: { content: string; app: string | null }): WorkRecord {
+  const rec = { id: randomUUID(), content: w.content.slice(0, 200), app: w.app, createdAt: localNow() }
+  db.prepare('INSERT INTO work_records (id, content, app, created_at) VALUES (?, ?, ?, ?)').run(
+    rec.id,
+    rec.content,
+    rec.app,
+    rec.createdAt
+  )
   db.prepare(
-    'INSERT INTO corrections (id, input_text, is_todo, title, belongs, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(randomUUID(), c.inputText.slice(0, 600), c.isTodo ? 1 : 0, c.title, c.belongs, localNow())
-  db.prepare(
-    'DELETE FROM corrections WHERE id NOT IN (SELECT id FROM corrections ORDER BY created_at DESC LIMIT ?)'
-  ).run(CORRECTIONS_CAP)
+    'DELETE FROM work_records WHERE id NOT IN (SELECT id FROM work_records ORDER BY created_at DESC LIMIT ?)'
+  ).run(WORK_RECORDS_CAP)
+  return rec
 }
 
-/** 取最近校正（供检索/few-shot）。 */
-export function listCorrections(limit = CORRECTIONS_CAP): Correction[] {
+/** 某天（YYYY-MM-DD）的工作记录，按时间正序。 */
+export function listWorkRecords(day: string): WorkRecord[] {
   const rows = db
-    .prepare('SELECT input_text, is_todo, title, belongs, created_at FROM corrections ORDER BY created_at DESC LIMIT ?')
-    .all(limit) as CorrectionRow[]
-  return rows.map((r) => ({
-    inputText: r.input_text,
-    isTodo: !!r.is_todo,
+    .prepare('SELECT * FROM work_records WHERE created_at LIKE ? ORDER BY created_at')
+    .all(`${day}%`) as WorkRecordRow[]
+  return rows.map(rowToWorkRecord)
+}
+
+export function deleteWorkRecord(id: string): void {
+  db.prepare('DELETE FROM work_records WHERE id = ?').run(id)
+}
+
+// ---------- app_usage（前台应用使用时长，按天累计；只存应用名与秒数，不存内容）----------
+
+export function addAppUsage(day: string, app: string, seconds: number): void {
+  db.prepare(
+    'INSERT INTO app_usage (day, app, seconds) VALUES (?, ?, ?) ON CONFLICT(day, app) DO UPDATE SET seconds = seconds + excluded.seconds'
+  ).run(day, app, seconds)
+}
+
+/** 某天各应用使用时长，按时长降序。 */
+export function appUsageSummary(day: string): AppUsageEntry[] {
+  return db
+    .prepare('SELECT app, seconds FROM app_usage WHERE day = ? ORDER BY seconds DESC')
+    .all(day) as AppUsageEntry[]
+}
+
+// ---------- reports（AI 生成的工作日报）----------
+
+interface ReportRow {
+  id: string
+  day: string
+  type: string
+  title: string
+  content: string
+  created_at: string
+}
+const rowToReport = (r: ReportRow): ReportRecord => ({
+  id: r.id,
+  day: r.day,
+  type: 'daily',
+  title: r.title,
+  content: r.content,
+  createdAt: r.created_at
+})
+
+export function addReport(r: { day: string; title: string; content: string }): ReportRecord {
+  const rec = {
+    id: randomUUID(),
+    day: r.day,
+    type: 'daily' as const,
     title: r.title,
-    belongs: (r.belongs as Belongs) ?? null,
-    createdAt: r.created_at
-  }))
+    content: r.content,
+    createdAt: localNow()
+  }
+  db.prepare('INSERT INTO reports (id, day, type, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+    rec.id,
+    rec.day,
+    rec.type,
+    rec.title,
+    rec.content,
+    rec.createdAt
+  )
+  return rec
+}
+
+export function listReports(limit = 100): ReportRecord[] {
+  const rows = db
+    .prepare('SELECT * FROM reports ORDER BY created_at DESC LIMIT ?')
+    .all(limit) as ReportRow[]
+  return rows.map(rowToReport)
+}
+
+export function deleteReport(id: string): void {
+  db.prepare('DELETE FROM reports WHERE id = ?').run(id)
 }
 
 export function wipeAll(): void {
   db.exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM corrections; DELETE FROM profile;'
+    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports;'
   )
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')
 }
 
-/** 清空「记忆」：来源历史(sources + FTS)与屏幕识别历史(detections)。保留任务/校正记忆/档案。 */
+/** 清空「记忆」：来源历史(sources + FTS)与屏幕识别历史(detections)。保留任务/档案。 */
 export function wipeMemory(): void {
   db.exec('DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections;')
   db.pragma('wal_checkpoint(TRUNCATE)')

@@ -13,7 +13,7 @@
 - AI 解析 + 归属判断 + 语义查重；助手对话式确认。
 - 日程 / 时间轴 / 记忆 / 个人 / 设置 五个界面 + 右下角悬浮助手。
 - **账号体系 + 托管解析网关 + 积分计费 + 充值收款**（"数据库即后端"，密钥只在服务端）。
-- **屏幕感知本地优先管线**：本地 OCR + **设备端小模型**（Qwen2.5-1.5B）抽取，命中先进「记忆」历史，仅强信号主动弹精简卡，低置信自动上云 VLM 复核。
+- **屏幕感知管线**：本地只做截图/pHash 去重/OCR，判断统一走**云端解析**（只传文字）；命中先进「记忆」历史，仅强信号主动弹精简卡。默认关（opt-in，消耗积分）。
 
 **已部署/已配置：**
 - Supabase 项目 `rtgypddrknuylecqejmp`：库表、RLS、注册触发器、积分 RPC 全部就绪。
@@ -26,11 +26,10 @@
 
 ## 二、技术栈
 
-Electron · electron-vite · React 19 · TypeScript · Tailwind CSS v4 · better-sqlite3（本地） · **node-llama-cpp（设备端小模型，仅主进程）** · Supabase（托管后端，Postgres + Auth + Edge Functions）
+Electron · electron-vite · React 19 · TypeScript · Tailwind CSS v4 · better-sqlite3（本地） · Supabase（托管后端，Postgres + Auth + Edge Functions）
 
 - **仅 macOS**：截图、访达快速操作、本地 OCR、前台应用检测都依赖 macOS API。
 - 本地 OCR：macOS Apple Vision（`VNRecognizeTextRequest`），内嵌 Swift CLI 首次用 `swiftc` 编译缓存，**完全离线**。
-- 本地小模型：`node-llama-cpp` + **Qwen2.5-1.5B-Instruct（GGUF / Q5_K_M）**，首次开启按需下载到 userData（支持本地文件导入 / 镜像源），grammar 约束 JSON 输出，关功能即卸载释放内存。
 - 飞书：`@larksuiteoapi/node-sdk` 长连接，无需公网服务器。
 
 ---
@@ -98,14 +97,16 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 
 **计费（`server/billing/credits.ts` + Postgres RPC）**：`parse_vision`=2 分、`parse_text`/`chat`=1 分、失败/跳过=0；先扣当月赠送（到期清零）再扣购买积分；`deduct_credits` 行锁防并发超扣。
 
-### 3. 屏幕感知本地优先管线（`screenwatch.ts` + `local-model/` + `shared/local-model-schema.ts`）
+### 3. 屏幕感知管线（`screenwatch.ts`）
 
-> 设计目标：低延迟、不串味、不打扰、可控（不静默改日程）。**借鉴 MineContext / Recall / Screenpipe / Apple 数据探测器**：被动捕获为主、设备端抽取、少量主动。
+> 设计目标：不串味、不打扰、可控（不静默改日程）。**借鉴 MineContext / Recall / Screenpipe / Apple 数据探测器**：被动捕获为主、少量主动。本地只做截图/相似度去重/OCR（零安装负担），判断统一云端。
 
 ```
                           手动:扫描快捷键 → scanOnce()
 触发 ─────────────────────┤
                           自动:持续监控每 N 秒 → watchTick()
+                                  ↓
+   [自动] 就绪门:未登录(且未配 BYOK)/无档案 → 静默跳过，不截图不 OCR
                                   ↓
    [自动] 隐私门:前台是排除名单 App(密码/银行/微信…) → 跳过，连截图都不做
                                   ↓
@@ -117,23 +118,18 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
                                   ↓
    [自动] 文本去重 + 内容冷却(同内容 10 分钟一次)
                                   ↓
-   本地小模型抽取:OCR 全文按行去重切小块逐块喂 Qwen2.5-1.5B(grammar 约束 JSON)→ 合并去重
-                                  ↓
-   ├─ 高置信 + needsVlm=false → 本地出结论(不上云)
-   └─ 低置信 / needsVlm=true → 自动上 VLM 网关复核(只传文字、扣分)
+       云端解析 parseToItems(只传 OCR 文字、扣分) → 全部候选（多任务）
                                   ↓
                  命中 → 写入「记忆」历史(detections 表，被动留存)
                                   ↓
-   仅当 强信号(解出具体日期) + 弹窗开关开 → 弹精简卡
+   仅当 强信号(解出具体日期) + 弹窗开关开 → 逐张弹精简卡（多任务队列）
                                   ↓
-                 用户:同意(本地入库,不上云) / AI 解析(上云精修) / ✕(丢弃，历史仍留)
+                 用户:同意(入库) / ✕(丢弃，历史仍留)
 ```
 
-- **本地小模型抽取**（`local-model/extractor.ts` + `shared/local-model-schema.ts`）：grammar 强制合法 JSON、无日程返回 `[]` 防幻觉；满屏 UI 噪声会把小模型淹没，故 OCR 全文**按行去重切小块、逐块抽再合并去重**以提升召回。
-- **确定性日期纠错**（`shared/local-time.ts`，纯函数可单测）：小模型对「下周一=哪天」等相对日期偏弱，用规则解析相对/显式日期纠正模型 isoTime 的日期部分（保留钟点），纯中文数字日期仍交模型。
-- **模型获取**：首次开启按需下载 ~1.3GB GGUF（`localModelEndpoint` 可配镜像源，国内可填 `hf-mirror.com`），或在设置里**导入已下好的 `.gguf`**；关闭功能即 `dispose()` 释放内存，idle 自动卸载。
-- **全屏感知**：不再按进程白名单过滤前台 App（进程门不可靠），只保留排除名单(隐私)与「不扫自己」两道门。
-- **零静默**：不点「同意」绝不写日程/待确认；手动扫描即使本地没抽到也提供「AI 解析」兜底，确保任何内容都能上云精解。
+- **云端解析**：`HINTS.screen_scan` 提示词负责去噪（菜单/侧栏文字）、旧消息过滤（非今天发送的聊天不提取）、「A 至 B」截止语义；多任务一次全部返回，卡片逐张确认。
+- **全屏感知**：不按进程白名单过滤前台 App（进程门不可靠），只保留排除名单(隐私)与「不扫自己」两道门。
+- **零静默**：不点「同意」绝不写日程/待确认；手动扫描无命中时明确提示「未发现可添加的日程」。
 - **桌宠联动**：扫描/解析中桌宠显示 Siri 式旋转光环替代加载卡（`pet/`），桌宠不可见时退回加载卡。
 - **完全被动模式**：设置里关掉「检测到日程时弹窗提醒」→ 只进历史、不弹窗。
 
@@ -180,7 +176,7 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 - **个人 `Account.tsx`**：账户登录 + 用户档案。
 - **设置 `Settings.tsx`**：确认模式、快捷键、系统集成、飞书、屏幕感知（含弹窗开关）、权限、数据管理。
 - **悬浮助手 `FloatingAssistant.tsx` + `AssistantChat.tsx`**：Notion 式右下角对话，点外部关闭。
-- **预览卡 `PreviewCard.tsx`**：独立无边框窗（右下角），右侧滑入/滑出；剪贴板预览 / 解析结果 / 本地检测「检测到日程」三态。
+- **预览卡 `PreviewCard.tsx`**：独立无边框窗（右下角），右侧滑入/滑出；剪贴板预览 / 解析结果 / 屏幕检测「检测到日程」三态。
 
 界面层动效统一在 `styles.css`（缓动 `cubic-bezier(.2,.8,.2,1)`）：页面淡入淡出、卡片滑动、任务完成收拢、列表错位进场。
 
@@ -189,7 +185,7 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 ## 七、隐私
 
 - 本地数据只在本机：`<userData>/eshell.db`，不自动上传。
-- 屏幕原图**用完即弃**（OCR 后立即删）；屏幕静止/不含关键词时连云都不上；只可能上传文字。
+- 屏幕原图**用完即弃**（OCR 后立即删）；屏幕静止/内容未变/冷却期内连云都不上；只上传 OCR **文字**，不上传截图。
 - 排除名单 App 在前台时连截图都不做。
 - 截图持久化默认**关**（opt-in）：开启才存**加密缩略图**（系统钥匙串）+ 保留期到期自动清，原图始终不留。
 - macOS 录屏指示器为系统强制行为，无法关闭。
@@ -207,8 +203,7 @@ src/
     ipc.ts               所有 IPC handler
     db.ts                SQLite（档案/设置/来源/任务/检测/FTS）
     capture.ts           剪贴板/截图/文件捕获、待提交项
-    screenwatch.ts       屏幕感知管线 + 本地模型抽取 + detections + 自动 VLM 升级
-    local-model/         设备端小模型封装：extractor.ts（下载/加载/extract/卸载/idle）+ paths.ts
+    screenwatch.ts       屏幕感知管线（pHash 门/去重冷却/云端解析/detections/卡片队列）
     pet/                 桌宠窗口（静态品牌标 + Siri 式扫描光环，移植自 openpets）
     ocr.ts               macOS Vision 本地 OCR（内嵌 Swift）
     parser.ts            解析：托管网关 / BYOK 回退、按 action 选路
@@ -226,7 +221,7 @@ src/
     components/          FloatingAssistant / AssistantChat / AccountSection / RechargePanel / 各种 Modal …
     styles.css           设计 token + 动效
   shared/                主进程与渲染层共享（纯函数为主）
-    types.ts parsing.ts ipc-channels.ts local-model-schema.ts local-time.ts suggest.ts
+    types.ts parsing.ts ipc-channels.ts suggest.ts
     phash.ts chat-layout.ts belonging-hints.ts belonging-learn.ts fts-query.ts
     ics.ts daily-brief.ts app-exclude.ts safe-path.ts shot-retention.ts task-filters.ts
 server/                  与具体 DB 解耦的纯逻辑（Edge Function import）
@@ -264,7 +259,7 @@ ESHELL_FEISHU_APP_ID=
 ESHELL_FEISHU_APP_SECRET=
 ```
 
-环境要求：macOS · Node ≥ 22.18（测试用原生 strip-types 直跑 `.ts`） · 屏幕感知需「屏幕录制」权限 · 首次本地 OCR 编译需 Xcode 命令行工具（`xcode-select --install`） · 本地模型首次开启需联网下载 ~1.3GB GGUF 或在设置里导入本地 `.gguf`。
+环境要求：macOS · Node ≥ 22.18（测试用原生 strip-types 直跑 `.ts`） · 屏幕感知需「屏幕录制」权限 · 首次本地 OCR 编译需 Xcode 命令行工具（`xcode-select --install`）。
 
 ---
 
@@ -294,7 +289,6 @@ supabase functions deploy parse --project-ref <ref>
 npm run typecheck        # 类型检查（main + renderer 两个 tsconfig）
 npm run build            # 构建
 npm run test:unit        # 纯函数单测合集（无需 API，CI 必跑）
-npm run test:localmodel  # 本地模型抽取/日期纯函数单测
 npm run test:ipc         # IPC 通道白名单与源码一致性
 npm run test:parser      # 解析归属判断冒烟（需 .env 配 API）
 ```
@@ -305,8 +299,7 @@ CI（`.github/workflows/ci.yml`）：PR 与 push 到 main 跑 `Typecheck & Build
 
 ## 十二、已知限制
 
-- 本地小模型（1.5B）抽取有精度天花板：满屏噪声、相对日期（已用 `local-time.ts` 规则纠正部分）、归属判断在边界场景可能漏/误判；低置信会自动上 VLM 复核，手动扫描也可点「AI 解析」兜底。想更准可在设置里导入更大的本地模型（如 Qwen3-4B）。
-- 本地切块抽取在满屏噪声页约需数秒（每块一次推理，上限 12 块）；只在屏幕变化时触发，自我节流。
-- 「AI 解析」精修后入库的项，对应历史记录仍标记 `new`（未回填）；不影响功能。
-- 屏幕监控的「AI 解析」只把 OCR **文字**发上游，不把截图发多模态（隐私优先，只传文字）。
-- 模型「一键下载」若系统设了全局代理仍可能经代理；要完全免代理用设置里的**导入本地文件**或填镜像源。
+- 屏幕感知只把 OCR **文字**发上游，不把截图发多模态（隐私优先）；模型看不到版面/坐标，个别依赖布局的场景（如复杂表格）可能漏/误判。
+- 检测必须联网 + 登录（或 BYOK）：每次「屏幕出现新内容且冷却过期」消耗一次积分，pHash 门/文本去重/10 分钟冷却/App 排除名单是成本挡板；未登录时监控静默暂停。
+- 检测响应为云端往返（数秒），手动扫描期间以桌宠光环/加载卡示意。
+- 任务证据缩略图为整屏截图（不再逐行裁剪「依据行」）。

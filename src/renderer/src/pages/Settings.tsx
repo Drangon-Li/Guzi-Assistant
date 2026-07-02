@@ -1,11 +1,5 @@
 import { useEffect, useState } from 'react'
-import type {
-  AppSettings,
-  FeishuStatus,
-  LocalModelStatus,
-  PermissionStatus,
-  Profile
-} from '@shared/types'
+import type { AppSettings, FeishuStatus, PermissionStatus, Profile } from '@shared/types'
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
 import PetSettings from '../components/PetSettings'
@@ -86,8 +80,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [cat, setCat] = useState<(typeof CATS)[number]>('通用')
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
-  const [modelStatus, setModelStatus] = useState<LocalModelStatus | null>(null)
-  const [dlProgress, setDlProgress] = useState(0)
 
   const loadPerms = (): void => {
     void api.permissions().then(setPerms)
@@ -99,15 +91,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     void api.quickActionStatus().then(setQaInstalled)
     void api.feishuStatus().then(setFeishu)
     loadPerms()
-  }, [])
-
-  useEffect(() => {
-    void api.localModelStatus().then(setModelStatus)
-    return api.on('eshell:localmodel-progress', (p) => {
-      const prog = (p as { progress?: number }).progress ?? 0
-      setDlProgress(prog)
-      if (prog >= 1) void api.localModelStatus().then(setModelStatus)
-    })
   }, [])
 
   const flash = (msg: string): void => {
@@ -492,122 +475,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
         {settings.screenSenseEnabled && (
           <div className="mt-4 flex flex-col gap-4">
-            <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-elevated/40 p-3">
-              <label className="flex items-center justify-between gap-4 text-sm">
-                <span className="flex flex-col">
-                  <span>本地智能检测</span>
-                  <span className="text-xs text-slate-400">
-                    用设备端小模型（约 1.3GB）识别日程，离线、免费；关闭可释放内存
-                  </span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={settings.screenSenseLocalModel}
-                  onChange={async (e) => {
-                    const next = e.target.checked
-                    setSettings({ ...settings, screenSenseLocalModel: next })
-                    await api.saveSettings({ screenSenseLocalModel: next })
-                    if (next) void api.localModelStatus().then(setModelStatus)
-                    flash(next ? '已开启本地智能检测' : '已关闭并释放内存')
-                  }}
-                />
-              </label>
-              {settings.screenSenseLocalModel &&
-                modelStatus &&
-                ['ready', 'unloaded'].includes(modelStatus.state) && (
-                  <div className="flex items-center justify-between gap-3 text-xs">
-                    <span className="text-emerald-600">✓ 模型已就绪</span>
-                    <button
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
-                      onClick={async () => {
-                        try {
-                          const st = await api.importLocalModel()
-                          setModelStatus(st)
-                          if (['ready', 'unloaded'].includes(st.state)) flash('模型已更换')
-                        } catch (err) {
-                          setModelStatus({
-                            state: 'error',
-                            error: err instanceof Error ? err.message : String(err)
-                          })
-                        }
-                      }}
-                    >
-                      更换模型文件
-                    </button>
-                  </div>
-                )}
-              {settings.screenSenseLocalModel &&
-                modelStatus &&
-                !['ready', 'unloaded'].includes(modelStatus.state) && (
-                  <div className="flex flex-col gap-2 text-xs">
-                    {modelStatus.state === 'downloading' ? (
-                      <span className="text-amber-600">下载中… {Math.round(dlProgress * 100)}%</span>
-                    ) : modelStatus.state === 'loading' ? (
-                      <span className="text-slate-500">加载中…</span>
-                    ) : (
-                      <>
-                        {modelStatus.state === 'error' && (
-                          <span className="text-red-500">模型出错：{modelStatus.error}</span>
-                        )}
-                        <label className="flex flex-col gap-1">
-                          <span className="text-slate-400">
-                            下载源（留空=官方；国内可填 https://hf-mirror.com 免代理）
-                          </span>
-                          <input
-                            className={input}
-                            placeholder="https://hf-mirror.com"
-                            defaultValue={settings.localModelEndpoint}
-                            onBlur={async (e) => {
-                              const v = e.target.value.trim()
-                              setSettings({ ...settings, localModelEndpoint: v })
-                              await api.saveSettings({ localModelEndpoint: v })
-                            }}
-                          />
-                        </label>
-                        <div className="flex gap-2">
-                          <button
-                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
-                            onClick={async () => {
-                              setModelStatus({ state: 'downloading', progress: 0 })
-                              try {
-                                const st = await api.downloadLocalModel()
-                                setModelStatus(st)
-                                flash('模型已就绪')
-                              } catch (err) {
-                                setModelStatus({
-                                  state: 'error',
-                                  error: err instanceof Error ? err.message : String(err)
-                                })
-                              }
-                            }}
-                          >
-                            一键下载（约 1.3GB）
-                          </button>
-                          <button
-                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
-                            onClick={async () => {
-                              try {
-                                const st = await api.importLocalModel()
-                                setModelStatus(st)
-                                if (['ready', 'unloaded'].includes(st.state)) flash('模型已导入')
-                              } catch (err) {
-                                setModelStatus({
-                                  state: 'error',
-                                  error: err instanceof Error ? err.message : String(err)
-                                })
-                              }
-                            }}
-                          >
-                            导入本地文件
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-            </div>
-
-            <div className="border-t border-slate-100 pt-4">
+            <div>
               <label className="flex items-center justify-between gap-4 text-sm">
                 <span>
                   检测到日程时弹窗提醒
@@ -623,27 +491,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     setSettings({ ...settings, screenSensePopup: next })
                     await api.saveSettings({ screenSensePopup: next })
                     flash(next ? '检测到日程会弹窗提醒' : '已转为完全被动（只进记忆）')
-                  }}
-                />
-              </label>
-            </div>
-
-            <div className="border-t border-slate-100 pt-4">
-              <label className="flex items-center justify-between gap-4 text-sm">
-                <span>
-                  云端校正
-                  <span className="ml-2 text-xs text-slate-400">
-                    本地秒出后，后台打云端 VLM 校正这张卡（更准，但耗 credits）
-                  </span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={settings.screenSenseCloudVerify}
-                  onChange={async (e) => {
-                    const next = e.target.checked
-                    setSettings({ ...settings, screenSenseCloudVerify: next })
-                    await api.saveSettings({ screenSenseCloudVerify: next })
-                    flash(next ? '已开启云端校正' : '已关闭云端校正')
                   }}
                 />
               </label>
@@ -671,6 +518,44 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                 <span className="text-xs text-slate-400">秒，0 = 不自动隐藏</span>
               </label>
             )}
+
+            <div className="border-t border-slate-100 pt-4">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
+                  工作记录
+                  <span className="ml-2 text-xs text-slate-400">
+                    识别时顺带记下「在做什么」，供「日报」页生成工作日报（不额外耗积分）
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSenseWorkLog}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    setSettings({ ...settings, screenSenseWorkLog: next })
+                    await api.saveSettings({ screenSenseWorkLog: next })
+                    flash(next ? '已开启工作记录' : '已关闭工作记录')
+                  }}
+                />
+              </label>
+              {settings.screenSenseWorkLog && (
+                <label className="mt-2 flex items-center gap-3 text-sm">
+                  <span className="text-slate-500">每日自动生成日报</span>
+                  <input
+                    type="time"
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                    value={settings.dailyReportTime}
+                    onChange={async (e) => {
+                      const v = e.target.value
+                      setSettings({ ...settings, dailyReportTime: v })
+                      await api.saveSettings({ dailyReportTime: v })
+                      flash(v ? `每天 ${v} 自动生成日报` : '已关闭定时日报')
+                    }}
+                  />
+                  <span className="text-xs text-slate-400">清空 = 不自动生成</span>
+                </label>
+              )}
+            </div>
 
             <div className="border-t border-slate-100 pt-4">
               <label className="flex items-center justify-between gap-4 text-sm">

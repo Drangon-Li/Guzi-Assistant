@@ -1,13 +1,19 @@
 import { dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
+import { writeFileSync } from 'fs'
 import {
+  appUsageSummary,
   bulkUpdateStatus,
+  deleteReport,
   deleteSourceContent,
+  deleteWorkRecord,
   getProfile,
   getSettings,
   getSource,
   getTask,
   listDetections,
+  listReports,
   listTasks,
+  listWorkRecords,
   saveProfile,
   saveSettings,
   searchSources,
@@ -15,6 +21,7 @@ import {
   wipeAll,
   wipeMemory
 } from './db'
+import { generateDailyReport } from './report'
 import { learnNotMine } from '@shared/belonging-learn'
 import {
   cancelPending,
@@ -35,13 +42,11 @@ import {
   acceptDetection,
   acceptLocal,
   acceptSuggestion,
-  aiParse,
   applyScreenSenseSettings,
   dismissDetection,
   onPreviewHidden,
   scanOnce
 } from './screenwatch'
-import { downloadLocalModel, getLocalModelStatus, importLocalModel } from './local-model/extractor'
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
@@ -115,10 +120,10 @@ export function registerIpc(): void {
     // 持续监控开关/间隔改动也要即时重启 watcher，否则要等下次改 enabled 才生效
     if (
       patch.screenSenseEnabled !== undefined ||
-      patch.screenSenseLocalModel !== undefined ||
       patch.screenSenseHotkey !== undefined ||
       patch.screenSenseContinuous !== undefined ||
-      patch.screenSenseIntervalSec !== undefined
+      patch.screenSenseIntervalSec !== undefined ||
+      patch.dailyReportTime !== undefined
     )
       applyScreenSenseSettings()
     broadcast('eshell:settings-updated')
@@ -224,7 +229,6 @@ export function registerIpc(): void {
   ipcMain.handle('suggestion:accept', (_e, payload: { item: ParsedItem; sourceText: string }) =>
     acceptSuggestion(payload)
   )
-  ipcMain.handle('suggestion:ai-parse', (_e, sourceText: string) => aiParse(sourceText))
   ipcMain.handle(
     'suggestion:accept-local',
     (_e, p: { item: ParsedItem; sourceText: string; detectionId?: string }) => acceptLocal(p)
@@ -233,26 +237,26 @@ export function registerIpc(): void {
   ipcMain.handle('detections:accept', (_e, id: string) => acceptDetection(id))
   ipcMain.handle('detections:dismiss', (_e, id: string) => dismissDetection(id))
 
-  ipcMain.handle('localmodel:status', () => getLocalModelStatus())
-  ipcMain.handle('localmodel:download', async () => {
-    const { localModelEndpoint } = getSettings()
-    await downloadLocalModel(
-      (p) => broadcast('eshell:localmodel-progress', { progress: p }),
-      localModelEndpoint || undefined
-    )
-    applyScreenSenseSettings()
-    return getLocalModelStatus()
+  // 工作记录 / 应用时长 / 日报（「日报」页）
+  ipcMain.handle('work-records:list', (_e, day: string) => listWorkRecords(day))
+  ipcMain.handle('work-records:delete', (_e, id: string) => deleteWorkRecord(id))
+  ipcMain.handle('app-usage:summary', (_e, day: string) => appUsageSummary(day))
+  ipcMain.handle('reports:generate', async (_e, day: string) => {
+    const r = await generateDailyReport(day)
+    broadcast('eshell:reports-updated')
+    return r
   })
-  ipcMain.handle('localmodel:import', async () => {
-    const r = await dialog.showOpenDialog({
-      title: '选择本地模型文件（.gguf）',
-      filters: [{ name: 'GGUF 模型', extensions: ['gguf'] }],
-      properties: ['openFile']
+  ipcMain.handle('reports:list', () => listReports())
+  ipcMain.handle('reports:delete', (_e, id: string) => deleteReport(id))
+  ipcMain.handle('report:export', async (_e, r: { title: string; content: string }) => {
+    const res = await dialog.showSaveDialog({
+      title: '导出日报',
+      defaultPath: `${r.title}.md`,
+      filters: [{ name: 'Markdown', extensions: ['md'] }]
     })
-    if (r.canceled || !r.filePaths[0]) return getLocalModelStatus()
-    await importLocalModel(r.filePaths[0])
-    applyScreenSenseSettings()
-    return getLocalModelStatus()
+    if (res.canceled || !res.filePath) return false
+    writeFileSync(res.filePath, r.content, 'utf8')
+    return true
   })
 
   ipcMain.handle(

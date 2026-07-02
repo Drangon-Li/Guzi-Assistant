@@ -1,17 +1,19 @@
 import type {
   AppSettings,
+  AppUsageEntry,
   DetectionRecord,
   FeishuStatus,
-  LocalModelStatus,
   MemoryHit,
   ParseSummary,
   PendingCapture,
   PermissionStatus,
   Profile,
+  ReportRecord,
   ScanResult,
   SourceRecord,
   TaskRecord,
-  TaskStatus
+  TaskStatus,
+  WorkRecord
 } from '@shared/types'
 import type {
   AddedInfo,
@@ -64,20 +66,19 @@ export const api = {
   screenScan: () => inv<ScanResult>('screen:scan'),
   suggestionAccept: (payload: { item: ParsedItem; sourceText: string }) =>
     inv<AddedInfo>('suggestion:accept', payload),
-  suggestionAiParse: (sourceText: string) =>
-    inv<{ item: ParsedItem; sourceText: string; hits: string[] } | null>(
-      'suggestion:ai-parse',
-      sourceText
-    ),
   acceptLocal: (payload: { item: ParsedItem; sourceText: string; detectionId?: string }) =>
     inv<AddedInfo>('suggestion:accept-local', payload),
   listDetections: () => inv<DetectionRecord[]>('detections:list'),
   acceptDetection: (id: string) => inv<AddedInfo | null>('detections:accept', id),
   dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
 
-  localModelStatus: () => inv<LocalModelStatus>('localmodel:status'),
-  downloadLocalModel: () => inv<LocalModelStatus>('localmodel:download'),
-  importLocalModel: () => inv<LocalModelStatus>('localmodel:import'),
+  listWorkRecords: (day: string) => inv<WorkRecord[]>('work-records:list', day),
+  deleteWorkRecord: (id: string) => inv<void>('work-records:delete', id),
+  appUsageSummary: (day: string) => inv<AppUsageEntry[]>('app-usage:summary', day),
+  generateReport: (day: string) => inv<ReportRecord>('reports:generate', day),
+  listReports: () => inv<ReportRecord[]>('reports:list'),
+  deleteReport: (id: string) => inv<void>('reports:delete', id),
+  exportReport: (r: { title: string; content: string }) => inv<boolean>('report:export', r),
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),

@@ -131,12 +131,8 @@ export interface AppSettings {
   model: string
   feishuAppId: string
   feishuAppSecret: string
-  /** 屏幕感知：核心被动采集总开关，默认 true（用户可显式关闭） */
+  /** 屏幕感知：核心被动采集总开关。默认 false（opt-in，检测走云端解析、消耗 credits） */
   screenSenseEnabled: boolean
-  /** 本地小模型屏幕感知总开关；关闭=停监控+卸模型省内存。默认 false（opt-in，要下模型） */
-  screenSenseLocalModel: boolean
-  /** 本地模型下载源（HF endpoint）；留空=官方 huggingface.co，国内可填 https://hf-mirror.com 免代理。默认空 */
-  localModelEndpoint: string
   /** 扫描屏幕的全局快捷键 accelerator */
   screenSenseHotkey: string
   /** 持续屏幕监控（#40）：screenSenseEnabled 之下的二级开关，默认 true（被动持续感知） */
@@ -151,8 +147,10 @@ export interface AppSettings {
   screenSenseRetentionDays: number
   /** 检测到日程时是否主动弹卡；false=完全被动（只进「记忆」历史，不打扰）。默认 true */
   screenSensePopup: boolean
-  /** 云端校正（B）：本地秒出后台并行打 VLM 校正弹卡。默认 false（opt-in，耗 credits） */
-  screenSenseCloudVerify: boolean
+  /** 工作记录：屏幕识别时顺带记录「在做什么」（同一次云端调用，零额外成本）。默认 true */
+  screenSenseWorkLog: boolean
+  /** 每日定时自动生成日报的时间（HH:mm）；空 = 不自动生成。默认空 */
+  dailyReportTime: string
   /** 检测卡/AI 建议卡闲置自动隐藏秒数；0=不自动隐藏（一直挂着）。默认 60 */
   screenSenseCardHideSec: number
   /** 悬浮助手闲置自动收起秒数；0=不自动收起。默认 60 */
@@ -171,7 +169,34 @@ export interface ScanResult {
   message: string
 }
 
-/** 本地小模型单次抽取结果（替代旧 LocalSchedule）。strong 由 coerce 派生，模型不输出。 */
+/** 工作记录：屏幕识别顺带的「在做什么」一句话时间线（供日报生成）。 */
+export interface WorkRecord {
+  id: string
+  content: string
+  /** 记录时的前台应用；手动扫描等场景为 null */
+  app: string | null
+  createdAt: string
+}
+
+/** 某天某应用的前台使用时长（秒） */
+export interface AppUsageEntry {
+  app: string
+  seconds: number
+}
+
+/** AI 生成的工作日报 */
+export interface ReportRecord {
+  id: string
+  /** 报告覆盖的日期 YYYY-MM-DD */
+  day: string
+  type: 'daily'
+  title: string
+  /** Markdown 正文 */
+  content: string
+  createdAt: string
+}
+
+/** 屏幕检测候选：云端解析结果的卡片 / 检测历史载荷形状。 */
 export interface LocalExtraction {
   title: string
   /** YYYY-MM-DDTHH:mm；解不出为 null（绝不编造） */
@@ -181,23 +206,6 @@ export interface LocalExtraction {
   /** 命中信号词（填 DetectionRecord.hits） */
   hits: string[]
   confidence: number
-  /** 模型自判：要不要上云 VLM 复核 */
-  needsVlm: boolean
   /** 派生：解析出了具体日期时间 → 决定是否主动弹卡 */
   strong: boolean
-  /** 派生(#2)：该消息发送时间非今天(昨天及更早)→ 大概率已处理 → 只记入历史、不主动弹卡 */
-  staleMessage?: boolean
-  /** 派生(#3)：任务「依据行」在截图中的归一化 y 区间(上/下边)，供裁剪证据条 */
-  evidenceTop?: number
-  evidenceBottom?: number
-  /** 派生(#3)：聚焦的证据文字片段(依据行±1)，作来源内容而非整屏 OCR */
-  evidenceText?: string
-}
-
-export type LocalModelState = 'absent' | 'downloading' | 'loading' | 'ready' | 'unloaded' | 'error'
-export interface LocalModelStatus {
-  state: LocalModelState
-  /** downloading 时 0..1 */
-  progress?: number
-  error?: string
 }
