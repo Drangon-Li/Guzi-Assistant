@@ -107,7 +107,7 @@ export default function Reports(): React.JSX.Element {
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold">工作记录</h2>
           <button
-            className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black disabled:opacity-50"
+            className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-50"
             onClick={() => void generate()}
             disabled={busy}
           >
@@ -160,7 +160,7 @@ export default function Reports(): React.JSX.Element {
                 <span className="w-36 shrink-0 truncate text-slate-600">{u.app}</span>
                 <div className="h-2 min-w-0 flex-1 rounded-full bg-slate-100">
                   <div
-                    className="h-2 rounded-full bg-slate-700"
+                    className="h-2 rounded-full bg-brand"
                     style={{ width: `${Math.max(2, Math.round((u.seconds / maxUsage) * 100))}%` }}
                   />
                 </div>

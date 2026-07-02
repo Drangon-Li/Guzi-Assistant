@@ -68,7 +68,7 @@ export default function AccountSection(): React.JSX.Element {
     return (
       <div className="flex flex-col gap-3 text-sm">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink text-base font-semibold text-white">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-base font-semibold text-white">
             {initial}
           </div>
           <div className="min-w-0 flex-1">
@@ -87,7 +87,7 @@ export default function AccountSection(): React.JSX.Element {
         </div>
         <div>
           <button
-            className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
+            className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark"
             onClick={() => setShowRecharge(true)}
           >
             充值积分
@@ -136,7 +136,7 @@ export default function AccountSection(): React.JSX.Element {
       </div>
       <div className="flex items-center gap-3">
         <button
-          className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black disabled:opacity-40"
+          className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-40"
           disabled={busy || !email.trim() || !password}
           onClick={() => void submit()}
         >

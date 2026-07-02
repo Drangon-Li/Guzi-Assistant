@@ -6,10 +6,14 @@
   --color-canvas: #161719 !important;
   --color-surface: #1e1f23 !important;
   --color-elevated: #27282d !important;
-  --color-userbubble: #2b3340 !important;
+  --color-userbubble: #3a2417 !important;
   --color-line: #33343b !important;
   --color-fg: #ececef !important;
   --color-ink: #3f3f47 !important;
+  /* 品牌橙深色下略提亮，保证在深底上的对比与活力 */
+  --color-brand: #f08850 !important;
+  --color-brand-dark: #e8743b !important;
+  --color-brand-soft: #3a2417 !important;
 
   --color-slate-50: #1d2026 !important;
   --color-slate-100: #262b33 !important;

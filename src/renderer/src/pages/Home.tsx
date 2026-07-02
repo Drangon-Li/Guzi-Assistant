@@ -67,14 +67,14 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
     if (h >= 0 && h < 24) byHour[h]++
   }
   const heatClass = (n: number): string =>
-    n === 0 ? 'bg-slate-100' : n === 1 ? 'bg-slate-300' : n <= 3 ? 'bg-slate-500' : 'bg-slate-700'
+    n === 0 ? 'bg-slate-100' : n === 1 ? 'bg-brand/30' : n <= 3 ? 'bg-brand/60' : 'bg-brand'
 
   const recent = groupWorkPeriods(records).slice(-5).reverse()
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
       <div className="flex items-start gap-4">
-        <img src={brandMark} alt="" className="mt-1 size-14 shrink-0 rounded-2xl border border-slate-200 p-2" />
+        <img src={brandMark} alt="" className="mt-1 size-14 shrink-0 rounded-2xl border border-brand-soft bg-brand-soft/50 p-2" />
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">你只管工作，待办和日报交给我</h1>
           <p className="mt-1.5 text-sm leading-6 text-slate-400">
@@ -112,7 +112,7 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
               {scanning ? '扫描中…' : '立即扫描屏幕'}
             </button>
             <button
-              className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark"
               onClick={() => onNavigate('reports')}
             >
               去生成日报
@@ -140,9 +140,9 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
           <span className="flex items-center gap-1 text-[10px] text-slate-400">
             少
             <span className="size-2.5 rounded-sm bg-slate-100" />
-            <span className="size-2.5 rounded-sm bg-slate-300" />
-            <span className="size-2.5 rounded-sm bg-slate-500" />
-            <span className="size-2.5 rounded-sm bg-slate-700" />
+            <span className="size-2.5 rounded-sm bg-brand/30" />
+            <span className="size-2.5 rounded-sm bg-brand/60" />
+            <span className="size-2.5 rounded-sm bg-brand" />
             多
           </span>
         </div>

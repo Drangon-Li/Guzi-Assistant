@@ -256,7 +256,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   取消
                 </button>
                 <button
-                  className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black disabled:opacity-40"
+                  className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-40"
                   disabled={!title.trim()}
                   onClick={() => void save()}
                 >
@@ -292,7 +292,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   编辑
                 </button>
                 <button
-                  className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
+                  className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark"
                   onClick={close}
                 >
                   关闭

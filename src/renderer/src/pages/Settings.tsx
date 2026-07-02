@@ -409,7 +409,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         </div>
         <div className="mt-3 flex items-center gap-3">
           <button
-            className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
+            className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark"
             onClick={async () => {
               await api.saveSettings({
                 feishuAppId: settings.feishuAppId.trim(),

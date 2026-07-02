@@ -199,7 +199,7 @@ function PersonalTab(): React.JSX.Element {
           AI 基于近期活动与任务归纳「你是谁、在做什么」，供助手理解上下文。可手动编辑。
         </p>
         <button
-          className="shrink-0 rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black disabled:opacity-50"
+          className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-50"
           onClick={() => void refresh()}
           disabled={busy}
         >
@@ -342,7 +342,7 @@ function HistoryTab(): React.JSX.Element {
                     </button>
                     <button
                       onClick={() => void accept(d.id)}
-                      className="shrink-0 rounded-lg bg-ink px-3 py-1 text-[11px] text-white hover:bg-black"
+                      className="shrink-0 rounded-lg bg-brand px-3 py-1 text-[11px] text-white hover:bg-brand-dark"
                     >
                       同意
                     </button>

@@ -55,7 +55,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
           {[0, 1, 2].map((i) => (
             <div
               key={i}
-              className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-ink' : 'bg-slate-200'}`}
+              className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-brand' : 'bg-slate-200'}`}
             />
           ))}
         </div>
@@ -174,7 +174,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
           </button>
           {step < 2 ? (
             <button
-              className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black disabled:opacity-40"
+              className="rounded-lg bg-brand px-5 py-2 text-sm text-white hover:bg-brand-dark disabled:opacity-40"
               disabled={step === 0 && !name.trim()}
               onClick={() => setStep(step + 1)}
             >
@@ -182,7 +182,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
             </button>
           ) : (
             <button
-              className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black"
+              className="rounded-lg bg-brand px-5 py-2 text-sm text-white hover:bg-brand-dark"
               onClick={() => void finish()}
             >
               开始使用

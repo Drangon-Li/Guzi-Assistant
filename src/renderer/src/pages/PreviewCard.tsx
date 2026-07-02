@@ -275,7 +275,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                 取消
               </button>
               <button
-                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark"
                 onClick={() => void submit(state.capture)}
               >
                 {state.left >= 0 ? `提交解析（${state.left}s）` : '确认提交'}
@@ -326,7 +326,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                   关闭
                 </button>
                 <button
-                  className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                  className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark"
                   onClick={() => {
                     void api.focusMain('assistant')
                     setState({ phase: 'idle' })
@@ -386,7 +386,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                 修改
               </button>
               <button
-                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark"
                 onClick={() => void acceptSuggestion(false)}
               >
                 同意
@@ -428,7 +428,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                 拒绝
               </button>
               <button
-                className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+                className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark"
                 onClick={() => void acceptLocalNow()}
               >
                 同意

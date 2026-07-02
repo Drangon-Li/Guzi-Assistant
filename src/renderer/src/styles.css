@@ -7,17 +7,22 @@
    ============================================================ */
 @theme {
   --font-sans: 'Sora', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
-  /* 近黑主色（替代旧 indigo 主色）：主按钮 / 选中徽标 / 复选勾 */
+  /* 品牌主色：暖橙（取自 logo）。主按钮 / 选中态 / 复选勾 / 强调元素统一用它。
+     -dark 悬停态、-soft 选中/徽标底色。 */
+  --color-brand: #e8743b;
+  --color-brand-dark: #cf5f2c;
+  --color-brand-soft: #fbeadd;
+  /* 近黑：仅用于需要极高对比的正文强调，不再作主按钮色 */
   --color-ink: #1d1d22;
   /* Bloome 动效缓动 */
   --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* 语义色 token（亮色默认；深色见下方 @media）。新增 UI 用这些，别再写死 bg-white/bg-[#fafafa]。
      bg-canvas 页面底 / bg-surface 卡片面 / bg-elevated 次级填充(气泡等) / bg-userbubble 用户气泡 / border-line 边框 / text-fg 主文本 */
-  --color-canvas: #fafafa;
+  --color-canvas: #faf8f6;
   --color-surface: #ffffff;
-  --color-elevated: #f5f4f3;
-  --color-userbubble: #eef3fa;
-  --color-line: #e6e8ec;
+  --color-elevated: #f5f3f1;
+  --color-userbubble: #fbeadd;
+  --color-line: #e9e6e2;
   --color-fg: #23232a;
 }
 
@@ -39,7 +44,7 @@ body {
 }
 
 ::selection {
-  background: #3b82f61f;
+  background: #e8743b2e;
 }
 
 /* ---------- 动效（统一缓动 cubic-bezier(.2,.8,.2,1)，时长 120/180/260ms） ---------- */

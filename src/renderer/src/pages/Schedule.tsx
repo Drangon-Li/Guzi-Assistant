@@ -178,7 +178,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
             </p>
             <button
               onClick={onOpenAssistant}
-              className="mt-4 rounded-lg bg-ink px-4 py-2 text-sm text-white hover:bg-black"
+              className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm text-white hover:bg-brand-dark"
             >
               打开助手
             </button>
@@ -328,7 +328,7 @@ function TaskRow({
         type="checkbox"
         checked={checked}
         onChange={toggle}
-        className="size-4 shrink-0 accent-slate-800"
+        className="size-4 shrink-0 accent-brand"
       />
       <div className="min-w-0 flex-1">
         <button

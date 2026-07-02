@@ -189,7 +189,9 @@ function MainApp(): React.JSX.Element | null {
               key={item.key}
               onClick={() => setPage(item.key)}
               className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                page === item.key ? 'bg-slate-100 font-medium text-slate-900' : 'hover:bg-slate-50'
+                page === item.key
+                  ? 'bg-brand-soft font-medium text-brand'
+                  : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
               <span>{item.label}</span>

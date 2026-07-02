@@ -45,7 +45,7 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
 
         <div className="mt-4 flex gap-1.5">
           {[0, 1, 2].map((i) => (
-            <div key={i} className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-ink' : 'bg-slate-200'}`} />
+            <div key={i} className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-brand' : 'bg-slate-200'}`} />
           ))}
         </div>
 
@@ -123,13 +123,13 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
           </button>
           {step < 2 ? (
             <button
-              className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black"
+              className="rounded-lg bg-brand px-5 py-2 text-sm text-white hover:bg-brand-dark"
               onClick={() => setStep(step + 1)}
             >
               下一步
             </button>
           ) : (
-            <button className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black" onClick={onDone}>
+            <button className="rounded-lg bg-brand px-5 py-2 text-sm text-white hover:bg-brand-dark" onClick={onDone}>
               开始设置档案
             </button>
           )}
