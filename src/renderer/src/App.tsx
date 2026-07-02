@@ -4,12 +4,14 @@ import { api } from './api'
 import { supabase, functionsBase } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
+import Welcome from './pages/Welcome'
 import ScreenPermissionGate from './pages/ScreenPermissionGate'
 import FloatingAssistant from './components/FloatingAssistant'
 import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
 import Memory from './pages/Memory'
 import Reports from './pages/Reports'
+import Home from './pages/Home'
 import Account from './pages/Account'
 import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
@@ -18,9 +20,10 @@ import PetChat from './pages/PetChat'
 import brandMark from './assets/agent-avatar.png'
 import brandWordmark from './assets/brand-wordmark.png'
 
-type Page = 'timeline' | 'schedule' | 'reports' | 'memory' | 'account' | 'settings'
+type Page = 'home' | 'timeline' | 'schedule' | 'reports' | 'memory' | 'account' | 'settings'
 
 const NAV: { key: Page; label: string }[] = [
+  { key: 'home', label: '今日' },
   { key: 'schedule', label: '日程' },
   { key: 'timeline', label: '时间轴' },
   { key: 'reports', label: '日报' },
@@ -40,9 +43,10 @@ function MainApp(): React.JSX.Element | null {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
   const [screenPerm, setScreenPerm] = useState<string | undefined>(undefined)
   const [screenGateSkipped, setScreenGateSkipped] = useState(false)
-  const [page, setPage] = useState<Page>('schedule')
+  const [page, setPage] = useState<Page>('home')
   const [chatOpen, setChatOpen] = useState(false)
-  const [shownPage, setShownPage] = useState<Page>('schedule')
+  const [shownPage, setShownPage] = useState<Page>('home')
+  const [welcomed, setWelcomed] = useState(() => window.localStorage.getItem('eshell:welcomed') === '1')
   const [pageVisible, setPageVisible] = useState(true)
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [toast, setToast] = useState<string | null>(null)
@@ -87,6 +91,7 @@ function MainApp(): React.JSX.Element | null {
     const offNav = api.on('eshell:navigate', (route) => {
       if (route === 'inbox' || route === 'assistant') setChatOpen(true)
       else if (
+        route === 'home' ||
         route === 'timeline' ||
         route === 'schedule' ||
         route === 'reports' ||
@@ -131,7 +136,19 @@ function MainApp(): React.JSX.Element | null {
         <div className="size-6 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
       </div>
     )
-  if (profile === null) return <Onboarding onDone={setProfile} />
+  if (profile === null) {
+    // 首次运行：先过一遍产品引导，再进档案设置
+    if (!welcomed)
+      return (
+        <Welcome
+          onDone={() => {
+            window.localStorage.setItem('eshell:welcomed', '1')
+            setWelcomed(true)
+          }}
+        />
+      )
+    return <Onboarding onDone={setProfile} />
+  }
   if (screenPerm === undefined)
     return (
       <div className="flex h-full items-center justify-center bg-surface">
@@ -187,6 +204,7 @@ function MainApp(): React.JSX.Element | null {
 
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className={`transition-opacity duration-150 ${pageVisible ? 'opacity-100' : 'opacity-0'}`}>
+          {shownPage === 'home' && <Home tasks={tasks} onNavigate={setPage} />}
           {shownPage === 'timeline' && <Timeline tasks={tasks} />}
           {shownPage === 'schedule' && (
             <Schedule

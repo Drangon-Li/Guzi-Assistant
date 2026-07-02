@@ -92,6 +92,9 @@ export function initDb(): void {
       created_at TEXT NOT NULL
     );
   `)
+  // 老数据清理：应用时长早期把自己（dev 下前台名是 Electron）也计了进去，启动时清掉（新数据已不再产生）
+  db.exec("DELETE FROM app_usage WHERE app IN ('Electron', 'EShell', '纸壳助手')")
+
   // 老库迁移：早期版本没有 notes 列
   const taskCols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(
     (c) => c.name
