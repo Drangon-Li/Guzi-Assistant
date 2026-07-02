@@ -336,7 +336,7 @@ export default function AssistantChat({
                                   className={`rounded-lg px-3 py-1 text-xs text-white ${
                                     item.duplicate_of
                                       ? 'bg-amber-500 hover:bg-amber-600'
-                                      : 'bg-ink hover:bg-black'
+                                      : 'bg-brand hover:bg-brand-dark'
                                   }`}
                                   onClick={() => void addCandidate(m.id, idx1, m.candidates!.ctx, item)}
                                 >
@@ -389,7 +389,7 @@ export default function AssistantChat({
                     <div className="mt-2 flex items-center gap-2">
                       <button
                         className={`rounded-lg px-3 py-1 text-xs text-white ${
-                          t.duplicateOf ? 'bg-amber-500 hover:bg-amber-600' : 'bg-ink hover:bg-black'
+                          t.duplicateOf ? 'bg-amber-500 hover:bg-amber-600' : 'bg-brand hover:bg-brand-dark'
                         }`}
                         onClick={() => void api.updateTask(t.id, { status: joinStatus(t) })}
                       >
@@ -499,7 +499,7 @@ export default function AssistantChat({
           <button
             disabled={busy || !input.trim()}
             onClick={() => void send(input)}
-            className="rounded-xl bg-ink px-4 py-2 text-sm text-white hover:bg-black disabled:opacity-40"
+            className="rounded-xl bg-brand px-4 py-2 text-sm text-white hover:bg-brand-dark disabled:opacity-40"
           >
             发送
           </button>

@@ -67,7 +67,7 @@ export default function ScreenPermissionGate({ onDone }: Props): React.JSX.Eleme
             暂时跳过
           </button>
           <button
-            className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black"
+            className="rounded-lg bg-brand px-5 py-2 text-sm text-white hover:bg-brand-dark"
             onClick={() => {
               void api.openScreenSettings()
               setOpened(true)

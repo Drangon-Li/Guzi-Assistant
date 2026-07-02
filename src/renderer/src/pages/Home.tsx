@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AppUsageEntry, TaskRecord, WorkRecord } from '@shared/types'
-import { dayKey, formatDuration } from '@shared/work-report'
+import { dayKey, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
 import { api } from '../api'
+import { Section } from '../components/ui'
 import brandMark from '../assets/agent-avatar.png'
 
 const ACTIVE_STATUS = new Set(['not_started', 'scheduled', 'in_progress', 'overdue'])
@@ -67,14 +68,14 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
     if (h >= 0 && h < 24) byHour[h]++
   }
   const heatClass = (n: number): string =>
-    n === 0 ? 'bg-slate-100' : n === 1 ? 'bg-slate-300' : n <= 3 ? 'bg-slate-500' : 'bg-slate-700'
+    n === 0 ? 'bg-slate-100' : n === 1 ? 'bg-brand/30' : n <= 3 ? 'bg-brand/60' : 'bg-brand'
 
-  const recent = records.slice(-5).reverse()
+  const recent = groupWorkPeriods(records).slice(-5).reverse()
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
       <div className="flex items-start gap-4">
-        <img src={brandMark} alt="" className="mt-1 size-14 shrink-0 rounded-2xl border border-slate-200 p-2" />
+        <img src={brandMark} alt="" className="mt-1 size-14 shrink-0 rounded-2xl border border-brand-soft bg-brand-soft/50 p-2" />
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">你只管工作，待办和日报交给我</h1>
           <p className="mt-1.5 text-sm leading-6 text-slate-400">
@@ -100,9 +101,9 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
         </div>
       )}
 
-      <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">今日概览</h2>
+      <Section
+        title="今日概览"
+        actions={
           <div className="flex gap-2">
             <button
               className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
@@ -112,13 +113,14 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
               {scanning ? '扫描中…' : '立即扫描屏幕'}
             </button>
             <button
-              className="rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black"
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark"
               onClick={() => onNavigate('reports')}
             >
               去生成日报
             </button>
           </div>
-        </div>
+        }
+      >
         <div className="grid grid-cols-4 gap-3">
           {[
             { label: '工作记录', value: `${records.length} 条` },
@@ -132,20 +134,21 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
             </div>
           ))}
         </div>
-      </section>
+      </Section>
 
-      <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">时段记录</h2>
+      <Section
+        title="时段记录"
+        actions={
           <span className="flex items-center gap-1 text-[10px] text-slate-400">
             少
             <span className="size-2.5 rounded-sm bg-slate-100" />
-            <span className="size-2.5 rounded-sm bg-slate-300" />
-            <span className="size-2.5 rounded-sm bg-slate-500" />
-            <span className="size-2.5 rounded-sm bg-slate-700" />
+            <span className="size-2.5 rounded-sm bg-brand/30" />
+            <span className="size-2.5 rounded-sm bg-brand/60" />
+            <span className="size-2.5 rounded-sm bg-brand" />
             多
           </span>
-        </div>
+        }
+      >
         <div className="flex gap-1">
           {byHour.map((n, h) => (
             <div key={h} className="flex min-w-0 flex-1 flex-col items-center gap-1">
@@ -154,15 +157,16 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
             </div>
           ))}
         </div>
-      </section>
+      </Section>
 
-      <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">最近工作记录</h2>
+      <Section
+        title="最近工作记录"
+        actions={
           <button className="text-xs text-slate-400 hover:text-slate-600" onClick={() => onNavigate('reports')}>
             查看全部 →
           </button>
-        </div>
+        }
+      >
         {recent.length === 0 ? (
           <p className="py-3 text-sm text-slate-400">
             {senseOn
@@ -171,18 +175,21 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
           </p>
         ) : (
           <ul className="flex flex-col">
-            {recent.map((r) => (
-              <li key={r.id} className="flex items-baseline gap-3 border-b border-slate-100 py-2 text-sm last:border-b-0">
-                <span className="shrink-0 font-mono text-xs text-slate-400">{r.createdAt.slice(11, 16)}</span>
-                {r.app && (
-                  <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{r.app}</span>
+            {recent.map((p) => (
+              <li
+                key={p.start + p.summary}
+                className="flex items-baseline gap-3 border-b border-slate-100 py-2 text-sm last:border-b-0"
+              >
+                <span className="w-24 shrink-0 font-mono text-xs text-slate-400">{periodLabel(p)}</span>
+                {p.app && (
+                  <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{p.app}</span>
                 )}
-                <span className="min-w-0 flex-1 truncate leading-5">{r.content}</span>
+                <span className="min-w-0 flex-1 truncate leading-5">{p.summary}</span>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
       {note && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg">

@@ -75,17 +75,24 @@ export interface ExistingTaskBrief {
   due_time: string | null
 }
 
+/** 个人记忆块：注入解析/助手 prompt，让判断贴合"这个用户是谁、在做什么"。空则不注入。 */
+function memoryBlock(personalMemory: string): string {
+  const m = personalMemory.trim()
+  return m ? `\n# 关于该用户的记忆（历史归纳，供理解上下文，不要直接当作待办）\n${m.slice(0, 1500)}\n` : ''
+}
+
 /** 捕获解析（剪切板/截图/文件提交）的系统提示词 */
 export function buildInstructions(
   profile: Profile,
   existingTasks: ExistingTaskBrief[] = [],
-  belongingPrior = ''
+  belongingPrior = '',
+  personalMemory = ''
 ): string {
   return `你是 纸壳助手（个人事项捕获助手）的解析引擎。用户会提交剪切板文本、聊天截图、通知、邮件或文件内容，你需要从中提取「行动项/待办」，并判断每一项是否属于该用户本人。
 
 # 用户档案
 ${profileBlock(profile)}
-${belongingPrior ? '\n' + belongingPrior + '\n' : ''}
+${belongingPrior ? '\n' + belongingPrior + '\n' : ''}${memoryBlock(personalMemory)}
 # 用户已有任务（查重用）
 ${existingTasks.length ? JSON.stringify(existingTasks) : '（无）'}
 ${DUP_RULE}
@@ -153,7 +160,8 @@ export interface AssistantTurnResult {
 export function buildAssistantInstructions(
   profile: Profile,
   tasksJson: string,
-  candidates: ParsedItem[] | null
+  candidates: ParsedItem[] | null,
+  personalMemory = ''
 ): string {
   const now = localNow()
   const weekday = WEEKDAYS[new Date().getDay()]
@@ -161,7 +169,7 @@ export function buildAssistantInstructions(
 
 # 用户档案
 ${profileBlock(profile)}
-
+${memoryBlock(personalMemory)}
 # 当前时间
 ${now}（${weekday}）
 
@@ -294,6 +302,17 @@ export function parseWorkSummary(text: string): string | null {
     const parsed = extractJson(text)
     const s = typeof parsed.work_summary === 'string' ? parsed.work_summary.trim() : ''
     return s ? s.slice(0, 200) : null
+  } catch {
+    return null
+  }
+}
+
+/** 从屏幕扫描模型输出中取顶层 focus_task（任务级标签，专注时长用）；无/非法返回 null */
+export function parseFocusTask(text: string): string | null {
+  try {
+    const parsed = extractJson(text)
+    const s = typeof parsed.focus_task === 'string' ? parsed.focus_task.trim() : ''
+    return s ? s.slice(0, 60) : null
   } catch {
     return null
   }

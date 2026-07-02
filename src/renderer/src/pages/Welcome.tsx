@@ -45,7 +45,7 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
 
         <div className="mt-4 flex gap-1.5">
           {[0, 1, 2].map((i) => (
-            <div key={i} className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-ink' : 'bg-slate-200'}`} />
+            <div key={i} className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-brand' : 'bg-slate-200'}`} />
           ))}
         </div>
 
@@ -75,7 +75,7 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
               </div>
               <ul className="flex flex-col gap-2 text-sm leading-6 text-slate-600">
                 <li>
-                  · 截图只在你的电脑上做 OCR，<strong>只有文字</strong>会发给 AI，截图本身绝不上传
+                  · 截图只在你的电脑上做 OCR，默认<strong>只有文字</strong>会发给 AI；截图本身不上传（除非你在设置里主动开启「日程深度确认」）
                 </li>
                 <li>· 屏幕没变化、人不在电脑前、指定应用在前台时，连截图都不做</li>
                 <li>· 所有数据存在本机，设置页可一键清除</li>
@@ -123,13 +123,13 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
           </button>
           {step < 2 ? (
             <button
-              className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black"
+              className="rounded-lg bg-brand px-5 py-2 text-sm text-white hover:bg-brand-dark"
               onClick={() => setStep(step + 1)}
             >
               下一步
             </button>
           ) : (
-            <button className="rounded-lg bg-ink px-5 py-2 text-sm text-white hover:bg-black" onClick={onDone}>
+            <button className="rounded-lg bg-brand px-5 py-2 text-sm text-white hover:bg-brand-dark" onClick={onDone}>
               开始设置档案
             </button>
           )}

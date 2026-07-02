@@ -5,6 +5,8 @@ import { dayKey, fmtTime, PRIORITY_LABELS, STATUS_LABELS, todayKey, TYPE_LABELS 
 import EditTaskModal from '../components/EditTaskModal'
 import SourceModal from '../components/SourceModal'
 import TaskDetailModal from '../components/TaskDetailModal'
+import Timeline, { type TimelineMode } from './Timeline'
+import { Segmented } from '../components/ui'
 
 interface Props {
   tasks: TaskRecord[]
@@ -13,6 +15,7 @@ interface Props {
 }
 
 type Tab = 'today' | 'next3' | 'week' | 'all'
+type View = 'list' | 'timeline'
 
 const ACTIVE_STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'overdue']
 const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -37,7 +40,9 @@ function nowLocal(): string {
 }
 
 export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props): React.JSX.Element {
+  const [view, setView] = useState<View>('list')
   const [tab, setTab] = useState<Tab>('today')
+  const [tlMode, setTlMode] = useState<TimelineMode>('day')
   const [editing, setEditing] = useState<TaskRecord | null>(null)
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
@@ -81,29 +86,41 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">日程</h1>
-        <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
-          {(
-            [
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-semibold">日程</h1>
+          {/* 视图切换：列表（操作）/ 时间轴（浏览）。原独立「时间轴」页并入此处 */}
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              ['list', '列表'],
+              ['timeline', '时间轴']
+            ]}
+          />
+        </div>
+        {/* 右侧筛选随视图切换：列表=时间范围，时间轴=分组粒度 */}
+        {view === 'list' ? (
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            options={[
               ['today', '今日'],
               ['next3', '近三天'],
               ['week', '本周'],
               ['all', '全部']
-            ] as [Tab, string][]
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`rounded-md px-3 py-1 ${
-                tab === key
-                  ? 'bg-surface text-slate-900 font-medium shadow-sm'
-                  : 'text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+            ]}
+          />
+        ) : (
+          <Segmented
+            value={tlMode}
+            onChange={setTlMode}
+            options={[
+              ['day', '天'],
+              ['week', '周'],
+              ['month', '月']
+            ]}
+          />
+        )}
       </div>
 
       <div className="mt-5 flex flex-col gap-6 pb-10">
@@ -130,14 +147,17 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
             </p>
             <button
               onClick={onOpenAssistant}
-              className="mt-4 rounded-lg bg-ink px-4 py-2 text-sm text-white hover:bg-black"
+              className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm text-white hover:bg-brand-dark"
             >
               打开助手
             </button>
           </div>
         )}
 
+        {tasks.length > 0 && view === 'timeline' && <Timeline tasks={tasks} mode={tlMode} />}
+
         {tasks.length > 0 &&
+          view === 'list' &&
           sections.map((sec) => (
           <section key={sec.title}>
             <h2 className="mb-2 text-xs font-medium text-slate-400">{sec.title}</h2>
@@ -160,7 +180,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
           </section>
         ))}
 
-        {ignored.length > 0 && (
+        {view === 'list' && ignored.length > 0 && (
           <details>
             <summary className="cursor-pointer text-xs text-slate-400 select-none">
               已忽略（{ignored.length}）
@@ -189,7 +209,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
           </details>
         )}
 
-        {done.length > 0 && (
+        {view === 'list' && done.length > 0 && (
           <details>
             <summary className="cursor-pointer text-xs text-slate-400 select-none">
               已完成（{done.length}）
@@ -277,7 +297,7 @@ function TaskRow({
         type="checkbox"
         checked={checked}
         onChange={toggle}
-        className="size-4 shrink-0 accent-slate-800"
+        className="size-4 shrink-0 accent-brand"
       />
       <div className="min-w-0 flex-1">
         <button

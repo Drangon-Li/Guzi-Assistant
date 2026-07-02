@@ -7,7 +7,6 @@ import Onboarding from './pages/Onboarding'
 import Welcome from './pages/Welcome'
 import ScreenPermissionGate from './pages/ScreenPermissionGate'
 import FloatingAssistant from './components/FloatingAssistant'
-import Timeline from './pages/Timeline'
 import Schedule from './pages/Schedule'
 import Memory from './pages/Memory'
 import Reports from './pages/Reports'
@@ -20,12 +19,11 @@ import PetChat from './pages/PetChat'
 import brandMark from './assets/agent-avatar.png'
 import brandWordmark from './assets/brand-wordmark.png'
 
-type Page = 'home' | 'timeline' | 'schedule' | 'reports' | 'memory' | 'account' | 'settings'
+type Page = 'home' | 'schedule' | 'reports' | 'memory' | 'account' | 'settings'
 
 const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: '今日' },
   { key: 'schedule', label: '日程' },
-  { key: 'timeline', label: '时间轴' },
   { key: 'reports', label: '日报' },
   { key: 'memory', label: '记忆' },
   { key: 'account', label: '个人' },
@@ -90,9 +88,10 @@ function MainApp(): React.JSX.Element | null {
     const offSettings = api.on('eshell:settings-updated', loadHotkey)
     const offNav = api.on('eshell:navigate', (route) => {
       if (route === 'inbox' || route === 'assistant') setChatOpen(true)
+      else if (route === 'timeline')
+        setPage('schedule') // 旧路由兼容：时间轴已并入日程页
       else if (
         route === 'home' ||
-        route === 'timeline' ||
         route === 'schedule' ||
         route === 'reports' ||
         route === 'memory' ||
@@ -190,7 +189,9 @@ function MainApp(): React.JSX.Element | null {
               key={item.key}
               onClick={() => setPage(item.key)}
               className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                page === item.key ? 'bg-slate-100 font-medium text-slate-900' : 'hover:bg-slate-50'
+                page === item.key
+                  ? 'bg-brand-soft font-medium text-brand'
+                  : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
               <span>{item.label}</span>
@@ -205,7 +206,6 @@ function MainApp(): React.JSX.Element | null {
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className={`transition-opacity duration-150 ${pageVisible ? 'opacity-100' : 'opacity-0'}`}>
           {shownPage === 'home' && <Home tasks={tasks} onNavigate={setPage} />}
-          {shownPage === 'timeline' && <Timeline tasks={tasks} />}
           {shownPage === 'schedule' && (
             <Schedule
               tasks={tasks}

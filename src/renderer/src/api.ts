@@ -23,6 +23,12 @@ import type {
   ParsedItem
 } from '@shared/parsing'
 
+interface PersonalMemoryDto {
+  base: string
+  recent: string
+  updatedAt: string | null
+}
+
 function inv<T>(channel: string, ...args: unknown[]): Promise<T> {
   return window.eshell.invoke(channel, ...args) as Promise<T>
 }
@@ -73,7 +79,16 @@ export const api = {
   dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
 
   listWorkRecords: (day: string) => inv<WorkRecord[]>('work-records:list', day),
+  workRecordsSince: (sinceDay: string) => inv<WorkRecord[]>('work-records:since', sinceDay),
   deleteWorkRecord: (id: string) => inv<void>('work-records:delete', id),
+  getPersonalMemory: () => inv<PersonalMemoryDto>('memory:get-personal'),
+  setPersonalMemory: (part: 'base' | 'recent', content: string) =>
+    inv<PersonalMemoryDto>('memory:set-personal', part, content),
+  refreshPersonalMemory: () => inv<PersonalMemoryDto>('memory:refresh-personal'),
+  focusTaskPrefs: () => inv<{ name: string; hidden: boolean; custom: boolean }[]>('focus-tasks:prefs'),
+  addFocusTask: (name: string) => inv<void>('focus-tasks:add', name),
+  hideFocusTask: (name: string) => inv<void>('focus-tasks:hide', name),
+  exportRange: (fromDay: string, toDay: string) => inv<boolean>('data:export-range', fromDay, toDay),
   appUsageSummary: (day: string) => inv<AppUsageEntry[]>('app-usage:summary', day),
   generateReport: (day: string) => inv<ReportRecord>('reports:generate', day),
   listReports: () => inv<ReportRecord[]>('reports:list'),

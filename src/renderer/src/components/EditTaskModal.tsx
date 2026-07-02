@@ -112,7 +112,7 @@ export default function EditTaskModal({
             取消
           </button>
           <button
-            className="rounded-lg bg-ink px-4 py-1.5 text-sm text-white hover:bg-black"
+            className="rounded-lg bg-brand px-4 py-1.5 text-sm text-white hover:bg-brand-dark"
             onClick={save}
           >
             {confirmLabel}

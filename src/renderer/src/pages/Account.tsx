@@ -152,7 +152,7 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
         </div>
         <div className="mt-4">
           <button
-            className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
+            className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark"
             onClick={() => void saveProfileForm()}
           >
             保存档案

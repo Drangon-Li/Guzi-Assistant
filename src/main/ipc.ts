@@ -1,11 +1,16 @@
 import { dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
 import { writeFileSync } from 'fs'
 import {
+  addFocusTask,
   appUsageSummary,
   bulkUpdateStatus,
   deleteReport,
   deleteSourceContent,
   deleteWorkRecord,
+  exportRange,
+  getPersonalMemory,
+  hideFocusTask,
+  listFocusTaskPrefs,
   getProfile,
   getSettings,
   getSource,
@@ -14,14 +19,17 @@ import {
   listReports,
   listTasks,
   listWorkRecords,
+  listWorkRecordsSince,
   saveProfile,
   saveSettings,
   searchSources,
+  setPersonalMemory,
   updateTask,
   wipeAll,
   wipeMemory
 } from './db'
 import { generateDailyReport } from './report'
+import { refreshPersonalMemory } from './personal-memory'
 import { learnNotMine } from '@shared/belonging-learn'
 import {
   cancelPending,
@@ -239,7 +247,32 @@ export function registerIpc(): void {
 
   // 工作记录 / 应用时长 / 日报（「日报」页）
   ipcMain.handle('work-records:list', (_e, day: string) => listWorkRecords(day))
+  ipcMain.handle('work-records:since', (_e, sinceDay: string) => listWorkRecordsSince(sinceDay))
   ipcMain.handle('work-records:delete', (_e, id: string) => deleteWorkRecord(id))
+
+  // 个人记忆（「记忆」页：base=基本画像 / recent=近期行为画像）
+  ipcMain.handle('memory:get-personal', () => getPersonalMemory())
+  ipcMain.handle('memory:set-personal', (_e, part: 'base' | 'recent', content: string) =>
+    setPersonalMemory(part === 'base' ? 'base' : 'recent', content)
+  )
+  ipcMain.handle('memory:refresh-personal', () => refreshPersonalMemory())
+
+  // 任务专注（日报页）：自定义添加 / 删除（隐藏）任务名，用于校正模型归并
+  ipcMain.handle('focus-tasks:prefs', () => listFocusTaskPrefs())
+  ipcMain.handle('focus-tasks:add', (_e, name: string) => addFocusTask(name))
+  ipcMain.handle('focus-tasks:hide', (_e, name: string) => hideFocusTask(name))
+
+  // 数据导出：时间范围内的工作记录/日报/应用时长/检测 → JSON 文件
+  ipcMain.handle('data:export-range', async (_e, fromDay: string, toDay: string) => {
+    const res = await dialog.showSaveDialog({
+      title: '导出数据',
+      defaultPath: `eshell-export-${fromDay}_${toDay}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (res.canceled || !res.filePath) return false
+    writeFileSync(res.filePath, JSON.stringify(exportRange(fromDay, toDay), null, 2), 'utf8')
+    return true
+  })
   ipcMain.handle('app-usage:summary', (_e, day: string) => appUsageSummary(day))
   ipcMain.handle('reports:generate', async (_e, day: string) => {
     const r = await generateDailyReport(day)

@@ -13,9 +13,12 @@ import SourceModal from '../components/SourceModal'
 
 interface Props {
   tasks: TaskRecord[]
+  /** 分组粒度，由宿主页（日程）的切换器控制 */
+  mode: TimelineMode
 }
 
-type ViewMode = 'day' | 'week' | 'month'
+export type TimelineMode = 'day' | 'week' | 'month'
+type ViewMode = TimelineMode
 
 const ACTIVE_STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'overdue']
 const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -76,8 +79,8 @@ function buildGroups(timed: TaskRecord[], mode: ViewMode): Group[] {
   return [...map.values()]
 }
 
-export default function Timeline({ tasks }: Props): React.JSX.Element {
-  const [mode, setMode] = useState<ViewMode>('day')
+/** 时间轴视图：日程页的一种展示模式（不再是独立页面，无自己的页头）。 */
+export default function Timeline({ tasks, mode }: Props): React.JSX.Element {
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
   const [showFinished, setShowFinished] = useState(false)
@@ -103,34 +106,9 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
   const groups = buildGroups(timed, mode)
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">时间轴</h1>
-        <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
-          {(
-            [
-              ['day', '天'],
-              ['week', '周'],
-              ['month', '月']
-            ] as [ViewMode, string][]
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setMode(key)}
-              className={`rounded-md px-3 py-1 ${
-                mode === key
-                  ? 'bg-surface text-slate-900 font-medium shadow-sm'
-                  : 'text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
+    <div>
       {upcoming.length > 0 && (
-        <div className="mt-5 flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           {upcoming.map((t) => {
             const time = timeOf(t)!
             const urgent = t.status === 'overdue' || daysUntil(time) <= 3
@@ -182,14 +160,14 @@ export default function Timeline({ tasks }: Props): React.JSX.Element {
         ))}
         {!groups.length && !overdue.length && (
           <div className="mt-10 text-center text-sm text-slate-400">
-            还没有带时间的已确认任务。在「日程」确认待办并设置时间后，会按时间显示在这里。
+            还没有带时间的已确认任务。确认待办并设置时间后，会按时间显示在这里。
           </div>
         )}
       </div>
 
       {unscheduled.length > 0 && (
         <div className="mt-6 text-xs text-slate-400">
-          另有 {unscheduled.length} 个任务未排期，可在「日程」页中设置时间。
+          另有 {unscheduled.length} 个任务未排期，可切到「列表」视图设置时间。
         </div>
       )}
 

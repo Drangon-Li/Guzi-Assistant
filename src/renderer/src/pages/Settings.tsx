@@ -3,6 +3,7 @@ import type { AppSettings, FeishuStatus, PermissionStatus, Profile } from '@shar
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
 import PetSettings from '../components/PetSettings'
+import { Section } from '../components/ui'
 
 interface Props {
   onProfileChange: (p: Profile) => void
@@ -60,14 +61,6 @@ function splitList(s: string): string[] {
     .filter(Boolean)
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
-      <h2 className="mb-4 text-sm font-semibold">{title}</h2>
-      {children}
-    </section>
-  )
-}
 
 export default function Settings({ onProfileChange }: Props): React.JSX.Element {
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -80,6 +73,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [cat, setCat] = useState<(typeof CATS)[number]>('通用')
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const weekAgoStr = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)
+  const [exportFrom, setExportFrom] = useState(weekAgoStr)
+  const [exportTo, setExportTo] = useState(todayStr)
 
   const loadPerms = (): void => {
     void api.permissions().then(setPerms)
@@ -409,7 +406,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         </div>
         <div className="mt-3 flex items-center gap-3">
           <button
-            className="rounded-lg bg-ink px-4 py-1.5 text-xs text-white hover:bg-black"
+            className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark"
             onClick={async () => {
               await api.saveSettings({
                 feishuAppId: settings.feishuAppId.trim(),
@@ -560,6 +557,27 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             <div className="border-t border-slate-100 pt-4">
               <label className="flex items-center justify-between gap-4 text-sm">
                 <span>
+                  日程深度确认
+                  <span className="ml-2 text-xs text-slate-400">
+                    检出日程候选后把截图发视觉模型二次确认，更准；注意此时<b>截图会上传云端</b>、额外耗积分
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSenseVlmConfirm}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    setSettings({ ...settings, screenSenseVlmConfirm: next })
+                    await api.saveSettings({ screenSenseVlmConfirm: next })
+                    flash(next ? '已开启日程深度确认（截图上云）' : '已关闭深度确认（仅文字上云）')
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="border-t border-slate-100 pt-4">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
                   持续监控（自动）
                   <span className="ml-2 text-xs text-slate-400">屏幕变化时自动识别，无需手动扫描</span>
                 </span>
@@ -698,6 +716,36 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         )}
         {cat === '数据' && (
           <>
+      <Section title="数据导出">
+        <p className="mb-3 text-xs leading-5 text-slate-400">
+          导出指定时间范围内的工作记录、日报、应用使用时长与屏幕识别历史为 JSON 文件。
+        </p>
+        <div className="flex items-center gap-2 text-sm">
+          <input
+            type="date"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+            value={exportFrom}
+            onChange={(e) => setExportFrom(e.target.value)}
+          />
+          <span className="text-slate-400">至</span>
+          <input
+            type="date"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+            value={exportTo}
+            onChange={(e) => setExportTo(e.target.value)}
+          />
+          <button
+            className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-50"
+            disabled={!exportFrom || !exportTo || exportFrom > exportTo}
+            onClick={async () => {
+              const ok = await api.exportRange(exportFrom, exportTo)
+              if (ok) flash('已导出')
+            }}
+          >
+            导出 JSON
+          </button>
+        </div>
+      </Section>
       <Section title="数据管理">
         <p className="mb-3 text-xs leading-5 text-slate-400">
           所有数据仅保存在本机（用户目录下的 SQLite 数据库），不会自动上传。提交解析时，所选内容会发送至 纸壳助手 云端解析服务。

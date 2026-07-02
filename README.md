@@ -13,7 +13,10 @@
 - AI 解析 + 归属判断 + 语义查重；助手对话式确认。
 - 日程 / 时间轴 / 记忆 / 个人 / 设置 五个界面 + 右下角悬浮助手。
 - **账号体系 + 托管解析网关 + 积分计费 + 充值收款**（"数据库即后端"，密钥只在服务端）。
-- **屏幕感知管线**：本地只做截图/pHash 去重/OCR，判断统一走**云端解析**（只传文字）；命中先进「记忆」历史，仅强信号主动弹精简卡。默认关（opt-in，消耗积分）。
+- **屏幕感知管线**：本地只做截图/pHash 去重/OCR/脱敏，判断统一走**云端解析**（只传脱敏后文字）；命中先进「记忆」历史，仅强信号主动弹精简卡。默认关（opt-in，消耗积分）。可选「日程深度确认」二段式视觉复核（截图上云，opt-in）。
+- **工作记录与日报**：识别调用顺带记录「在做什么」（时段聚合展示）+ 任务专注时长（模型归并、可人工校正）+ 应用使用时长；一键/每日定时生成工作日报，支持导出。
+- **个人记忆**：基本画像（手动维护）+ 近期行为画像（AI 归纳），注入解析/助手 prompt，越用越懂用户。
+- **隐私强化**：OCR 文字上云前敏感脱敏（API key/私钥/证件/卡号值打码，模式参考 gitleaks/detect-secrets/Presidio）；数据可按时间范围导出 JSON。
 
 **已部署/已配置：**
 - Supabase 项目 `rtgypddrknuylecqejmp`：库表、RLS、注册触发器、积分 RPC 全部就绪。
@@ -114,11 +117,17 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
                                   ↓
    [自动] pHash 变化门:这帧和上帧几乎一样 → 跳过，不 OCR
                                   ↓
+   [自动] 键鼠闲置 ≥2 分钟（人不在电脑前）→ 整轮跳过，不截图不统计
+                                  ↓
        本地 OCR（macOS Vision，离线免费）→ 文字（聊天界面前置「谁说的」转写）
+                                  ↓
+       敏感脱敏 redactSensitive：API key/私钥/JWT/证件/卡号值打码后才可出设备
                                   ↓
    [自动] 文本去重 + 内容冷却(同内容 10 分钟一次)
                                   ↓
-       云端解析 parseToItems(只传 OCR 文字、扣分) → 全部候选（多任务）
+       云端解析（只传脱敏文字、扣分）→ 待办候选（多任务）+ work_summary/focus_task 便车
+                                  ↓
+   [可选] 日程深度确认：检出带时间候选 → 当帧截图裁前景发视觉模型逐项复核（截图上云，opt-in）
                                   ↓
                  命中 → 写入「记忆」历史(detections 表，被动留存)
                                   ↓
@@ -128,12 +137,20 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 ```
 
 - **云端解析**：`HINTS.screen_scan` 提示词负责去噪（菜单/侧栏文字）、旧消息过滤（非今天发送的聊天不提取）、「A 至 B」截止语义；多任务一次全部返回，卡片逐张确认。
+- **工作记录便车**：同一次识别调用顺带返回 `work_summary`（在做什么一句话）与 `focus_task`（任务级标签），零额外积分；无信息量画面（随意浏览文件夹/刷聊天社交/娱乐）返回 null 不记录；1 分钟节流 + 同活动去重，展示端按时段聚合（`groupWorkPeriods`）。
+- **深度确认（opt-in）**：文字层检出「有具体时间且非明确他人」的候选时，当帧截图裁前景发视觉模型逐项复核，以视觉结果为准（空=文字层假阳性丢弃）。注意此路径截图会上云，且文字层的无时间弱候选会被替换掉。
 - **全屏感知**：不按进程白名单过滤前台 App（进程门不可靠），只保留排除名单(隐私)与「不扫自己」两道门。
 - **零静默**：不点「同意」绝不写日程/待确认；手动扫描无命中时明确提示「未发现可添加的日程」。
 - **桌宠联动**：扫描/解析中桌宠显示 Siri 式旋转光环替代加载卡（`pet/`），桌宠不可见时退回加载卡。
 - **完全被动模式**：设置里关掉「检测到日程时弹窗提醒」→ 只进历史、不弹窗。
 
-### 4. 归属判断（"哪些是你的事"）
+### 4. 工作日报与个人记忆（`report.ts` / `report-scheduler.ts` / `personal-memory.ts` / `shared/work-report.ts`）
+
+- **工作记录 → 日报**：当日工作记录（时段聚合）+ 应用使用时长 + 任务完成情况 → 云端撰写 Markdown 日报（今日概览/主要工作/完成事项/时间分配/明日计划）；`dailyReportTime` 设置可每日定时自动生成并系统通知。
+- **任务专注**：`focus_task` 由模型归并（prompt 注入「已知任务列表」保持命名稳定），`focusDurations()` 按连续段本地累计时长；日报页可添加自定义任务名（进模型候选）/删除（隐藏并剔出候选），形成人工校正闭环（`focus_tasks` 表）。
+- **个人记忆两段式**：基本画像（用户身份的长期定义，手动维护）+ 近期行为画像（AI 从近 14 天活动归纳，可刷新/编辑）；`personalMemoryText()` 拼接注入解析与助手系统提示词。
+
+### 5. 归属判断（"哪些是你的事"）
 
 模型按规则给每个事项 `belongs_to_user`（yes/no/uncertain）+ 置信度 + `suggested_action`；`shared/suggest.ts` 的 `pickBest` 过滤掉"不是你的"、置信度 < 0.4 不出建议（宁漏勿误）。用户把任务改判为"不是我的"时，`belonging-learn.ts` 从中沉淀个人归属词典。
 
@@ -150,6 +167,11 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 | `sources` | 捕获来源原文 + 全文检索（`sources_fts`，trigram/FTS5，退化 LIKE） |
 | `tasks` | 任务（七种状态 + 归属 + 时间 + 来源引用） |
 | `detections` | 屏幕感知本地检测历史（new/accepted/dismissed，上限 300 条） |
+| `work_records` | 工作记录：在做什么 + 任务标签（上限 5000 条） |
+| `app_usage` | 前台应用使用时长（按天累计，只存名称+秒数，排除自身） |
+| `reports` | AI 生成的工作日报（Markdown） |
+| `personal_memory` | 个人画像单行表（base=基本画像 / content=近期画像） |
+| `focus_tasks` | 任务专注的自定义/隐藏偏好（校正模型归并） |
 
 ### 托管 Postgres（Supabase，`server/db/schema.sql`）
 
@@ -168,24 +190,29 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 
 ## 六、界面
 
-侧边栏导航：**日程 / 时间轴 / 记忆 / 个人 / 设置**，右下角常驻**悬浮助手**。
+侧边栏导航：**今日 / 日程 / 日报 / 记忆 / 个人 / 设置**，右下角常驻**悬浮助手**。首次运行有三步引导（`Welcome.tsx`）。
 
-- **日程 `Schedule.tsx`**：今日/本周/全部视图；勾选完成有淡出收拢动画；待确认横幅、空态引导。
-- **时间轴 `Timeline.tsx`**：天/周/月，倒计时卡，已结束折叠。
-- **记忆 `Memory.tsx`**：可搜索历史来源 + **屏幕识别历史**（逐条同意/忽略）。
+- **今日 `Home.tsx`**：主界面：今日概览四指标、24h 时段热力、最近工作记录、扫描/日报快捷入口。
+- **日程 `Schedule.tsx`**：列表/时间轴双视图。列表：今日/近三天/本周/全部筛选、勾选完成动画、待确认横幅、空态引导；时间轴（`Timeline.tsx`，原独立页并入）：天/周/月分组、倒计时卡、已结束折叠。
+- **日报 `Reports.tsx`**：工作记录时间线（限高滚动 + 小时锚点跳转）、应用使用时长、任务专注（可增删校正）、生成/回看/导出工作日报。
+- **记忆 `Memory.tsx`**：三 tab——活动（按天时段流水）/ 个人记忆（基本+近期两段画像，可编辑刷新）/ 历史（来源检索 + 屏幕识别历史逐条同意/忽略）。
 - **个人 `Account.tsx`**：账户登录 + 用户档案。
 - **设置 `Settings.tsx`**：确认模式、快捷键、系统集成、飞书、屏幕感知（含弹窗开关）、权限、数据管理。
 - **悬浮助手 `FloatingAssistant.tsx` + `AssistantChat.tsx`**：Notion 式右下角对话，点外部关闭。
 - **预览卡 `PreviewCard.tsx`**：独立无边框窗（右下角），右侧滑入/滑出；剪贴板预览 / 解析结果 / 屏幕检测「检测到日程」三态。
 
-界面层动效统一在 `styles.css`（缓动 `cubic-bezier(.2,.8,.2,1)`）：页面淡入淡出、卡片滑动、任务完成收拢、列表错位进场。
+- 共享小组件在 `components/ui.tsx`：Section 卡片区块 / Segmented 分段切换 / DayNav 日期翻页 / BarRow 占比条——重复样式模式只改这一处。
+
+界面层动效统一在 `styles.css`（缓动 `cubic-bezier(.2,.8,.2,1)`）：页面淡入淡出、卡片滑动、任务完成收拢、列表错位进场。主题品牌色 token（`--color-brand` 暖橙，取自 logo）也在 `styles.css`，深色覆盖见 `theme.css`。
 
 ---
 
 ## 七、隐私
 
 - 本地数据只在本机：`<userData>/eshell.db`，不自动上传。
-- 屏幕原图**用完即弃**（OCR 后立即删）；屏幕静止/内容未变/冷却期内连云都不上；只上传 OCR **文字**，不上传截图。
+- 屏幕原图**用完即弃**（OCR 后立即删）；屏幕静止/内容未变/冷却期内/人不在电脑前连云都不上；默认只上传 OCR **文字**（且已脱敏），仅「日程深度确认」开启时上传当帧前景裁剪图。
+- 上云前脱敏（`shared/sensitive.ts`）：API key/私钥/JWT/身份证/银行卡/密码值替换为 `[已隐去·类型]` 占位符（模式参考 gitleaks / detect-secrets / Presidio；手机号不打码——常是任务必要联系信息）。
+- 设置 → 数据 可按时间范围导出工作记录/日报/应用时长/检测历史为 JSON。
 - 排除名单 App 在前台时连截图都不做。
 - 截图持久化默认**关**（opt-in）：开启才存**加密缩略图**（系统钥匙串）+ 保留期到期自动清，原图始终不留。
 - macOS 录屏指示器为系统强制行为，无法关闭。
@@ -203,7 +230,8 @@ src/
     ipc.ts               所有 IPC handler
     db.ts                SQLite（档案/设置/来源/任务/检测/FTS）
     capture.ts           剪贴板/截图/文件捕获、待提交项
-    screenwatch.ts       屏幕感知管线（pHash 门/去重冷却/云端解析/detections/卡片队列）
+    screenwatch.ts       屏幕感知管线（pHash 门/脱敏/去重冷却/云端解析/深度确认/detections/卡片队列）
+    report.ts report-scheduler.ts personal-memory.ts   工作日报生成/每日定时/个人画像归纳
     pet/                 桌宠窗口（静态品牌标 + Siri 式扫描光环，移植自 openpets）
     ocr.ts               macOS Vision 本地 OCR（内嵌 Swift）
     parser.ts            解析：托管网关 / BYOK 回退、按 action 选路
@@ -217,11 +245,11 @@ src/
     App.tsx              外壳 + 导航 + 悬浮助手
     api.ts               IPC 客户端封装
     supabase.ts          Supabase 客户端 + functionsBase
-    pages/               Schedule / Timeline / Memory / Account / Settings / PreviewCard / Onboarding / ScreenPermissionGate
-    components/          FloatingAssistant / AssistantChat / AccountSection / RechargePanel / 各种 Modal …
+    pages/               Home / Schedule(含 Timeline 视图) / Reports / Memory / Account / Settings / PreviewCard / Welcome / Onboarding / ScreenPermissionGate
+    components/          ui.tsx(共享小组件) / FloatingAssistant / AssistantChat / AccountSection / RechargePanel / 各种 Modal …
     styles.css           设计 token + 动效
   shared/                主进程与渲染层共享（纯函数为主）
-    types.ts parsing.ts ipc-channels.ts suggest.ts
+    types.ts parsing.ts ipc-channels.ts suggest.ts work-report.ts sensitive.ts
     phash.ts chat-layout.ts belonging-hints.ts belonging-learn.ts fts-query.ts
     ics.ts daily-brief.ts app-exclude.ts safe-path.ts shot-retention.ts task-filters.ts
 server/                  与具体 DB 解耦的纯逻辑（Edge Function import）
@@ -303,3 +331,5 @@ CI（`.github/workflows/ci.yml`）：PR 与 push 到 main 跑 `Typecheck & Build
 - 检测必须联网 + 登录（或 BYOK）：每次「屏幕出现新内容且冷却过期」消耗一次积分，pHash 门/文本去重/10 分钟冷却/App 排除名单是成本挡板；未登录时监控静默暂停。
 - 检测响应为云端往返（数秒），手动扫描期间以桌宠光环/加载卡示意。
 - 任务证据缩略图为整屏截图（不再逐行裁剪「依据行」）。
+- 深度确认开启时以视觉结果为准：文字层检出的无时间弱候选会被替换掉、不进历史。
+- 任务专注标签只覆盖功能启用后的新工作记录；存量记录无 task 标签不参与专注统计。

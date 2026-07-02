@@ -14,6 +14,7 @@ import {
   getProfile,
   getSettings,
   getSource,
+  listFocusTaskCandidates,
   setDetectionStatus,
   findDuplicateTitle
 } from './db'
@@ -26,10 +27,11 @@ import { getFrontmostApp } from './frontapp'
 import { saveShotTempFromPng, finalizeShot, deleteShot, listShotIds, sweepTempShots } from './shotvault'
 import { getSession } from './session'
 import { isAppExcluded } from '@shared/app-exclude'
+import { redactSensitive } from '@shared/sensitive'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox } from '@shared/chat-layout'
 import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
-import { parseWorkSummary, type AddedInfo, type ParsedItem } from '@shared/parsing'
+import { parseFocusTask, parseWorkSummary, type AddedInfo, type ParsedItem } from '@shared/parsing'
 import type { LocalExtraction, ParseSummary, ScanResult, TaskStatus } from '@shared/types'
 
 function emptySummary(error: string | null): ParseSummary {
@@ -41,39 +43,106 @@ interface DetectHit {
   item: ParsedItem
 }
 
-// 工作记录搭同一次识别调用的便车：让模型在 items 之外多回一个顶层 work_summary 字段
-const WORK_SUMMARY_HINT =
-  '另外，在返回的 JSON 中额外加一个顶层字段 "work_summary"：用一句不超过 40 字的中文客观描述屏幕上正在进行的主要活动（如「在 VS Code 中编辑项目代码」「在浏览器查阅 Python 文档」）；无法判断时填 null。'
+// 工作记录搭同一次识别调用的便车：让模型在 items 之外多回 work_summary + focus_task 两个顶层字段
+function workSummaryHint(prevSummary: string, taskCandidates: string[]): string {
+  const cand = taskCandidates.length ? `已知任务列表：${taskCandidates.join('、')}。` : ''
+  const base =
+    '另外，在返回的 JSON 中额外加两个顶层字段：' +
+    '① "work_summary"：一句不超过 40 字的中文，客观描述屏幕上正在进行的**工作/学习活动**（如「在 VS Code 中编辑项目代码」）。与工作学习无关或信息量极低的画面（随意浏览文件夹、刷聊天/社交消息、系统设置页、视频娱乐等）填 null，不要硬凑。' +
+    `② "focus_task"：该活动归属的任务名——任务级、粗粒度、名称稳定（如「开发纸壳助手」「撰写博资考 PPT」）。${cand}优先复用已知任务名，确实是新任务再起新名；work_summary 为 null 时它也为 null。`
+  // 传入上一条描述：同一活动持续中 → 原样返回同一句，让相邻记录能聚合成时段（避免措辞漂移拆成多段）
+  return prevSummary
+    ? `${base}\n若当前活动与上一条描述「${prevSummary}」本质相同，work_summary 请原样返回完全一致的字符串。`
+    : base
+}
+
+const FG_X_CUT = 0.18 // 裁前景图：去左侧栏/会话列表
+const FG_Y_TOP = 0.025 // 去顶部菜单栏
+
+/** 裁前景截图(去左侧栏/菜单栏)成 JPEG dataURL（供 VLM 二次确认）；失败返回 null。 */
+function cropForegroundDataUrl(png: string): string | null {
+  try {
+    const img = nativeImage.createFromPath(png)
+    const { width, height } = img.getSize()
+    if (!width || !height) return null
+    const x = Math.round(width * FG_X_CUT)
+    const y = Math.round(height * FG_Y_TOP)
+    const cropped = img.crop({ x, y, width: width - x, height: height - y })
+    const sized = cropped.getSize().width > 2000 ? cropped.resize({ width: 2000 }) : cropped
+    return `data:image/jpeg;base64,${sized.toJPEG(72).toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
+/** 一个候选是否「值得花一次视觉确认」：解出了具体时间、且不是明确别人的事。 */
+function isScheduleCandidate(h: DetectHit): boolean {
+  return h.extraction.strong && h.item.belongs_to_user !== 'no'
+}
 
 interface DetectResult {
   hits: DetectHit[]
   /** 「在做什么」一句话（工作记录开关关/模型没给时为 null） */
   workSummary: string | null
+  /** 任务级标签（专注时长归并用） */
+  focusTask: string | null
+  /** 是否经过视觉模型二次确认 */
+  confirmed: boolean
 }
 
-/** OCR 文字 → 云端解析 → **全部候选**（多任务）+ 顺带的工作记录总结。只上传文字，不上传截图。 */
-async function detectAll(text: string, wantWorkLog: boolean): Promise<DetectResult> {
-  const hint = wantWorkLog ? `${HINTS.screen_scan}\n${WORK_SUMMARY_HINT}` : HINTS.screen_scan
+/**
+ * 二段式检测：① OCR 文字上云解析出全部候选（+顺带工作记录总结，只传文字）；
+ * ② 若开启视觉确认且出现「值得确认」的日程候选，把当帧截图裁前景发视觉模型深度确认，
+ *    以视觉结果为准（空=文字层假阳性，丢弃）。png 为 null（如手动无图路径）时跳过②。
+ */
+async function detectAll(
+  text: string,
+  wantWorkLog: boolean,
+  png: string | null,
+  wantVlmConfirm: boolean
+): Promise<DetectResult> {
+  const hint = wantWorkLog
+    ? `${HINTS.screen_scan}\n${workSummaryHint(lastWorkRecordContent, listFocusTaskCandidates())}`
+    : HINTS.screen_scan
   const { items, raw } = await parseToItemsRaw({ text, hint })
-  return {
-    hits: items.map((it) => ({ extraction: parsedToExtraction(it), item: it })),
-    workSummary: wantWorkLog ? parseWorkSummary(raw) : null
+  const workSummary = wantWorkLog ? parseWorkSummary(raw) : null
+  const focusTask = wantWorkLog ? parseFocusTask(raw) : null
+  let hits = items.map((it) => ({ extraction: parsedToExtraction(it), item: it }))
+
+  if (wantVlmConfirm && png && hits.some(isScheduleCandidate)) {
+    const imageDataUrl = cropForegroundDataUrl(png)
+    if (imageDataUrl) {
+      try {
+        const t0 = Date.now()
+        const { items: refined } = await parseToItemsRaw({ imageDataUrl, hint: HINTS.screen_scan_confirm })
+        debugEvent('cloud', `视觉确认耗时 ${Date.now() - t0}ms：${refined.length} 项`)
+        return {
+          hits: refined.map((it) => ({ extraction: parsedToExtraction(it), item: it })),
+          workSummary,
+          focusTask,
+          confirmed: true
+        }
+      } catch {
+        // 视觉确认失败（网络/额度）→ 回退文字层候选，不阻断
+      }
+    }
   }
+  return { hits, workSummary, focusTask, confirmed: false }
 }
 
 // 工作记录节流：同一活动持续中不重复记；不同活动也至少间隔 1 分钟，防打字每帧都记
 const WORK_RECORD_MIN_GAP_MS = 60 * 1000
 let lastWorkRecordAt = 0
 let lastWorkRecordContent = ''
-function maybeAddWorkRecord(summary: string | null, frontApp: string | null): void {
+function maybeAddWorkRecord(summary: string | null, task: string | null, frontApp: string | null): void {
   if (!summary) return
   const now = Date.now()
   if (summary === lastWorkRecordContent) return
   if (now - lastWorkRecordAt < WORK_RECORD_MIN_GAP_MS) return
   lastWorkRecordAt = now
   lastWorkRecordContent = summary
-  addWorkRecord({ content: summary, app: frontApp })
-  debugEvent('record', `工作记录：${summary}`)
+  addWorkRecord({ content: summary, app: frontApp, task })
+  debugEvent('record', `工作记录：${summary}${task ? `（任务：${task}）` : ''}`)
 }
 
 /** 云端 ParsedItem → LocalExtraction（供 addDetection / 卡片显示）。 */
@@ -157,12 +226,15 @@ export async function scanOnce(): Promise<ScanResult> {
     }
     debugShot(png)
 
-    const { screenSenseKeepShots, screenSenseWorkLog } = getSettings()
-    // png 保留到 OCR/存证之后再删，故包一层 try/finally
+    const { screenSenseKeepShots, screenSenseWorkLog, screenSenseVlmConfirm } = getSettings()
+    // png 保留到 OCR/确认/存证之后再删，故包一层 try/finally
     try {
       const boxes = await ocrImageDetailed(png)
-      const text = buildOcrText(boxes)
+      // 上云前脱敏：证件/卡号/密钥类的值打码（后续存历史/查重/上云统一用打码后文本）
+      const red = redactSensitive(buildOcrText(boxes))
+      const text = red.text
       debugEvent('ocr', text ? `OCR 完成：${text.length} 字` : 'OCR 未识别到文字')
+      if (red.hits.length) debugEvent('ocr', `已脱敏：${red.hits.join('、')}`)
       if (!text) {
         showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
         return { status: 'empty', message: '屏幕上没有识别到文字' }
@@ -170,9 +242,9 @@ export async function scanOnce(): Promise<ScanResult> {
       debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
 
       const t0 = Date.now()
-      const { hits, workSummary } = await detectAll(text, screenSenseWorkLog)
+      const { hits, workSummary, focusTask } = await detectAll(text, screenSenseWorkLog, png, screenSenseVlmConfirm)
       debugEvent('timing', `云端解析耗时 ${Date.now() - t0}ms`)
-      maybeAddWorkRecord(workSummary, null)
+      maybeAddWorkRecord(workSummary, focusTask, null)
       if (!hits.length) {
         debugEvent('detect', '云端未发现明确待办')
         showPreview({ error: '未发现可添加的日程' }) // 灰色提示卡，3s 自动消失
@@ -406,6 +478,7 @@ async function watchTick(): Promise<void> {
       screenSenseKeepShots,
       screenSensePopup,
       screenSenseWorkLog,
+      screenSenseVlmConfirm,
       screenSenseIntervalSec
     } = getSettings()
     // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控纸壳助手自己。全屏感知，不再按进程名单过滤。
@@ -439,12 +512,15 @@ async function watchTick(): Promise<void> {
 
     debugEvent('ocr', '本地 OCR 识别中…')
     const boxes = await ocrImageDetailed(png)
-    const text = buildOcrText(boxes)
+    // 上云前脱敏：证件/卡号/密钥类的值打码（后续存历史/查重/上云统一用打码后文本）
+    const red = redactSensitive(buildOcrText(boxes))
+    const text = red.text
     if (!text) {
       debugEvent('ocr', 'OCR 未识别到文字')
       return
     }
     debugEvent('ocr', `OCR 完成：${text.length} 字`)
+    if (red.hits.length) debugEvent('ocr', `已脱敏：${red.hits.join('、')}`)
     const th = textHash(text)
     if (th === lastTextHash) return // 文本没变 → 静默跳过
     lastTextHash = th
@@ -460,8 +536,8 @@ async function watchTick(): Promise<void> {
     cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
 
     // 云端解析 → 全部候选（多任务）+ 顺带的工作记录
-    const { hits, workSummary } = await detectAll(text, screenSenseWorkLog)
-    maybeAddWorkRecord(workSummary, frontApp)
+    const { hits, workSummary, focusTask } = await detectAll(text, screenSenseWorkLog, png, screenSenseVlmConfirm)
+    maybeAddWorkRecord(workSummary, focusTask, frontApp)
     if (!hits.length) {
       debugEvent('detect', '云端未发现明确待办')
       return

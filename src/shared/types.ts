@@ -149,6 +149,8 @@ export interface AppSettings {
   screenSensePopup: boolean
   /** 工作记录：屏幕识别时顺带记录「在做什么」（同一次云端调用，零额外成本）。默认 true */
   screenSenseWorkLog: boolean
+  /** 日程深度确认：文字检出日程候选后，把截图发视觉模型二次确认（更准，但**截图会上云**）。默认 false */
+  screenSenseVlmConfirm: boolean
   /** 每日定时自动生成日报的时间（HH:mm）；空 = 不自动生成。默认空 */
   dailyReportTime: string
   /** 检测卡/AI 建议卡闲置自动隐藏秒数；0=不自动隐藏（一直挂着）。默认 60 */
@@ -175,6 +177,8 @@ export interface WorkRecord {
   content: string
   /** 记录时的前台应用；手动扫描等场景为 null */
   app: string | null
+  /** 任务级标签（模型归并，如「开发纸壳助手」）；无法归属为 null */
+  task: string | null
   createdAt: string
 }
 

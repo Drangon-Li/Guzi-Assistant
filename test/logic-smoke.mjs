@@ -1,7 +1,7 @@
 // 纯函数回归测试：时间规整 normalizeTime（经 normalizeItem）+ 敏感检测 detectSensitive
 // 锁住 QA 2026-06-12 报告 §4 / §12 修复，纯函数无需 API。运行：npm run test:logic
 import { normalizeItem } from '../src/shared/parsing.ts'
-import { detectSensitive } from '../src/main/sensitive.ts'
+import { detectSensitive } from '../src/shared/sensitive.ts'
 
 let failed = 0
 function check(name, ok) {

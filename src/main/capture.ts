@@ -6,7 +6,7 @@ import { basename, extname, join } from 'path'
 import { randomUUID } from 'crypto'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
-import { detectSensitive } from './sensitive'
+import { detectSensitive, redactSensitive } from '@shared/sensitive'
 import { createSource, createTask, deleteSourceRow, findDuplicateTitle, getProfile } from './db'
 import { parseToItems, type ParsedItem } from './parser'
 import { broadcast, showPreview } from './windows'
@@ -194,7 +194,9 @@ export const HINTS: Record<string, string> = {
   text_input: '以下是用户粘贴/输入的文本，请提取其中的行动项。',
   feishu: '以下是用户从飞书转发给 纸壳助手 机器人的消息（通常是群通知、聊天记录或截图），请提取其中的行动项。',
   screen_scan:
-    '以下是从用户屏幕上 OCR 识别出的文字，可能混有菜单、按钮、侧边栏等无关界面文字。请只提取明确的、与用户本人相关的行动项。聊天里的随口建议/讨论/疑问、纯历史新闻、已读回执都不是待办；聊天记录里非今天发送的旧消息大概率已处理，不要提取。"选课/报名 时间：A 至 B"是"在 B 之前完成"的截止任务：due_time 填结束日 B、start_time 留 null。信息不足或无法确认时不要硬凑，宁可一个都不提取。'
+    '以下是从用户屏幕上 OCR 识别出的文字，可能混有菜单、按钮、侧边栏等无关界面文字。请只提取明确的、与用户本人相关的行动项。聊天里的随口建议/讨论/疑问、纯历史新闻、已读回执都不是待办；聊天记录里非今天发送的旧消息大概率已处理，不要提取。"选课/报名 时间：A 至 B"是"在 B 之前完成"的截止任务：due_time 填结束日 B、start_time 留 null。信息不足或无法确认时不要硬凑，宁可一个都不提取。',
+  screen_scan_confirm:
+    '这是用户屏幕的截图，文字层已初步识别出疑似日程。请结合画面版面**审慎确认**：仔细看清是否真的是一件需要用户本人去做/参加的日程（有明确时间、且点名或明确涉及用户），排除仅是聊天里的随口讨论、他人的安排、广告通知、已读的历史消息。逐项思考后，只输出你确认成立的行动项；一个都不成立时输出空列表。时间就近解析为具体日期，"X 前完成"填 due_time，会议/考试填 start_time。'
 }
 
 function createTasksFromItems(
@@ -260,7 +262,12 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
       filePath: payload.filePath ?? null
     })
 
-    const items = await parseToItems({ text, imageDataUrl, hint: HINTS[payload.type] ?? HINTS.text_input })
+    // 上云前脱敏（本地存档保留原文——用户主动提交的内容自己可见，出设备的才打码）
+    const items = await parseToItems({
+      text: text ? redactSensitive(text).text : text,
+      imageDataUrl,
+      hint: HINTS[payload.type] ?? HINTS.text_input
+    })
     const { related, autoAdded, duplicates } = createTasksFromItems(source.id, items)
     // 没有任何任务引用的来源在 UI 上不可见也删不掉，不留库
     if (related === 0) deleteSourceRow(source.id)
