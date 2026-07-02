@@ -1,9 +1,7 @@
 import type {
   AppSettings,
   AppUsageEntry,
-  DetectionRecord,
   FeishuStatus,
-  MemoryHit,
   ParseSummary,
   PendingCapture,
   PermissionStatus,
@@ -58,7 +56,6 @@ export const api = {
 
   getSource: (id: string) => inv<SourceRecord | null>('source:get', id),
   deleteSource: (id: string) => inv<void>('source:delete', id),
-  searchMemory: (query: string) => inv<MemoryHit[]>('memory:search', query),
   readShot: (id: string) => inv<string | null>('memory:read-shot', id),
   wipeMemory: () => inv<void>('memory:wipe'),
 
@@ -74,8 +71,6 @@ export const api = {
     inv<AddedInfo>('suggestion:accept', payload),
   acceptLocal: (payload: { item: ParsedItem; sourceText: string; detectionId?: string }) =>
     inv<AddedInfo>('suggestion:accept-local', payload),
-  listDetections: () => inv<DetectionRecord[]>('detections:list'),
-  acceptDetection: (id: string) => inv<AddedInfo | null>('detections:accept', id),
   dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
 
   listWorkRecords: (day: string) => inv<WorkRecord[]>('work-records:list', day),

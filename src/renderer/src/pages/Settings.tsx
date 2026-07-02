@@ -189,6 +189,18 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     window.location.reload()
   }
 
+  // 原记忆页的「清空所有记忆」，随记忆页拆解移入数据管理
+  const wipeMemory = async (): Promise<void> => {
+    if (
+      !window.confirm(
+        '将清空活动记录、个人记忆、来源历史与屏幕识别历史，无法恢复。任务、日报与个人档案不受影响。确定清空？'
+      )
+    )
+      return
+    await api.wipeMemory()
+    window.location.reload()
+  }
+
   return (
     <div className="mx-auto flex max-w-4xl gap-6 px-8 py-8">
       <nav className="flex w-28 shrink-0 flex-col gap-1 pt-0.5">
@@ -351,7 +363,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             <div>
               <div>访达右键快速操作</div>
               <div className="mt-0.5 text-xs leading-5 text-slate-400">
-                安装后在访达中选中文件 → 右键 → 快速操作 → 「发送到 纸壳助手」，文件会直接进入解析流程（应用未运行时会在下次启动时补处理）。
+                安装后在访达中选中文件 → 右键 → 快速操作 → 「发送到 谷子助手」，文件会直接进入解析流程（应用未运行时会在下次启动时补处理）。
               </div>
             </div>
             <button
@@ -372,7 +384,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           <div>
             <div>托盘拖拽</div>
             <div className="mt-0.5 text-xs leading-5 text-slate-400">
-              把文件直接拖到菜单栏的 纸壳助手 图标上即可提交解析，无需安装。
+              把文件直接拖到菜单栏的 谷子助手 图标上即可提交解析，无需安装。
             </div>
           </div>
         </div>
@@ -451,7 +463,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           <>
       <Section title="屏幕感知（持续被动采集）">
         <p className="mb-3 text-xs leading-5 text-slate-400">
-          纸壳助手在本机持续感知屏幕上的文字，命中关键词时把文字（非截图）送解析，自动沉淀为记忆与待办建议——
+          谷子助手在本机持续感知屏幕上的文字，命中关键词时把文字（非截图）送解析，自动沉淀为记忆与待办建议——
           被动采集是产品核心，默认开启。截图用完即弃、不保存、不上传，可在下方排除敏感应用。注意：macOS
           会在采集时显示系统录制指示器，这是系统强制行为、无法关闭。首次使用会自动编译本地 OCR 组件（需 Xcode
           命令行工具）。
@@ -615,7 +627,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     <span className="text-xs text-slate-400">秒</span>
                   </label>
                   <p className="text-xs leading-5 text-slate-400">
-                    屏幕静止时不触发识别与上云；可在菜单栏 纸壳助手 图标随时「暂停屏幕监控」。macOS
+                    屏幕静止时不触发识别与上云；可在菜单栏 谷子助手 图标随时「暂停屏幕监控」。macOS
                     会持续显示系统录制指示器（无法关闭）。
                   </p>
                   <label className="mt-1 flex flex-col gap-1 text-sm">
@@ -685,7 +697,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
             {perms && perms.screen !== 'granted' && (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
-                屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 纸壳助手。
+                屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 谷子助手。
               </div>
             )}
           </div>
@@ -748,14 +760,22 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
       <Section title="数据管理">
         <p className="mb-3 text-xs leading-5 text-slate-400">
-          所有数据仅保存在本机（用户目录下的 SQLite 数据库），不会自动上传。提交解析时，所选内容会发送至 纸壳助手 云端解析服务。
+          所有数据仅保存在本机（用户目录下的 SQLite 数据库），不会自动上传。提交解析时，所选内容会发送至 谷子助手 云端解析服务。
         </p>
-        <button
-          className="rounded-lg border border-red-200 px-4 py-1.5 text-xs text-red-600 hover:bg-red-50"
-          onClick={() => void wipe()}
-        >
-          清除全部数据
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="rounded-lg border border-slate-300 px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+            onClick={() => void wipeMemory()}
+          >
+            清空所有记忆
+          </button>
+          <button
+            className="rounded-lg border border-red-200 px-4 py-1.5 text-xs text-red-600 hover:bg-red-50"
+            onClick={() => void wipe()}
+          >
+            清除全部数据
+          </button>
+        </div>
       </Section>
           </>
         )}

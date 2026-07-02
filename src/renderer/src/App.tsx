@@ -8,7 +8,6 @@ import Welcome from './pages/Welcome'
 import ScreenPermissionGate from './pages/ScreenPermissionGate'
 import FloatingAssistant from './components/FloatingAssistant'
 import Schedule from './pages/Schedule'
-import Memory from './pages/Memory'
 import Reports from './pages/Reports'
 import Home from './pages/Home'
 import Account from './pages/Account'
@@ -17,17 +16,15 @@ import PreviewCard from './pages/PreviewCard'
 import Debug from './pages/Debug'
 import PetChat from './pages/PetChat'
 import brandMark from './assets/agent-avatar.png'
-import brandWordmark from './assets/brand-wordmark.png'
 
-type Page = 'home' | 'schedule' | 'reports' | 'memory' | 'account' | 'settings'
+type Page = 'home' | 'schedule' | 'reports' | 'account' | 'settings'
 
+// 设置不在主导航里，固定在侧边栏底部
 const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: '今日' },
   { key: 'schedule', label: '日程' },
   { key: 'reports', label: '日报' },
-  { key: 'memory', label: '记忆' },
-  { key: 'account', label: '个人' },
-  { key: 'settings', label: '设置' }
+  { key: 'account', label: '个人' }
 ]
 
 export default function App(): React.JSX.Element {
@@ -90,11 +87,12 @@ function MainApp(): React.JSX.Element | null {
       if (route === 'inbox' || route === 'assistant') setChatOpen(true)
       else if (route === 'timeline')
         setPage('schedule') // 旧路由兼容：时间轴已并入日程页
+      else if (route === 'memory')
+        setPage('account') // 旧路由兼容：记忆页已拆解，个人记忆并入个人页
       else if (
         route === 'home' ||
         route === 'schedule' ||
         route === 'reports' ||
-        route === 'memory' ||
         route === 'account' ||
         route === 'settings'
       )
@@ -179,7 +177,8 @@ function MainApp(): React.JSX.Element | null {
         <div className="px-5 pt-10 pb-4 titlebar-pad">
           <div className="flex items-center gap-2">
             <img src={brandMark} alt="" className="size-7 shrink-0" />
-            <img src={brandWordmark} alt="纸壳助手" className="brand-wordmark h-5 w-auto" />
+            {/* 改名 Gooz：旧字标图是「纸壳助手」字样，先用文字渲染顶替，新字标出图后再换回 */}
+            <span className="text-[17px] font-semibold tracking-wide">谷子助手</span>
           </div>
           <div className="mt-1.5 text-xs text-slate-400">个人事项捕获助手</div>
         </div>
@@ -198,8 +197,20 @@ function MainApp(): React.JSX.Element | null {
             </button>
           ))}
         </nav>
-        <div className="mt-auto px-5 pb-5 text-[11px] leading-5 text-slate-400">
-          复制内容后按 {hotkeyLabel}，快速提交剪切板。
+        <div className="mt-auto flex flex-col gap-2 px-3 pb-5">
+          <button
+            onClick={() => setPage('settings')}
+            className={`flex items-center rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+              page === 'settings'
+                ? 'bg-brand-soft font-medium text-brand'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            设置
+          </button>
+          <div className="px-2 text-[11px] leading-5 text-slate-400">
+            复制内容后按 {hotkeyLabel}，快速提交剪切板。
+          </div>
         </div>
       </aside>
 
@@ -214,7 +225,6 @@ function MainApp(): React.JSX.Element | null {
             />
           )}
           {shownPage === 'reports' && <Reports />}
-          {shownPage === 'memory' && <Memory />}
           {shownPage === 'account' && <Account onProfileChange={setProfile} />}
           {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>
