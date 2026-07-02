@@ -84,7 +84,8 @@ export const api = {
   getPersonalMemory: () => inv<PersonalMemoryDto>('memory:get-personal'),
   setPersonalMemory: (part: 'base' | 'recent', content: string) =>
     inv<PersonalMemoryDto>('memory:set-personal', part, content),
-  refreshPersonalMemory: () => inv<PersonalMemoryDto>('memory:refresh-personal'),
+  refreshPersonalMemory: (part: 'base' | 'recent' = 'recent') =>
+    inv<PersonalMemoryDto>('memory:refresh-personal', part),
   focusTaskPrefs: () => inv<{ name: string; hidden: boolean; custom: boolean }[]>('focus-tasks:prefs'),
   addFocusTask: (name: string) => inv<void>('focus-tasks:add', name),
   hideFocusTask: (name: string) => inv<void>('focus-tasks:hide', name),

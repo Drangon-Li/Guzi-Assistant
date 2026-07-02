@@ -124,6 +124,7 @@ function PersonalTab(): React.JSX.Element {
   const [dirtyBase, setDirtyBase] = useState(false)
   const [dirtyRecent, setDirtyRecent] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [busyBase, setBusyBase] = useState(false)
   const [note, setNote] = useState('')
 
   const flash = (m: string): void => {
@@ -150,7 +151,7 @@ function PersonalTab(): React.JSX.Element {
   const refresh = async (): Promise<void> => {
     setBusy(true)
     try {
-      const m = await api.refreshPersonalMemory()
+      const m = await api.refreshPersonalMemory('recent')
       setRecent(m.recent)
       setUpdatedAt(m.updatedAt)
       setDirtyRecent(false)
@@ -162,21 +163,47 @@ function PersonalTab(): React.JSX.Element {
     }
   }
 
+  const refreshBase = async (): Promise<void> => {
+    setBusyBase(true)
+    try {
+      const m = await api.refreshPersonalMemory('base')
+      setBase(m.base)
+      setUpdatedAt(m.updatedAt)
+      setDirtyBase(false)
+      flash('基本画像已更新')
+    } catch (e) {
+      flash(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyBase(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium">基本画像</h3>
-            <p className="text-xs text-slate-400">你是谁：身份、方向、长期项目与偏好。长期维护，只存本地。</p>
+            <p className="text-xs text-slate-400">
+              你是谁：身份、方向、长期项目与偏好。长期维护，只存本地；AI 总结会在你写的基础上小幅演进。
+            </p>
           </div>
-          <button
-            className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-            onClick={() => void save('base')}
-            disabled={!dirtyBase}
-          >
-            保存
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <button
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              onClick={() => void refreshBase()}
+              disabled={busyBase}
+            >
+              {busyBase ? '正在总结…' : 'AI 总结'}
+            </button>
+            <button
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              onClick={() => void save('base')}
+              disabled={!dirtyBase}
+            >
+              保存
+            </button>
+          </div>
         </div>
         <textarea
           className={`${input} min-h-[120px] resize-y font-mono leading-6`}

@@ -7,12 +7,25 @@ import {
   type PersonalMemory
 } from './db'
 import { callModel } from './parser'
-import { buildPersonalMemoryPrompt, dayKey, groupWorkPeriods, periodLabel } from '@shared/work-report'
+import {
+  buildBaseMemoryPrompt,
+  buildPersonalMemoryPrompt,
+  dayKey,
+  groupWorkPeriods,
+  periodLabel
+} from '@shared/work-report'
+import type { Profile } from '@shared/types'
 
 const LOOKBACK_DAYS = 14
 
-/** 从近 14 天工作记录 + 当前任务归纳个人画像，写入本地并返回。无素材则抛出。 */
-export async function refreshPersonalMemory(): Promise<PersonalMemory> {
+interface Material {
+  profile: Profile
+  activityLines: string[]
+  tasks: string[]
+}
+
+/** 画像素材：档案 + 近 14 天活动（按天/时段聚合）+ 任务标题。 */
+function gatherMaterial(): Material {
   const profile = getProfile()
   if (!profile) throw new Error('尚未完成用户档案设置')
 
@@ -23,10 +36,7 @@ export async function refreshPersonalMemory(): Promise<PersonalMemory> {
     .filter((t) => t.belongsToUser !== 'no' && t.status !== 'ignored')
     .map((t) => t.title)
     .slice(0, 40)
-  if (!records.length && !tasks.length)
-    throw new Error('还没有足够的历史活动，用一段时间后再来生成记忆')
 
-  // 活动按天分组、每天内按时段聚合，喂给模型作画像素材
   const byDay = new Map<string, typeof records>()
   for (const r of records) {
     const d = r.createdAt.slice(0, 10)
@@ -40,14 +50,11 @@ export async function refreshPersonalMemory(): Promise<PersonalMemory> {
       activityLines.push(`${d} ${periodLabel(p)} ${p.app ? `[${p.app}] ` : ''}${p.summary}`)
     }
   }
+  return { profile, activityLines: activityLines.slice(-120), tasks }
+}
 
-  const { instructions, text } = buildPersonalMemoryPrompt(
-    profile.name,
-    activityLines.slice(-120),
-    tasks,
-    getPersonalMemory().recent,
-    getPersonalMemory().base
-  )
+/** 打模型并剥掉偶发的代码块围栏。 */
+async function generate(instructions: string, text: string): Promise<string> {
   const output = await callModel(
     instructions,
     [{ role: 'user', content: [{ type: 'input_text', text }] }],
@@ -58,6 +65,44 @@ export async function refreshPersonalMemory(): Promise<PersonalMemory> {
     .replace(/^```(?:markdown)?\n?/, '')
     .replace(/\n?```$/, '')
     .trim()
-  if (!content) throw new Error('记忆生成失败：模型无输出')
-  return setPersonalMemory('recent', content)
+  if (!content) throw new Error('画像生成失败：模型无输出')
+  return content
+}
+
+/** 刷新近期行为画像：近 14 天活动 + 任务 → 云端归纳「最近在做什么」。 */
+export async function refreshPersonalMemory(): Promise<PersonalMemory> {
+  const { profile, activityLines, tasks } = gatherMaterial()
+  if (!activityLines.length && !tasks.length)
+    throw new Error('还没有足够的历史活动，用一段时间后再来生成')
+  const cur = getPersonalMemory()
+  const { instructions, text } = buildPersonalMemoryPrompt(
+    profile.name,
+    activityLines,
+    tasks,
+    cur.recent,
+    cur.base
+  )
+  return setPersonalMemory('recent', await generate(instructions, text))
+}
+
+/** 刷新基本画像：以档案为主、长期活动模式为辅，小幅演进用户的身份定义（3~6 条）。 */
+export async function refreshBaseMemory(): Promise<PersonalMemory> {
+  const { profile, activityLines, tasks } = gatherMaterial()
+  const profileDesc = [
+    `姓名：${profile.name}`,
+    `身份：${profile.identity}`,
+    profile.org ? `组织/学校/公司：${profile.org}` : '',
+    profile.group ? `班级/课题组/岗位：${profile.group}` : '',
+    profile.workHours ? `工作时间偏好：${profile.workHours}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
+  const { instructions, text } = buildBaseMemoryPrompt(
+    profile.name,
+    profileDesc,
+    activityLines,
+    tasks,
+    getPersonalMemory().base
+  )
+  return setPersonalMemory('base', await generate(instructions, text))
 }

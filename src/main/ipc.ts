@@ -29,7 +29,7 @@ import {
   wipeMemory
 } from './db'
 import { generateDailyReport } from './report'
-import { refreshPersonalMemory } from './personal-memory'
+import { refreshBaseMemory, refreshPersonalMemory } from './personal-memory'
 import { learnNotMine } from '@shared/belonging-learn'
 import {
   cancelPending,
@@ -255,7 +255,9 @@ export function registerIpc(): void {
   ipcMain.handle('memory:set-personal', (_e, part: 'base' | 'recent', content: string) =>
     setPersonalMemory(part === 'base' ? 'base' : 'recent', content)
   )
-  ipcMain.handle('memory:refresh-personal', () => refreshPersonalMemory())
+  ipcMain.handle('memory:refresh-personal', (_e, part?: 'base' | 'recent') =>
+    part === 'base' ? refreshBaseMemory() : refreshPersonalMemory()
+  )
 
   // 任务专注（日报页）：自定义添加 / 删除（隐藏）任务名，用于校正模型归并
   ipcMain.handle('focus-tasks:prefs', () => listFocusTaskPrefs())

@@ -128,6 +128,36 @@ ${taskTitles.join('\n') || '（无）'}`
 }
 
 /**
+ * 基本画像生成 prompt：归纳用户的**长期身份定义**（身份/方向/长期项目/工具习惯）。
+ * 比近期画像更稳定精简；在用户手写内容基础上小幅演进，不覆盖其自我定义。
+ */
+export function buildBaseMemoryPrompt(
+  userName: string,
+  profileDesc: string,
+  activityLines: string[],
+  taskTitles: string[],
+  prevBase: string
+): { instructions: string; text: string } {
+  const instructions = `你在为个人助手维护用户「${userName}」的**基本画像**：TA 是谁——身份/角色、研究或业务方向、长期在做的项目、常用工具与工作习惯。
+要求：
+- 输出 3~6 条要点，每条一句话，以「- 」开头；只写长期稳定的事实，不写近期临时任务（那属于近期画像）
+- 若给了「已有基本画像」，在其基础上**小幅演进**：用户手写的自我定义保留原意，只修订明显过时、补充明显缺失的
+- 只输出画像正文，不要标题、不要代码块围栏、不要多余说明`
+  const text = `# 用户档案
+${profileDesc || '（无）'}
+
+# 已有基本画像
+${prevBase.trim() || '（无，首次生成）'}
+
+# 近期工作活动（推断长期模式的参考）
+${activityLines.join('\n') || '（无）'}
+
+# 近期任务（参考）
+${taskTitles.join('\n') || '（无）'}`
+  return { instructions, text }
+}
+
+/**
  * 任务专注时长：按 task 标签把记录切成连续段（同任务、相邻间隔 ≤gapMinutes），
  * 每段时长 = 末条-首条 + 1 分钟（单条记录也算 1 分钟专注）。返回按累计时长降序。
  */
