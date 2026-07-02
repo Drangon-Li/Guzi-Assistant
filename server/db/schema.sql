@@ -118,7 +118,7 @@ begin
   return jsonb_build_object('ok', true, 'balance', g+p);
 end; $$;
 
--- 开通会员：设月赠额 + 立即激活本月赠送 + 写流水。
+-- 开通会员：设月赠额 + 立即激活本月赠送 + 写流水。（积分制遗留，订阅制上线后不再有新调用）
 create or replace function public.activate_membership(p_user uuid, p_monthly int, p_ref text default null)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare g int; p int;
@@ -130,3 +130,81 @@ begin
   insert into public.credit_ledger(user_id, delta, reason, balance_after, ref_order) values (p_user, p_monthly, 'grant', g+p, p_ref);
   return jsonb_build_object('ok', true, 'balance', g+p);
 end; $$;
+
+-- ═══════════════ 订阅制（积分制 → 订阅制改造）═══════════════
+-- 付费买时长，有效期内使用；每日公平用量上限防刷（用量单位：文本 1 / 含图 2）。
+-- 档位与定价白名单在 src/shared/subscription.ts（Edge Function 直接 import），金额不信任客户端。
+-- chpay 无代扣 → 订阅为手动续费时长卡；续费在「当前到期与现在的较大者」上叠加。
+
+create table if not exists public.subscriptions (
+  user_id     uuid primary key references auth.users (id) on delete cascade,
+  plan        text not null default 'trial',        -- 'trial' | 'monthly' | 'quarterly' | 'yearly'
+  expires_at  timestamptz not null,                 -- 订阅到期时间（试用也是一段有效期）
+  daily_quota integer not null default 3000,        -- 每日公平用量上限
+  updated_at  timestamptz not null default now()
+);
+
+create table if not exists public.usage_daily (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  day     date not null,                            -- UTC 日界（限额是防刷粗闸，不追求本地时区精确）
+  units   integer not null default 0,
+  primary key (user_id, day)
+);
+
+alter table public.subscriptions enable row level security;
+alter table public.usage_daily   enable row level security;
+create policy "own subscription read" on public.subscriptions for select using (auth.uid() = user_id);
+create policy "own usage read"        on public.usage_daily   for select using (auth.uid() = user_id);
+-- 无写 policy → 客户端不可改；service-role 后端独占写入。
+
+-- 注册即初始化改造：新用户送试用订阅（替代送积分；credits 行保留兼容遗留读取）。
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id) values (new.id) on conflict do nothing;
+  insert into public.credits (user_id, grant_balance, grant_reset_at, monthly_grant)
+    values (new.id, 0, now() + interval '30 days', 0) on conflict do nothing;
+  insert into public.subscriptions (user_id, plan, expires_at)
+    values (new.id, 'trial', now() + interval '7 days') on conflict do nothing;
+  return new;
+end;
+$$;
+
+-- 开通/续费订阅：max(now, 当前到期) + 天数；写 ledger 流水（delta=0，只做可追溯记录）。
+create or replace function public.activate_subscription(p_user uuid, p_plan text, p_days int, p_ref text default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare new_expiry timestamptz;
+begin
+  insert into public.subscriptions (user_id, plan, expires_at)
+    values (p_user, p_plan, now() + make_interval(days => p_days))
+    on conflict (user_id) do update set
+      plan = excluded.plan,
+      expires_at = greatest(public.subscriptions.expires_at, now()) + make_interval(days => p_days),
+      updated_at = now()
+    returning expires_at into new_expiry;
+  insert into public.credit_ledger(user_id, delta, reason, balance_after, ref_order)
+    values (p_user, 0, 'subscription:' || p_plan, 0, p_ref);
+  return jsonb_build_object('ok', true, 'expires_at', new_expiry);
+end; $$;
+
+-- 记用量（成功后调用；失败不计量，同积分制「心安」原则）。行锁原子累加，返回当日累计。
+create or replace function public.consume_quota(p_user uuid, p_units int)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare used int;
+begin
+  if p_units <= 0 then return jsonb_build_object('ok', true); end if;
+  insert into public.usage_daily (user_id, day, units) values (p_user, current_date, p_units)
+    on conflict (user_id, day) do update set units = public.usage_daily.units + p_units
+    returning units into used;
+  return jsonb_build_object('ok', true, 'used', used);
+end; $$;
+
+-- ⚠️ 一次性迁移（订阅制上线时手动执行一次）：存量已购积分折算订阅天数（1000 分 ≈ 30 天）。
+-- 执行前和用户确认折算率；执行后存量 purchased_balance 清零，流水留痕。
+-- insert into public.subscriptions (user_id, plan, expires_at)
+--   select user_id, 'monthly', now() + make_interval(days => (purchased_balance * 30 / 1000))
+--   from public.credits where purchased_balance > 0
+--   on conflict (user_id) do update set
+--     expires_at = greatest(public.subscriptions.expires_at, now())
+--       + make_interval(days => (select purchased_balance * 30 / 1000 from public.credits c where c.user_id = public.subscriptions.user_id));
+-- update public.credits set purchased_balance = 0 where purchased_balance > 0;
