@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppUsageEntry, ReportRecord, WorkRecord } from '@shared/types'
-import { dayKey, focusDurations, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
+import {
+  DAY_SEGMENTS,
+  dayKey,
+  daySegmentOf,
+  focusDurations,
+  formatDuration,
+  groupWorkPeriods,
+  periodLabel
+} from '@shared/work-report'
 import { api } from '../api'
 import { BarRow, DayNav, Section } from '../components/ui'
 
@@ -70,13 +78,15 @@ export default function Reports(): React.JSX.Element {
     loadReports()
   }
 
-  const periods = groupWorkPeriods(records)
-  // 时段锚点：有记录的小时（供长列表快速跳转）
-  const hoursWithRecords = [...new Set(periods.map((p) => p.start.slice(11, 13)))]
+  // 倒序展示：最新的时段在最上面（工作记录是「看最近干了什么」的场景）
+  const periodsDesc = [...groupWorkPeriods(records)].reverse()
+  // 时段分区锚点（清晨/上午/中午/下午/晚间/深夜），只显示有记录的分区
+  const segmentsWithRecords = new Set(periodsDesc.map((p) => daySegmentOf(p.start).key))
+  const segments = DAY_SEGMENTS.filter((s) => segmentsWithRecords.has(s.key))
   // 只滚内部列表容器：scrollIntoView 会连页面等所有可滚祖先一起滚，必须手动算容器内偏移
-  const jumpToHour = (hh: string): void => {
+  const jumpToSegment = (key: string): void => {
     const list = recordListRef.current
-    const el = list?.querySelector<HTMLElement>(`[data-hour="${hh}"]`)
+    const el = list?.querySelector<HTMLElement>(`[data-seg="${key}"]`)
     if (!list || !el) return
     list.scrollTo({ top: el.offsetTop, behavior: 'smooth' })
   }
@@ -136,25 +146,25 @@ export default function Reports(): React.JSX.Element {
           </p>
         ) : (
           <>
-            {hoursWithRecords.length > 1 && (
+            {segments.length > 1 && (
               <div className="mb-2 flex flex-wrap gap-1">
-                {hoursWithRecords.map((hh) => (
+                {segments.map((s) => (
                   <button
-                    key={hh}
-                    className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500 hover:bg-brand-soft hover:text-brand"
-                    onClick={() => jumpToHour(hh)}
+                    key={s.key}
+                    className="rounded-md bg-slate-100 px-2.5 py-0.5 text-[11px] text-slate-500 hover:bg-brand-soft hover:text-brand"
+                    onClick={() => jumpToSegment(s.key)}
                   >
-                    {hh}:00
+                    {s.label}
                   </button>
                 ))}
               </div>
             )}
             <div ref={recordListRef} className="relative max-h-72 overflow-y-auto">
               <ul className="flex flex-col">
-                {periods.map((p) => (
+                {periodsDesc.map((p) => (
                   <li
                     key={p.start + p.summary}
-                    data-hour={p.start.slice(11, 13)}
+                    data-seg={daySegmentOf(p.start).key}
                     className="group flex items-baseline gap-3 border-b border-slate-100 py-2 text-sm last:border-b-0"
                   >
                     <span className="w-24 shrink-0 font-mono text-xs text-slate-400">{periodLabel(p)}</span>

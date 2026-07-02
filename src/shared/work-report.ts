@@ -93,6 +93,24 @@ export function periodLabel(p: WorkPeriod): string {
   return s === e ? s : `${s}–${e}`
 }
 
+/** 一天的六个时段分区（锚点导航用）。深夜跨零点，在单日数据里即 0:00–5:00。 */
+export const DAY_SEGMENTS = [
+  { key: 'dawn', label: '清晨', from: 5, to: 8 },
+  { key: 'morning', label: '上午', from: 8, to: 12 },
+  { key: 'noon', label: '中午', from: 12, to: 14 },
+  { key: 'afternoon', label: '下午', from: 14, to: 19 },
+  { key: 'evening', label: '晚间', from: 19, to: 24 },
+  { key: 'night', label: '深夜', from: 0, to: 5 }
+] as const
+
+export type DaySegment = (typeof DAY_SEGMENTS)[number]
+
+/** 时间戳（YYYY-MM-DDTHH:mm）落在哪个时段分区。 */
+export function daySegmentOf(iso: string): DaySegment {
+  const h = Number(iso.slice(11, 13))
+  return DAY_SEGMENTS.find((s) => h >= s.from && h < s.to) ?? DAY_SEGMENTS[5]
+}
+
 /**
  * 近期行为画像生成 prompt：从近期工作记录 + 任务归纳「用户最近在做什么、关注什么」。
  * 与「基本画像」分工：基本画像是用户身份的长期定义（手动维护），这里只写近期任务与关注点。
