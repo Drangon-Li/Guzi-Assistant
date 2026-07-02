@@ -20,7 +20,8 @@ import {
   hidePet,
   isPetVisible,
   getPetPausedState,
-  setPetPausedState
+  setPetPausedState,
+  setPetListening
 } from './pet/controller'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { readFileSync } from 'fs'
@@ -104,7 +105,10 @@ if (!app.requestSingleInstanceLock()) {
     createMainWindow()
     createPetWindow({
       onClick: () => togglePetChat(),
-      onDblClick: () => toggleMainWindow()
+      onDblClick: () => toggleMainWindow(),
+      // 长按桌宠 → 聆听特效 + 「我正在听～」气泡（语音助手第一步；STT/对话后续接入这两个回调）
+      onLongPressStart: () => setPetListening(true),
+      onLongPressEnd: () => setPetListening(false)
     })
     createPetChatWindow() // 预创建桌宠对话窗口（隐藏），点击/拖文件即时可用
     createTray()

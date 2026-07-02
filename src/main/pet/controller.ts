@@ -5,6 +5,7 @@ import {
   isPetVisible,
   resetPetPosition,
   setPetBubble,
+  setPetListening as setPetListeningWin,
   setPetPaused,
   setPetScale,
   setPetScanning as setPetScanningWin,
@@ -48,6 +49,15 @@ export function applyExternalPetSay(message: string, reaction?: PetReaction, opt
 export function setPetScanning(on: boolean): void {
   if (on && quiet()) return
   setPetScanningWin(on)
+}
+
+/** 长按聆听：声波涟漪 + 常驻「我正在听～」气泡，松开清除。与处理光环视觉区分。 */
+export function setPetListening(on: boolean): void {
+  if (on && quiet()) return
+  setPetListeningWin(on)
+  if (sayTimer) clearTimeout(sayTimer)
+  sayToken++ // 使在途的气泡自动清除失效，防止把聆听气泡按住期间提前清掉
+  setPetBubble(on ? '我正在听～' : null, 'waiting')
 }
 
 export function setPetPausedState(paused: boolean): void {
