@@ -10,6 +10,7 @@
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { verifyParams, amountMatchesYuan } from '../../../server/chpay/sign.ts'
+import { planById } from '../../../src/shared/subscription.ts'
 
 const ok = () => new Response('success')
 const fail = (s = 400) => new Response('fail', { status: s })
@@ -52,8 +53,17 @@ Deno.serve(async (req) => {
     // 0 行=并发的另一个回调已抢先 pending→paid → 幂等返回，绝不重复加积分
     if (!flipped || flipped.length === 0) return ok()
 
-    // 到账：调原子 RPC（for update 行锁 + 写流水），按 kind 分流。flip-gate 已保证只此一次。
-    if (order.kind === 'credits') {
+    // 到账：调原子 RPC，按 kind 分流。flip-gate 已保证只此一次。
+    // 订阅制主路径 = 'subscription'；credits/membership 分支保留，只为消化切换瞬间的在途旧订单。
+    if (order.kind === 'subscription') {
+      const planDef = planById(order.plan)
+      await admin.rpc('activate_subscription', {
+        p_user: order.user_id,
+        p_plan: order.plan ?? 'monthly',
+        p_days: planDef?.days ?? 30,
+        p_ref: order.out_trade_no
+      })
+    } else if (order.kind === 'credits') {
       await admin.rpc('add_credits', {
         p_user: order.user_id,
         p_credits: order.credits ?? 0,

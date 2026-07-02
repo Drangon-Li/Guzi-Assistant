@@ -9,6 +9,7 @@
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { buildCreateOrderParams } from '../../../server/chpay/sign.ts'
+import { planById } from '../../../src/shared/subscription.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' }
 const json = (b: unknown, s = 200) =>
@@ -22,16 +23,12 @@ Deno.serve(async (req) => {
     const user = ud?.user
     if (!user) return json({ error: '请先登录' }, 401)
 
-    const { kind, amount_cents, credits, plan, pay_type } = (await req.json()) as {
-      kind: 'credits' | 'membership'
-      amount_cents: number
-      credits?: number
-      plan?: string
-      pay_type: 'alipay' | 'wxpay'
-    }
-    if (!amount_cents || amount_cents < 100) return json({ error: '最低 ¥1' }, 400)
+    // 订阅制：客户端只传档位 id，金额由服务端白名单决定（不信任客户端金额）
+    const { plan, pay_type } = (await req.json()) as { plan: string; pay_type: 'alipay' | 'wxpay' }
     if (!['alipay', 'wxpay'].includes(pay_type)) return json({ error: '不支持的支付方式' }, 400)
-    if (!['credits', 'membership'].includes(kind)) return json({ error: '非法订单类型' }, 400)
+    const planDef = planById(plan)
+    if (!planDef) return json({ error: '非法订阅档位' }, 400)
+    const amount_cents = planDef.amountCents
 
     // 内部订单号（函数内可用 Date/crypto）
     const ts = Math.floor(Date.now() / 1000)
@@ -42,9 +39,9 @@ Deno.serve(async (req) => {
       out_trade_no: outTradeNo,
       user_id: user.id,
       amount_cents,
-      kind,
-      credits: kind === 'credits' ? credits ?? 0 : null,
-      plan: kind === 'membership' ? plan ?? null : null,
+      kind: 'subscription',
+      credits: null,
+      plan: planDef.id,
       pay_type,
       status: 'pending'
     })

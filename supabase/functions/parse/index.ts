@@ -2,8 +2,8 @@
  * 模型解析网关（#39 托管 AI / #41 用量计费）—— Supabase Edge Function（Deno）。
  *
  * 「数据库即后端」架构：不另起服务器，密钥(relay key / service-role)只活在 Edge Function 里，
- * 客户端带 Supabase 登录态调用本函数 → 函数验身份 → 按 #63 积分逻辑扣费 → 转发我方模型 relay →
- * 写流水。客户端永远拿不到模型 key（#39 核心：用户不配 key、注册登录即用）。
+ * 客户端带 Supabase 登录态调用本函数 → 函数验身份 → 校验订阅有效期+每日公平用量（订阅制，
+ * 原积分扣费已下线）→ 转发我方模型 relay → 记用量。客户端永远拿不到模型 key。
  *
  * 复用 server/billing/credits.ts(#63) 的纯积分逻辑（Deno 可直接 import 纯 TS）。
  *
@@ -150,19 +150,27 @@ Deno.serve(async (req) => {
       input: RTurn[]
     }
     const reason = action ?? 'parse_text'
-    const cost = creditCost(reason)
+    const cost = creditCost(reason) // 订阅制下语义=用量单位（文本 1 / 含图 2），只用于公平限额
 
-    // 2. 预检余额（含本月赠送将重置的情形）→ 明显不足则不调模型，直接 402
-    const { data: row } = await admin
-      .from('credits')
-      .select('grant_balance, grant_reset_at, purchased_balance, monthly_grant')
+    // 2. 预检订阅（有效期 + 当日公平用量）→ 无效/超限不调模型，直接 402
+    const { data: sub } = await admin
+      .from('subscriptions')
+      .select('plan, expires_at, daily_quota')
       .eq('user_id', user.id)
       .single()
-    if (!row) return json({ error: '账户未初始化' }, 403)
-    const willReset = Date.now() >= new Date(row.grant_reset_at).getTime()
-    const affordable = (willReset ? row.monthly_grant : row.grant_balance) + row.purchased_balance
-    if (affordable < cost)
-      return json({ error: '积分不足', balance: row.grant_balance + row.purchased_balance }, 402)
+    if (!sub) return json({ error: '账户未初始化' }, 403)
+    if (Date.now() >= new Date(sub.expires_at).getTime())
+      return json({ error: sub.plan === 'trial' ? '试用已结束，订阅后继续使用' : '订阅已到期，请续订' }, 402)
+    if (cost > 0) {
+      const { data: usage } = await admin
+        .from('usage_daily')
+        .select('units')
+        .eq('user_id', user.id)
+        .eq('day', new Date().toISOString().slice(0, 10))
+        .maybeSingle()
+      if ((usage?.units ?? 0) + cost > sub.daily_quota)
+        return json({ error: '今日使用额度已用完，明天自动恢复' }, 402)
+    }
 
     // 3. 转发上游 relay：主用 A100，掉线/超时/空响应自动切 yunwu 兜底。失败不扣（#56 心安）。
     const isVision = reason === 'parse_vision'
@@ -171,16 +179,12 @@ Deno.serve(async (req) => {
     if (!text) text = await callUpstream(FALLBACK, isVision, instructions, input, FALLBACK_TIMEOUT_MS, deterministic)
     if (!text) return json({ error: '解析服务暂时不可用，请稍后重试' }, 502)
 
-    // 4. 成功后原子扣费（deduct_credits：for update 行锁，含月度重置 + 写流水，防并发超扣）
-    const { data: charge } = await admin.rpc('deduct_credits', {
-      p_user: user.id,
-      p_cost: cost,
-      p_reason: reason
-    })
-    const balance = (charge as { balance?: number } | null)?.balance ?? null
+    // 4. 成功后原子记用量（失败不计量=心安原则不变；预检挡大头，并发下允许轻微越限）
+    const { data: consumed } = await admin.rpc('consume_quota', { p_user: user.id, p_units: cost })
+    const used = (consumed as { used?: number } | null)?.used ?? null
 
     // 包成 Responses 形状（output_text）→ 客户端 extractText 原样可用
-    return json({ data: { output_text: text }, balance })
+    return json({ data: { output_text: text }, usage: used === null ? null : { used, quota: sub.daily_quota } })
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500)
   }

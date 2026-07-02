@@ -1,28 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
+import { PLANS, type PlanId } from '@shared/subscription'
 import { callFunction } from '../supabase'
 import { api } from '../api'
 
 /**
- * #71 充值 UI：选积分包 / 会员 + 支付方式 → 调 pay-create 网关 → 开支付窗(chpay 表单 POST) →
- * 轮询 pay-query 到 paid → 关窗 + 刷新余额。金额内部用「分」，对用户展示「元」。
- * 价格按 #56 设计（单档会员 ¥19.9/月≈1000 分；积分包大额带少量赠送），数值后续可配。
+ * 订阅面板（原充值面板，积分制 → 订阅制）：选档位 + 支付方式 → pay-create（服务端按档位白名单
+ * 定价，客户端不传金额）→ 开支付窗(chpay 表单 POST) → 轮询 pay-query 到 paid → 关窗刷新状态。
+ * chpay 无代扣：订阅是手动续费的时长卡，续费在当前到期时间上叠加。
  */
 
-type Pack = { id: string; label: string; amountCents: number; credits: number; tag?: string }
-const PACKS: Pack[] = [
-  { id: 'c600', label: '600 积分', amountCents: 600, credits: 600 },
-  { id: 'c2000', label: '2000 积分', amountCents: 1800, credits: 2000, tag: '多送 200' },
-  { id: 'c3500', label: '3500 积分', amountCents: 3000, credits: 3500, tag: '多送 500' }
-]
-const MEMBERSHIP = { amountCents: 1990, plan: 'monthly', label: '会员 · ¥19.9/月', grant: 1000 }
-
 type PayType = 'alipay' | 'wxpay'
-type Choice = { kind: 'credits'; pack: Pack } | { kind: 'membership' }
 
 const yuan = (cents: number): string => `¥${(cents / 100).toFixed(2)}`
+const PLAN_LIST = Object.values(PLANS)
 
-export default function RechargePanel({ onRecharged }: { onRecharged: () => void }): React.JSX.Element {
-  const [choice, setChoice] = useState<Choice>({ kind: 'credits', pack: PACKS[1] })
+export default function SubscribePanel({ onSubscribed }: { onSubscribed: () => void }): React.JSX.Element {
+  const [plan, setPlan] = useState<PlanId>('monthly')
   const [payType, setPayType] = useState<PayType>('alipay')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -43,23 +36,13 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
     }
   }
 
-  const recharge = async (): Promise<void> => {
+  const subscribe = async (): Promise<void> => {
     setBusy(true)
     setMsg('')
     try {
-      const payload =
-        choice.kind === 'credits'
-          ? {
-              kind: 'credits',
-              amount_cents: choice.pack.amountCents,
-              credits: choice.pack.credits,
-              pay_type: payType
-            }
-          : { kind: 'membership', amount_cents: MEMBERSHIP.amountCents, plan: MEMBERSHIP.plan, pay_type: payType }
-
       const order = await callFunction<{ out_trade_no: string; pay_url: string; pay_params: Record<string, string> }>(
         '/pay-create',
-        { method: 'POST', body: JSON.stringify(payload) }
+        { method: 'POST', body: JSON.stringify({ plan, pay_type: payType }) }
       )
       await api.openPayment(order.pay_url, order.pay_params)
       setMsg('已打开支付页，请扫码完成支付…')
@@ -77,17 +60,17 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
             if (r.status === 'paid') {
               stopPoll()
               await api.closePayment()
-              setMsg('充值成功，积分已到账 🎉')
+              setMsg('订阅成功，有效期已更新 🎉')
               setBusy(false)
-              onRecharged()
-              return // 命中即收尾，别让下面的超时分支覆盖成功提示（恰好第 60 次到账时）
+              onSubscribed()
+              return // 命中即收尾，别让下面的超时分支覆盖成功提示
             }
           } catch {
             // 单次查询失败忽略，继续轮询
           }
           if (tries >= 60) {
             stopPoll()
-            setMsg('未检测到支付完成；若已付款，稍后刷新余额即可。')
+            setMsg('未检测到支付完成；若已付款，稍后刷新即可。')
             setBusy(false)
           }
         })()
@@ -105,7 +88,7 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
     setMsg('')
   }
 
-  const packCls = (selected: boolean): string =>
+  const planCls = (selected: boolean): string =>
     `flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left text-sm transition ${
       selected ? 'border-ink ring-2 ring-ink/10' : 'border-slate-200 hover:border-slate-300'
     }`
@@ -117,25 +100,19 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-3 gap-2">
-        {PACKS.map((p) => {
-          const selected = choice.kind === 'credits' && choice.pack.id === p.id
-          return (
-            <button key={p.id} className={packCls(selected)} onClick={() => setChoice({ kind: 'credits', pack: p })}>
-              <span className="font-medium text-slate-700">{p.label}</span>
-              <span className="text-slate-500">{yuan(p.amountCents)}</span>
-              {p.tag && <span className="text-[10px] text-emerald-600">{p.tag}</span>}
-            </button>
-          )
-        })}
+        {PLAN_LIST.map((p) => (
+          <button key={p.id} className={planCls(plan === p.id)} onClick={() => setPlan(p.id)}>
+            <span className="font-medium text-slate-700">{p.label}</span>
+            <span className="text-slate-500">
+              {yuan(p.amountCents)} / {p.days} 天
+            </span>
+            {p.tag && <span className="text-[10px] text-emerald-600">{p.tag}</span>}
+          </button>
+        ))}
       </div>
-
-      <button
-        className={packCls(choice.kind === 'membership')}
-        onClick={() => setChoice({ kind: 'membership' })}
-      >
-        <span className="font-medium text-slate-700">{MEMBERSHIP.label}</span>
-        <span className="text-slate-500">每月赠 {MEMBERSHIP.grant} 积分 · 跨设备通用</span>
-      </button>
+      <p className="text-[11px] leading-4 text-slate-400">
+        订阅期内不限次使用（含每日公平用量上限）。到期前会提醒续费；续费时长在当前有效期上叠加，不吃亏。
+      </p>
 
       <div className="flex items-center gap-2">
         <span className="text-xs text-slate-400">支付方式</span>
@@ -151,9 +128,9 @@ export default function RechargePanel({ onRecharged }: { onRecharged: () => void
         <button
           className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-40"
           disabled={busy}
-          onClick={() => void recharge()}
+          onClick={() => void subscribe()}
         >
-          {busy ? '等待支付…' : '充值'}
+          {busy ? '等待支付…' : '立即订阅'}
         </button>
         {busy && (
           <button className="text-xs text-slate-400 hover:text-slate-600" onClick={cancel}>
