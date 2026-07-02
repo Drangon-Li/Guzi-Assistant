@@ -9,6 +9,7 @@ import ScreenPermissionGate from './pages/ScreenPermissionGate'
 import FloatingAssistant from './components/FloatingAssistant'
 import Schedule from './pages/Schedule'
 import Reports from './pages/Reports'
+import Analysis from './pages/Analysis'
 import Home from './pages/Home'
 import Account from './pages/Account'
 import Settings from './pages/Settings'
@@ -17,13 +18,14 @@ import Debug from './pages/Debug'
 import PetChat from './pages/PetChat'
 import brandMark from './assets/agent-avatar.png'
 
-type Page = 'home' | 'schedule' | 'reports' | 'account' | 'settings'
+type Page = 'home' | 'schedule' | 'reports' | 'analysis' | 'account' | 'settings'
 
 // 设置不在主导航里，固定在侧边栏底部
 const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: '今日' },
   { key: 'schedule', label: '日程' },
   { key: 'reports', label: '日报' },
+  { key: 'analysis', label: '分析' },
   { key: 'account', label: '个人' }
 ]
 
@@ -93,6 +95,7 @@ function MainApp(): React.JSX.Element | null {
         route === 'home' ||
         route === 'schedule' ||
         route === 'reports' ||
+        route === 'analysis' ||
         route === 'account' ||
         route === 'settings'
       )
@@ -225,6 +228,7 @@ function MainApp(): React.JSX.Element | null {
             />
           )}
           {shownPage === 'reports' && <Reports />}
+          {shownPage === 'analysis' && <Analysis />}
           {shownPage === 'account' && <Account onProfileChange={setProfile} />}
           {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>

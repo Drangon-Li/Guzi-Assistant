@@ -1,5 +1,8 @@
 import type {
+  AppCategory,
+  AppCategoryOverride,
   AppSettings,
+  AppSwitchRecord,
   AppUsageEntry,
   FeishuStatus,
   ParseSummary,
@@ -86,6 +89,12 @@ export const api = {
   hideFocusTask: (name: string) => inv<void>('focus-tasks:hide', name),
   exportRange: (fromDay: string, toDay: string) => inv<boolean>('data:export-range', fromDay, toDay),
   appUsageSummary: (day: string) => inv<AppUsageEntry[]>('app-usage:summary', day),
+  appUsageRange: (fromDay: string, toDay: string) =>
+    inv<(AppUsageEntry & { day: string })[]>('app-usage:range', fromDay, toDay),
+  appSwitchesSince: (sinceDay: string) => inv<AppSwitchRecord[]>('app-switches:since', sinceDay),
+  appCategoryOverrides: () => inv<AppCategoryOverride[]>('app-categories:list'),
+  setAppCategory: (app: string, category: AppCategory | null) =>
+    inv<void>('app-categories:set', app, category),
   generateReport: (day: string) => inv<ReportRecord>('reports:generate', day),
   listReports: () => inv<ReportRecord[]>('reports:list'),
   deleteReport: (id: string) => inv<void>('reports:delete', id),

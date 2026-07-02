@@ -91,6 +91,9 @@ export default function Reports(): React.JSX.Element {
     list.scrollTo({ top: el.offsetTop, behavior: 'smooth' })
   }
 
+  // 当日报告：只显示所选日期的（历史回看在分析页）
+  const dayReports = reports.filter((r) => r.day === day)
+
   // 任务专注：本地聚合 + 用户偏好（隐藏剔除、自定义补零显示）
   const hidden = new Set(taskPrefs.filter((p) => p.hidden).map((p) => p.name))
   const durations = focusDurations(records).filter((d) => !hidden.has(d.task))
@@ -241,12 +244,15 @@ export default function Reports(): React.JSX.Element {
         </div>
       </Section>
 
-      <Section title="历史报告">
-        {reports.length === 0 ? (
-          <p className="py-2 text-sm text-slate-400">暂无报告，去生成第一份吧。</p>
+      {/* 只看当天：历史范围回看已移至「分析 → 日报回看」 */}
+      <Section title="当日报告">
+        {dayReports.length === 0 ? (
+          <p className="py-2 text-sm text-slate-400">
+            这一天还没有日报。历史日报在「分析」页可按范围回看。
+          </p>
         ) : (
           <ul className="flex flex-col">
-            {reports.map((r) => (
+            {dayReports.map((r) => (
               <li key={r.id} className="border-b border-slate-100 py-2 last:border-b-0">
                 <div className="flex items-center gap-3">
                   <button
