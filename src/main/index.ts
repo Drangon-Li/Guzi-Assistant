@@ -25,9 +25,24 @@ import {
 } from './pet/controller'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { startWellnessReminder, stopWellnessReminder } from './wellness-reminder'
-import { readFileSync } from 'fs'
+import { installAppMenu } from './app-menu'
+import { cpSync, existsSync, readFileSync } from 'fs'
+import { dirname, join } from 'path'
 import trayIcon from '../../resources/trayTemplate.png?asset'
 import trayIcon2x from '../../resources/trayTemplate@2x.png?asset'
+
+// 改名 Gooz 后 userData 目录随 productName 变更；把旧 EShell 目录的数据一次性搬过来（只复制不删，保底可回滚）
+function migrateLegacyUserData(): void {
+  const dir = app.getPath('userData')
+  if (existsSync(join(dir, 'eshell.db'))) return
+  const legacy = join(dirname(dir), 'EShell')
+  if (!existsSync(join(legacy, 'eshell.db'))) return
+  try {
+    cpSync(legacy, dir, { recursive: true, force: false })
+  } catch (e) {
+    console.error('[migrate] 旧数据目录迁移失败：', e)
+  }
+}
 
 let tray: Tray | null = null
 
@@ -35,7 +50,7 @@ let tray: Tray | null = null
 function buildTrayMenu(): void {
   if (!tray) return
   const items: MenuItemConstructorOptions[] = [
-    { label: '打开 纸壳助手', click: () => focusMain() },
+    { label: '打开 谷子助手', click: () => focusMain() },
     { label: '提交剪切板内容', click: () => triggerClipboardCapture() }
   ]
   if (isWatchActive()) {
@@ -86,13 +101,15 @@ function createTray(): void {
   icon.addRepresentation({ scaleFactor: 2, buffer: readFileSync(trayIcon2x) })
   icon.setTemplateImage(true) // 单色剪影，由 macOS 按菜单栏明暗自动着色（深色栏白/浅色栏黑）
   tray = new Tray(icon)
-  tray.setToolTip('纸壳助手（可把文件拖到这里提交解析）')
+  tray.setToolTip('谷子助手（可把文件拖到这里提交解析）')
   // macOS：文件拖到菜单栏图标上直接提交解析
   tray.on('drop-files', (_e, files) => {
     if (files.length) void submitExternalFiles(files)
   })
   buildTrayMenu()
 }
+
+migrateLegacyUserData()
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -102,6 +119,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     initDb()
     nativeTheme.themeSource = getSettings().theme // 应用主题设置：驱动渲染层 prefers-color-scheme + 桌宠/窗口深浅色
+    installAppMenu()
     registerIpc()
     createMainWindow()
     createPetWindow({

@@ -1,4 +1,4 @@
-# 纸壳助手（EShell）
+# 谷子助手（Gooz，原 EShell/纸壳助手）
 
 个人事项捕获助手 —— 从聊天、通知、邮件、截图和屏幕里自动拎出待办，判断「哪些事是你的事」，用**确认式**交互帮你收进日程。macOS 桌面应用，基于 Electron + React。
 
@@ -78,7 +78,7 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 | 框选截图 | 菜单/快捷键 | `capture.ts`（`screencapture -i`） |
 | 文件拖拽 | 拖进窗口 | `App.tsx` → `capture:files` |
 | 托盘拖拽 | 拖到菜单栏图标 | `dropbox.ts` |
-| 访达右键 | 「发送到 纸壳助手」 | `quickaction.ts` |
+| 访达右键 | 「发送到 谷子助手」 | `quickaction.ts` |
 | 飞书机器人 | 转发消息/图 | `feishu.ts` |
 | 屏幕感知 | 扫描快捷键 / 持续监控 | `screenwatch.ts` |
 

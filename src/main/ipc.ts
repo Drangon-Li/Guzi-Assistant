@@ -15,14 +15,12 @@ import {
   getSettings,
   getSource,
   getTask,
-  listDetections,
   listReports,
   listTasks,
   listWorkRecords,
   listWorkRecordsSince,
   saveProfile,
   saveSettings,
-  searchSources,
   setPersonalMemory,
   updateTask,
   wipeAll,
@@ -47,7 +45,6 @@ import { setHotkey, setScreenshotHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
 import {
-  acceptDetection,
   acceptLocal,
   acceptSuggestion,
   applyScreenSenseSettings,
@@ -182,7 +179,6 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('source:get', (_e, id: string) => getSource(id))
-  ipcMain.handle('memory:search', (_e, query: string) => searchSources(query))
   ipcMain.handle('memory:read-shot', (_e, id: string) => readShotDataUrl(id))
 
   // 桌宠设置（设置页用）
@@ -243,10 +239,8 @@ export function registerIpc(): void {
     'suggestion:accept-local',
     (_e, p: { item: ParsedItem; sourceText: string; detectionId?: string }) => acceptLocal(p)
   )
-  ipcMain.handle('detections:list', () => listDetections())
-  ipcMain.handle('detections:accept', (_e, id: string) => acceptDetection(id))
+  // 悬浮建议卡「忽略」仍需回写检测状态（检测列表 UI 已随记忆页拆除）
   ipcMain.handle('detections:dismiss', (_e, id: string) => dismissDetection(id))
-
   // 工作记录 / 应用时长 / 日报（「日报」页）
   ipcMain.handle('work-records:list', (_e, day: string) => listWorkRecords(day))
   ipcMain.handle('work-records:since', (_e, sinceDay: string) => listWorkRecordsSince(sinceDay))

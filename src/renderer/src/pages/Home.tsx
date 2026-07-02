@@ -77,7 +77,7 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
       <div className="flex items-start gap-4">
         <img src={brandMark} alt="" className="mt-1 size-14 shrink-0 rounded-2xl border border-brand-soft bg-brand-soft/50 p-2" />
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold">你只管工作，待办和日报交给我</h1>
+          <h1 className="text-2xl font-semibold">把每天的忙碌，攒成看得见的收获</h1>
           <p className="mt-1.5 text-sm leading-6 text-slate-400">
             静默感知屏幕，帮你捕获待办、判断「哪些事是你的事」，顺手记好工作轨迹、写好每一份日报。
           </p>

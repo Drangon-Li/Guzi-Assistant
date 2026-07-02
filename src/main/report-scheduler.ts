@@ -23,7 +23,7 @@ async function fire(): Promise<void> {
     const report = await generateDailyReport(dayKey(new Date()))
     broadcast('eshell:reports-updated')
     if (Notification.isSupported()) {
-      const n = new Notification({ title: '纸壳助手 · 日报已生成', body: report.title })
+      const n = new Notification({ title: '谷子助手 · 日报已生成', body: report.title })
       n.on('click', () => focusMain('reports'))
       n.show()
     }

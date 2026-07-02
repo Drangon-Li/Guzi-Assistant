@@ -74,7 +74,7 @@ export function buildIcs(task: TaskRecord, opts: IcsOptions = {}): string | null
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//EShell//Task Export//CN',
+    'PRODID:-//Gooz//Task Export//CN',
     'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
     `UID:${escapeText(task.id)}@eshell`,

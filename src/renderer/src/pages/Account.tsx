@@ -3,6 +3,7 @@ import type { Identity, Profile } from '@shared/types'
 import { api } from '../api'
 import { IDENTITIES } from '../labels'
 import AccountSection from '../components/AccountSection'
+import PersonalMemory from '../components/PersonalMemory'
 
 interface Props {
   onProfileChange: (p: Profile) => void
@@ -76,7 +77,7 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
 
       <Section title="账户">
         <p className="mb-3 text-xs leading-5 text-slate-400">
-          解析能力由 纸壳助手 云端提供，登录即用，无需配置模型或密钥。
+          解析能力由 谷子助手 云端提供，登录即用，无需配置模型或密钥。
         </p>
         <AccountSection />
       </Section>
@@ -158,6 +159,13 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
             保存档案
           </button>
         </div>
+      </Section>
+
+      <Section title="个人记忆">
+        <p className="mb-4 text-xs leading-5 text-slate-400">
+          归纳「你是谁、最近在做什么」，让助手越用越懂你。全部本地，不上传。
+        </p>
+        <PersonalMemory />
       </Section>
 
       {note && (

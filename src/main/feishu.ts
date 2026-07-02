@@ -141,7 +141,7 @@ function summaryText(s: ParseSummary): string {
       : '没有发现与你相关的事项。'
   }
   return `发现 ${s.related} 个可能与你有关的事项${
-    s.autoAdded ? `，其中 ${s.autoAdded} 个已自动加入日程` : '，已进入 纸壳助手 待确认列表，请到桌面端「助手」里确认'
+    s.autoAdded ? `，其中 ${s.autoAdded} 个已自动加入日程` : '，已进入 谷子助手 待确认列表，请到桌面端「助手」里确认'
   }${s.duplicates ? `；另有 ${s.duplicates} 个与已有任务重复，已跳过` : ''}。`
 }
 

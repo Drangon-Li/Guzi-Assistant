@@ -1,13 +1,14 @@
 import { execFile } from 'child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 
-const WORKFLOW_NAME = '发送到 纸壳助手.workflow'
+const WORKFLOW_NAME = '发送到 谷子助手.workflow'
+const LEGACY_WORKFLOW_NAME = '发送到 纸壳助手.workflow'
 
-// 快速操作的 shell：把选中文件的路径写进 纸壳助手 监听的 dropbox 目录
-// 注意：内容会嵌进 XML，不能出现 & 和 <
-const SCRIPT = `DROP_DIR="$HOME/Library/Application Support/EShell/dropbox"
+// 快速操作的 shell：把选中文件的路径写进 谷子助手 监听的 dropbox 目录
+// 注意：内容会嵌进 XML，不能出现 & 和 <；目录名跟随 productName（Gooz）
+const SCRIPT = `DROP_DIR="$HOME/Library/Application Support/Gooz/dropbox"
 mkdir -p "$DROP_DIR"
 MANIFEST="$DROP_DIR/send-$(date +%s)-$$.txt"
 for f in "$@"
@@ -29,7 +30,7 @@ const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>发送到 纸壳助手</string>
+				<string>发送到 谷子助手</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>runWorkflowAsService</string>
@@ -264,6 +265,9 @@ export function quickActionInstalled(): boolean {
 /** 直接生成 .workflow bundle 写入 ~/Library/Services，免打包免签名 */
 export function installQuickAction(): boolean {
   try {
+    // 改名遗留：旧「发送到 纸壳助手」workflow 指向已迁移的旧 dropbox 目录，装新版时顺手清掉
+    const legacy = join(app.getPath('home'), 'Library', 'Services', LEGACY_WORKFLOW_NAME)
+    if (existsSync(legacy)) rmSync(legacy, { recursive: true, force: true })
     const contents = join(bundlePath(), 'Contents')
     mkdirSync(contents, { recursive: true })
     writeFileSync(join(contents, 'Info.plist'), INFO_PLIST)

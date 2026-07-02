@@ -23,7 +23,7 @@ export function createMainWindow(): BrowserWindow {
     height: 740,
     minWidth: 880,
     minHeight: 600,
-    title: '纸壳助手',
+    title: '谷子助手',
     show: false,
     // 现代 macOS 风格：隐藏标题栏，红黄绿交通灯浮在侧栏上方（与设计稿一致）
     titleBarStyle: 'hiddenInset',
@@ -149,7 +149,7 @@ export function openDebugWindow(): void {
   debugWin = new BrowserWindow({
     width: 460,
     height: 760,
-    title: '纸壳助手 · 调试监控',
+    title: '谷子助手 · 调试监控',
     backgroundColor: '#0b0b0f',
     webPreferences: { preload }
   })

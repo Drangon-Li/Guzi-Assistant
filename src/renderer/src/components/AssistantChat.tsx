@@ -42,7 +42,7 @@ function joinStatus(t: { startTime?: string | null; dueTime?: string | null }): 
 
 function Avatar({ role, initial }: { role: 'user' | 'assistant'; initial: string }): React.JSX.Element {
   if (role === 'assistant') {
-    return <img src={agentAvatar} alt="纸壳助手" className="size-8 shrink-0 rounded-[9px]" />
+    return <img src={agentAvatar} alt="谷子助手" className="size-8 shrink-0 rounded-[9px]" />
   }
   return (
     <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#8a7aa0] text-xs font-semibold text-white">
@@ -247,7 +247,7 @@ export default function AssistantChat({
               <Avatar role="assistant" initial="纸" />
               <div className="flex max-w-[82%] flex-col gap-3">
                 <div className="rounded-2xl rounded-tl-sm bg-elevated px-4 py-3 text-sm leading-6">
-                  你好，我是纸壳助手。我会自动留意你设备上的通知、消息和聊天记录，从中帮你拎出该办的事，主动提给你确认；你也可以直接问我日程安排。
+                  你好，我是谷子。我会自动留意你设备上的通知、消息和聊天记录，从中帮你拎出该办的事，主动提给你确认；你也可以直接问我日程安排。
                   <span className="mt-1 block text-xs text-slate-400">
                     （需要时也能手动把内容发我：复制后按 {hotkeyLabel}）
                   </span>
