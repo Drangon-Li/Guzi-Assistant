@@ -9,6 +9,8 @@ export interface PetPrefs {
   enabled: boolean
   scale: PetScaleValue
   paused: boolean
+  /** 气泡提醒总开关（状态气泡/发现日程/久坐提醒等主动打扰；聆听气泡不受控——那是用户自己按出来的） */
+  bubbles: boolean
   /** 最近一次位置（扁平），以及按显示器键的位置（多显示器恢复）。 */
   position: { x: number; y: number } | null
   perMonitor: Record<string, { x: number; y: number }>
@@ -20,6 +22,7 @@ const DEFAULTS: PetPrefs = {
   enabled: true,
   scale: 0.3,
   paused: false,
+  bubbles: true,
   position: null,
   perMonitor: {},
   crossDisplay: false,

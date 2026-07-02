@@ -61,6 +61,7 @@ import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
 import { broadcast, broadcastTheme, focusMain, hidePreview, showPreview } from './windows'
 import {
   applyExternalPetReaction,
+  setPetBubblesEnabled,
   setPetEnabled,
   setPetScaleValue,
   setPetPausedState,
@@ -187,9 +188,10 @@ export function registerIpc(): void {
   // 桌宠设置（设置页用）
   ipcMain.handle('pet:get-prefs', () => {
     const p = getPetPrefs()
-    return { enabled: p.enabled, scale: p.scale, paused: p.paused }
+    return { enabled: p.enabled, scale: p.scale, paused: p.paused, bubbles: p.bubbles }
   })
   ipcMain.handle('pet:set-enabled', (_e, enabled: boolean) => setPetEnabled(enabled))
+  ipcMain.handle('pet:set-bubbles', (_e, on: boolean) => setPetBubblesEnabled(on))
   ipcMain.handle('pet:set-scale', (_e, scale: number) => setPetScaleValue(scale))
   ipcMain.handle('pet:set-paused', (_e, paused: boolean) => setPetPausedState(paused))
   ipcMain.handle('pet:reset-position', () => resetPetPosition())

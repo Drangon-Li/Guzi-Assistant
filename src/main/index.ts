@@ -24,6 +24,7 @@ import {
   setPetListening
 } from './pet/controller'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
+import { startWellnessReminder, stopWellnessReminder } from './wellness-reminder'
 import { readFileSync } from 'fs'
 import trayIcon from '../../resources/trayTemplate.png?asset'
 import trayIcon2x from '../../resources/trayTemplate@2x.png?asset'
@@ -119,6 +120,7 @@ if (!app.requestSingleInstanceLock()) {
     ensureFeishu()
     applyScreenSenseSettings()
     startDailyBrief()
+    startWellnessReminder()
   })
 
   // macOS 惯例：仅在没有可见窗口时（如点 Dock 图标重开）才显示主窗；
@@ -132,6 +134,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('will-quit', () => {
     stopHotkey()
     stopDailyBrief()
+    stopWellnessReminder()
   })
   // 常驻托盘：所有窗口关闭后不退出
   app.on('window-all-closed', () => {})
