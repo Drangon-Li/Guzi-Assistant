@@ -6,6 +6,7 @@ import EditTaskModal from '../components/EditTaskModal'
 import SourceModal from '../components/SourceModal'
 import TaskDetailModal from '../components/TaskDetailModal'
 import Timeline, { type TimelineMode } from './Timeline'
+import { Segmented } from '../components/ui'
 
 interface Props {
   tasks: TaskRecord[]
@@ -88,70 +89,38 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">日程</h1>
           {/* 视图切换：列表（操作）/ 时间轴（浏览）。原独立「时间轴」页并入此处 */}
-          <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
-            {(
-              [
-                ['list', '列表'],
-                ['timeline', '时间轴']
-              ] as [View, string][]
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setView(key)}
-                className={`rounded-md px-3 py-1 ${
-                  view === key
-                    ? 'bg-surface text-slate-900 font-medium shadow-sm'
-                    : 'text-slate-400 hover:text-slate-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              ['list', '列表'],
+              ['timeline', '时间轴']
+            ]}
+          />
         </div>
         {/* 右侧筛选随视图切换：列表=时间范围，时间轴=分组粒度 */}
-        <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
-          {view === 'list'
-            ? (
-                [
-                  ['today', '今日'],
-                  ['next3', '近三天'],
-                  ['week', '本周'],
-                  ['all', '全部']
-                ] as [Tab, string][]
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setTab(key)}
-                  className={`rounded-md px-3 py-1 ${
-                    tab === key
-                      ? 'bg-surface text-slate-900 font-medium shadow-sm'
-                      : 'text-slate-400 hover:text-slate-700'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))
-            : (
-                [
-                  ['day', '天'],
-                  ['week', '周'],
-                  ['month', '月']
-                ] as [TimelineMode, string][]
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setTlMode(key)}
-                  className={`rounded-md px-3 py-1 ${
-                    tlMode === key
-                      ? 'bg-surface text-slate-900 font-medium shadow-sm'
-                      : 'text-slate-400 hover:text-slate-700'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-        </div>
+        {view === 'list' ? (
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            options={[
+              ['today', '今日'],
+              ['next3', '近三天'],
+              ['week', '本周'],
+              ['all', '全部']
+            ]}
+          />
+        ) : (
+          <Segmented
+            value={tlMode}
+            onChange={setTlMode}
+            options={[
+              ['day', '天'],
+              ['week', '周'],
+              ['month', '月']
+            ]}
+          />
+        )}
       </div>
 
       <div className="mt-5 flex flex-col gap-6 pb-10">

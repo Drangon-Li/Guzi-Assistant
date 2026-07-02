@@ -3,6 +3,7 @@ import type { AppSettings, FeishuStatus, PermissionStatus, Profile } from '@shar
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
 import PetSettings from '../components/PetSettings'
+import { Section } from '../components/ui'
 
 interface Props {
   onProfileChange: (p: Profile) => void
@@ -60,14 +61,6 @@ function splitList(s: string): string[] {
     .filter(Boolean)
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
-      <h2 className="mb-4 text-sm font-semibold">{title}</h2>
-      {children}
-    </section>
-  )
-}
 
 export default function Settings({ onProfileChange }: Props): React.JSX.Element {
   const [profile, setProfile] = useState<Profile | null>(null)

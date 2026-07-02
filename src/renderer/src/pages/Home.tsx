@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { AppUsageEntry, TaskRecord, WorkRecord } from '@shared/types'
 import { dayKey, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
 import { api } from '../api'
+import { Section } from '../components/ui'
 import brandMark from '../assets/agent-avatar.png'
 
 const ACTIVE_STATUS = new Set(['not_started', 'scheduled', 'in_progress', 'overdue'])
@@ -100,9 +101,9 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
         </div>
       )}
 
-      <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">今日概览</h2>
+      <Section
+        title="今日概览"
+        actions={
           <div className="flex gap-2">
             <button
               className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
@@ -118,7 +119,8 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
               去生成日报
             </button>
           </div>
-        </div>
+        }
+      >
         <div className="grid grid-cols-4 gap-3">
           {[
             { label: '工作记录', value: `${records.length} 条` },
@@ -132,11 +134,11 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
             </div>
           ))}
         </div>
-      </section>
+      </Section>
 
-      <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">时段记录</h2>
+      <Section
+        title="时段记录"
+        actions={
           <span className="flex items-center gap-1 text-[10px] text-slate-400">
             少
             <span className="size-2.5 rounded-sm bg-slate-100" />
@@ -145,7 +147,8 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
             <span className="size-2.5 rounded-sm bg-brand" />
             多
           </span>
-        </div>
+        }
+      >
         <div className="flex gap-1">
           {byHour.map((n, h) => (
             <div key={h} className="flex min-w-0 flex-1 flex-col items-center gap-1">
@@ -154,15 +157,16 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
             </div>
           ))}
         </div>
-      </section>
+      </Section>
 
-      <section className="rounded-xl border border-slate-200 bg-surface p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">最近工作记录</h2>
+      <Section
+        title="最近工作记录"
+        actions={
           <button className="text-xs text-slate-400 hover:text-slate-600" onClick={() => onNavigate('reports')}>
             查看全部 →
           </button>
-        </div>
+        }
+      >
         {recent.length === 0 ? (
           <p className="py-3 text-sm text-slate-400">
             {senseOn
@@ -185,7 +189,7 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
       {note && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg">

@@ -4,6 +4,7 @@ import { dayKey, groupWorkPeriods, periodLabel } from '@shared/work-report'
 import { api } from '../api'
 import { fmtTime } from '../labels'
 import SourceModal from '../components/SourceModal'
+import { DayNav, Segmented } from '../components/ui'
 
 const SOURCE_LABELS: Record<SourceType, string> = {
   clipboard_text: '剪贴板',
@@ -56,27 +57,15 @@ export default function Memory(): React.JSX.Element {
         </button>
       </div>
 
-      <div className="flex w-fit rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
-        {(
-          [
-            ['activity', '活动'],
-            ['personal', '个人记忆'],
-            ['history', '历史']
-          ] as [Tab, string][]
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`rounded-md px-3 py-1 ${
-              tab === key
-                ? 'bg-surface text-slate-900 font-medium shadow-sm'
-                : 'text-slate-400 hover:text-slate-700'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        value={tab}
+        onChange={setTab}
+        options={[
+          ['activity', '活动'],
+          ['personal', '个人记忆'],
+          ['history', '历史']
+        ]}
+      />
 
       {tab === 'activity' && <ActivityTab />}
       {tab === 'personal' && <PersonalTab />}
@@ -89,39 +78,16 @@ export default function Memory(): React.JSX.Element {
 function ActivityTab(): React.JSX.Element {
   const [day, setDay] = useState(() => dayKey(new Date()))
   const [records, setRecords] = useState<WorkRecord[]>([])
-  const today = dayKey(new Date())
 
   useEffect(() => {
     void api.listWorkRecords(day).then(setRecords)
   }, [day])
 
-  const shiftDay = (delta: number): void => {
-    const d = new Date(`${day}T12:00`)
-    d.setDate(d.getDate() + delta)
-    const next = dayKey(d)
-    if (next <= today) setDay(next)
-  }
-
   const periods = groupWorkPeriods(records)
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2 text-sm">
-        <button
-          className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 hover:bg-slate-50"
-          onClick={() => shiftDay(-1)}
-        >
-          ←
-        </button>
-        <span className="w-28 text-center font-medium">{day === today ? `今天 ${day.slice(5)}` : day}</span>
-        <button
-          className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
-          onClick={() => shiftDay(1)}
-          disabled={day >= today}
-        >
-          →
-        </button>
-      </div>
+      <DayNav day={day} onChange={setDay} />
 
       {periods.length === 0 ? (
         <p className="py-6 text-center text-sm text-slate-400">
