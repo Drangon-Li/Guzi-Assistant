@@ -188,6 +188,22 @@ export interface AppUsageEntry {
   seconds: number
 }
 
+/** 前台应用切换事件（注意力分析素材；只存应用名与时刻） */
+export interface AppSwitchRecord {
+  ts: string
+  fromApp: string | null
+  toApp: string
+}
+
+/** 应用生产力分类：专注 / 中性 / 分心 */
+export type AppCategory = 'productive' | 'neutral' | 'distracting'
+
+/** 用户对某应用分类的手动覆盖（默认规则在 shared/attention.ts） */
+export interface AppCategoryOverride {
+  app: string
+  category: AppCategory
+}
+
 /** AI 生成的工作日报 */
 export interface ReportRecord {
   id: string

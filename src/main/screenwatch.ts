@@ -4,6 +4,7 @@ import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImageDetailed } from './ocr'
 import { parseToItemsRaw } from './parser'
 import {
+  addAppSwitch,
   addAppUsage,
   addDetection,
   addWorkRecord,
@@ -399,6 +400,7 @@ let ticking = false
 let lastHash: bigint | null = null
 let lastTextHash = ''
 let lastDebugApp: string | null | undefined = undefined // 调试日志：仅前台 App 变化时记一次，避免刷屏
+let lastSwitchApp: string | null = null // 切换事件：上一轮的前台应用（own-app/idle 轮不更新）
 let previewBlockLogged = false // 调试日志：预览卡占用导致跳过只记一次，卡关掉后重置
 let cloudBlockLogged = false // 调试日志：解析服务未就绪导致跳过只记一次，恢复后重置
 const cooldown = new Map<string, number>()
@@ -491,8 +493,12 @@ async function watchTick(): Promise<void> {
     if (appChanged) debugEvent('frontapp', `前台应用：${frontApp ?? '(未知)'}`)
     // 应用使用时长：每轮给前台 App 记一个间隔（只存应用名+秒数；排除名单 App 也计时，但不截图；
     // 自己在前台不计——dev 下进程名是 Electron，正式包是谷子助手，统计自己只会污染榜单）
-    if (frontApp && !isOwnApp(frontApp))
+    if (frontApp && !isOwnApp(frontApp)) {
       addAppUsage(dayKey(new Date()), frontApp, Math.max(1, screenSenseIntervalSec))
+      // 切换事件：注意力分析素材（平均专注时长/切换率/碎片化都靠它，周期采样会漏快速切换）
+      if (lastSwitchApp && lastSwitchApp !== frontApp) addAppSwitch(lastSwitchApp, frontApp)
+      lastSwitchApp = frontApp
+    }
     if (screenSenseExcludedApps.length && isAppExcluded(frontApp, screenSenseExcludedApps)) {
       if (appChanged) debugEvent('skip', '在排除名单，跳过')
       return

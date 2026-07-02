@@ -5,9 +5,12 @@ import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
 import { deleteShot } from './shotvault'
 import { localNow } from '@shared/parsing'
+import { dayKey } from '@shared/work-report'
 import { buildFtsQuery } from '@shared/fts-query'
 import type {
   AppSettings,
+  AppCategoryOverride,
+  AppSwitchRecord,
   AppUsageEntry,
   DetectionRecord,
   MemoryHit,
@@ -102,6 +105,16 @@ export function initDb(): void {
       custom INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS app_switches (
+      ts TEXT NOT NULL,
+      from_app TEXT,
+      to_app TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_switches_ts ON app_switches(ts);
+    CREATE TABLE IF NOT EXISTS app_categories (
+      app TEXT PRIMARY KEY,
+      category TEXT NOT NULL
+    );
   `)
   // 老库迁移：work_records 后加 task 列（专注归并）、personal_memory 后加 base_content（基本画像）
   const wrCols = (db.prepare('PRAGMA table_info(work_records)').all() as { name: string }[]).map((c) => c.name)
@@ -111,6 +124,9 @@ export function initDb(): void {
     db.exec("ALTER TABLE personal_memory ADD COLUMN base_content TEXT NOT NULL DEFAULT ''")
   // 老数据清理：应用时长早期把自己（dev 下前台名是 Electron）也计了进去，启动时清掉（新数据已不再产生）
   db.exec("DELETE FROM app_usage WHERE app IN ('Electron', 'EShell', 'Gooz', '谷子助手', '纸壳助手')")
+  // 切换事件只服务注意力分析，90 天后没有回看价值，启动时滚动清理
+  const switchCutoff = dayKey(new Date(Date.now() - 90 * 86_400_000))
+  db.prepare('DELETE FROM app_switches WHERE ts < ?').run(switchCutoff)
 
   // 老库迁移：早期版本没有 notes 列
   const taskCols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(
@@ -676,6 +692,46 @@ export function appUsageSummary(day: string): AppUsageEntry[] {
     .all(day) as AppUsageEntry[]
 }
 
+/** 日期范围内的应用时长（分析页近 7 天趋势用）。 */
+export function appUsageRange(fromDay: string, toDay: string): (AppUsageEntry & { day: string })[] {
+  return db
+    .prepare('SELECT day, app, seconds FROM app_usage WHERE day >= ? AND day <= ? ORDER BY day')
+    .all(fromDay, toDay) as (AppUsageEntry & { day: string })[]
+}
+
+// ---------- app_switches（前台应用切换事件；只存应用名与时刻，不存内容。注意力分析素材）----------
+
+export function addAppSwitch(fromApp: string | null, toApp: string): void {
+  db.prepare('INSERT INTO app_switches (ts, from_app, to_app) VALUES (?, ?, ?)').run(
+    localNow(),
+    fromApp,
+    toApp
+  )
+}
+
+export function listAppSwitchesSince(sinceDay: string): AppSwitchRecord[] {
+  return db
+    .prepare(
+      'SELECT ts, from_app AS fromApp, to_app AS toApp FROM app_switches WHERE ts >= ? ORDER BY ts'
+    )
+    .all(sinceDay) as AppSwitchRecord[]
+}
+
+// ---------- app_categories（应用生产力分类的用户覆盖；默认规则在 shared/attention.ts）----------
+
+export function listAppCategoryOverrides(): AppCategoryOverride[] {
+  return db.prepare('SELECT app, category FROM app_categories').all() as AppCategoryOverride[]
+}
+
+/** category 传 null 表示清除覆盖、回到默认规则。 */
+export function setAppCategoryOverride(app: string, category: string | null): void {
+  if (category === null) db.prepare('DELETE FROM app_categories WHERE app = ?').run(app)
+  else
+    db.prepare(
+      'INSERT INTO app_categories (app, category) VALUES (?, ?) ON CONFLICT(app) DO UPDATE SET category = excluded.category'
+    ).run(app, category)
+}
+
 // ---------- reports（AI 生成的工作日报）----------
 
 interface ReportRow {
@@ -849,7 +905,7 @@ export function exportRange(fromDay: string, toDay: string): Record<string, unkn
 
 export function wipeAll(): void {
   db.exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks;'
+    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories;'
   )
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
@@ -859,7 +915,7 @@ export function wipeAll(): void {
 /** 清空「记忆」：来源历史(sources+FTS)、屏幕识别历史(detections)、工作记录与个人画像。保留任务/档案/日报。 */
 export function wipeMemory(): void {
   db.exec(
-    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory; DELETE FROM focus_tasks;'
+    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches;'
   )
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')
