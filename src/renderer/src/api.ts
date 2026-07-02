@@ -73,7 +73,13 @@ export const api = {
   dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
 
   listWorkRecords: (day: string) => inv<WorkRecord[]>('work-records:list', day),
+  workRecordsSince: (sinceDay: string) => inv<WorkRecord[]>('work-records:since', sinceDay),
   deleteWorkRecord: (id: string) => inv<void>('work-records:delete', id),
+  getPersonalMemory: () => inv<{ content: string; updatedAt: string | null }>('memory:get-personal'),
+  setPersonalMemory: (content: string) =>
+    inv<{ content: string; updatedAt: string | null }>('memory:set-personal', content),
+  refreshPersonalMemory: () =>
+    inv<{ content: string; updatedAt: string | null }>('memory:refresh-personal'),
   appUsageSummary: (day: string) => inv<AppUsageEntry[]>('app-usage:summary', day),
   generateReport: (day: string) => inv<ReportRecord>('reports:generate', day),
   listReports: () => inv<ReportRecord[]>('reports:list'),

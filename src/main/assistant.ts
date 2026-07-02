@@ -1,4 +1,12 @@
-import { createSource, createTask, deleteSourceRow, findDuplicateTitle, getProfile, listTasks } from './db'
+import {
+  createSource,
+  createTask,
+  deleteSourceRow,
+  findDuplicateTitle,
+  getPersonalMemory,
+  getProfile,
+  listTasks
+} from './db'
 import { broadcast } from './windows'
 import { callModel } from './parser'
 import {
@@ -100,7 +108,12 @@ export async function assistantChat(payload: {
 
   try {
     const output = await callModel(
-      buildAssistantInstructions(profile, JSON.stringify(tasks), payload.candidates?.items ?? null),
+      buildAssistantInstructions(
+        profile,
+        JSON.stringify(tasks),
+        payload.candidates?.items ?? null,
+        getPersonalMemory().content
+      ),
       input
     )
     const env = parseAssistantOutput(output)

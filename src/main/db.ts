@@ -91,6 +91,11 @@ export function initDb(): void {
       content TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS personal_memory (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      content TEXT NOT NULL DEFAULT '',
+      updated_at TEXT
+    );
   `)
   // 老数据清理：应用时长早期把自己（dev 下前台名是 Electron）也计了进去，启动时清掉（新数据已不再产生）
   db.exec("DELETE FROM app_usage WHERE app IN ('Electron', 'EShell', '纸壳助手')")
@@ -700,18 +705,50 @@ export function deleteReport(id: string): void {
   db.prepare('DELETE FROM reports WHERE id = ?').run(id)
 }
 
+// ---------- personal_memory（个人长期画像：AI 从历史工作记录+任务归纳，注入解析/助手 prompt）----------
+
+export interface PersonalMemory {
+  content: string
+  updatedAt: string | null
+}
+
+export function getPersonalMemory(): PersonalMemory {
+  const row = db.prepare('SELECT content, updated_at FROM personal_memory WHERE id = 1').get() as
+    | { content: string; updated_at: string | null }
+    | undefined
+  return { content: row?.content ?? '', updatedAt: row?.updated_at ?? null }
+}
+
+export function setPersonalMemory(content: string): PersonalMemory {
+  const updatedAt = localNow()
+  db.prepare(
+    'INSERT INTO personal_memory (id, content, updated_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at'
+  ).run(content, updatedAt)
+  return { content, updatedAt }
+}
+
+/** 近 N 天工作记录（供个人记忆归纳/活动时间线）。 */
+export function listWorkRecordsSince(sinceDay: string): WorkRecord[] {
+  const rows = db
+    .prepare('SELECT * FROM work_records WHERE created_at >= ? ORDER BY created_at')
+    .all(sinceDay) as WorkRecordRow[]
+  return rows.map(rowToWorkRecord)
+}
+
 export function wipeAll(): void {
   db.exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports;'
+    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory;'
   )
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')
 }
 
-/** 清空「记忆」：来源历史(sources + FTS)与屏幕识别历史(detections)。保留任务/档案。 */
+/** 清空「记忆」：来源历史(sources+FTS)、屏幕识别历史(detections)、工作记录与个人画像。保留任务/档案/日报。 */
 export function wipeMemory(): void {
-  db.exec('DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections;')
+  db.exec(
+    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory;'
+  )
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')
 }

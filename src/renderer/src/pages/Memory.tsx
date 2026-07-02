@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import type { DetectionRecord, MemoryHit, SourceType } from '@shared/types'
+import { useCallback, useEffect, useState } from 'react'
+import type { DetectionRecord, MemoryHit, SourceType, WorkRecord } from '@shared/types'
+import { dayKey, groupWorkPeriods, periodLabel } from '@shared/work-report'
 import { api } from '../api'
 import { fmtTime } from '../labels'
 import SourceModal from '../components/SourceModal'
@@ -18,16 +19,230 @@ const SOURCE_LABELS: Record<SourceType, string> = {
 const input =
   'w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
 
-/** #52 可搜索记忆底座：按关键词搜历史屏幕/剪贴板内容，定位回来源与其派生任务。 */
+type Tab = 'activity' | 'personal' | 'history'
+
+/**
+ * 记忆页：① 活动——某时段用户在做什么（工作记录聚合）② 个人记忆——AI 归纳的长期画像，
+ * 供助手越用越懂用户 ③ 历史——来源检索 + 屏幕识别历史。区别于日报（当日汇报）。
+ */
 export default function Memory(): React.JSX.Element {
+  const [tab, setTab] = useState<Tab>('activity')
+
+  const wipeMemory = async (): Promise<void> => {
+    if (
+      !window.confirm(
+        '将清空活动记录、个人记忆、来源历史与屏幕识别历史，无法恢复。任务、日报与个人档案不受影响。确定清空？'
+      )
+    )
+      return
+    await api.wipeMemory()
+    window.location.reload()
+  }
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 pb-16">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold">记忆</h1>
+          <p className="mt-0.5 text-xs text-slate-400">
+            记录你某段时间在做什么，并归纳成长期画像，让助手越用越懂你。全部本地，不上传。
+          </p>
+        </div>
+        <button
+          onClick={() => void wipeMemory()}
+          className="mt-0.5 shrink-0 rounded-lg px-2.5 py-1 text-xs text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+        >
+          清空所有记忆
+        </button>
+      </div>
+
+      <div className="flex w-fit rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
+        {(
+          [
+            ['activity', '活动'],
+            ['personal', '个人记忆'],
+            ['history', '历史']
+          ] as [Tab, string][]
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`rounded-md px-3 py-1 ${
+              tab === key
+                ? 'bg-surface text-slate-900 font-medium shadow-sm'
+                : 'text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'activity' && <ActivityTab />}
+      {tab === 'personal' && <PersonalTab />}
+      {tab === 'history' && <HistoryTab />}
+    </div>
+  )
+}
+
+/** 活动：按天翻看，每天内按时段聚合展示「几点到几点在做什么」。 */
+function ActivityTab(): React.JSX.Element {
+  const [day, setDay] = useState(() => dayKey(new Date()))
+  const [records, setRecords] = useState<WorkRecord[]>([])
+  const today = dayKey(new Date())
+
+  useEffect(() => {
+    void api.listWorkRecords(day).then(setRecords)
+  }, [day])
+
+  const shiftDay = (delta: number): void => {
+    const d = new Date(`${day}T12:00`)
+    d.setDate(d.getDate() + delta)
+    const next = dayKey(d)
+    if (next <= today) setDay(next)
+  }
+
+  const periods = groupWorkPeriods(records)
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2 text-sm">
+        <button
+          className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 hover:bg-slate-50"
+          onClick={() => shiftDay(-1)}
+        >
+          ←
+        </button>
+        <span className="w-28 text-center font-medium">{day === today ? `今天 ${day.slice(5)}` : day}</span>
+        <button
+          className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+          onClick={() => shiftDay(1)}
+          disabled={day >= today}
+        >
+          →
+        </button>
+      </div>
+
+      {periods.length === 0 ? (
+        <p className="py-6 text-center text-sm text-slate-400">
+          这一天还没有活动记录。开启「设置 → 屏幕感知 → 工作记录」后，会自动记下你在做什么。
+        </p>
+      ) : (
+        <ol className="flex flex-col">
+          {periods.map((p) => (
+            <li key={p.start + p.summary} className="relative flex gap-4 pb-5 pl-2">
+              <span className="w-24 shrink-0 pt-0.5 text-right font-mono text-xs text-slate-400">
+                {periodLabel(p)}
+              </span>
+              <div className="relative flex-1 border-l border-slate-200 pl-4">
+                <span className="absolute top-1.5 -left-[5px] size-2.5 rounded-full border-2 border-slate-300 bg-surface" />
+                <div className="text-sm leading-6">{p.summary}</div>
+                <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-slate-400">
+                  {p.app && <span>{p.app}</span>}
+                  {p.activities.length > 1 && <span>· {p.activities.length} 项活动</span>}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+/** 个人记忆：AI 归纳的长期画像，可查看/编辑/立即刷新；注入解析与助手 prompt。 */
+function PersonalTab(): React.JSX.Element {
+  const [content, setContent] = useState('')
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+
+  const flash = (m: string): void => {
+    setNote(m)
+    window.setTimeout(() => setNote(''), 3000)
+  }
+
+  useEffect(() => {
+    void api.getPersonalMemory().then((m) => {
+      setContent(m.content)
+      setUpdatedAt(m.updatedAt)
+    })
+  }, [])
+
+  const save = async (): Promise<void> => {
+    const m = await api.setPersonalMemory(content)
+    setUpdatedAt(m.updatedAt)
+    setDirty(false)
+    flash('已保存')
+  }
+
+  const refresh = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const m = await api.refreshPersonalMemory()
+      setContent(m.content)
+      setUpdatedAt(m.updatedAt)
+      setDirty(false)
+      flash('记忆已更新')
+    } catch (e) {
+      flash(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs leading-5 text-slate-400">
+          AI 基于近期活动与任务归纳「你是谁、在做什么」，供助手理解上下文。可手动编辑。
+        </p>
+        <button
+          className="shrink-0 rounded-lg bg-ink px-3 py-1.5 text-xs text-white hover:bg-black disabled:opacity-50"
+          onClick={() => void refresh()}
+          disabled={busy}
+        >
+          {busy ? '正在归纳…' : '立即更新记忆'}
+        </button>
+      </div>
+
+      <textarea
+        className={`${input} min-h-[240px] resize-y font-mono leading-6`}
+        placeholder="还没有个人记忆。点「立即更新记忆」让 AI 从你的活动里归纳，或直接在这里写下希望助手记住的信息。"
+        value={content}
+        onChange={(e) => {
+          setContent(e.target.value)
+          setDirty(true)
+        }}
+      />
+
+      <div className="flex items-center justify-between text-xs text-slate-400">
+        <span>{updatedAt ? `上次更新：${updatedAt.replace('T', ' ')}` : '尚未生成'}</span>
+        <button
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          onClick={() => void save()}
+          disabled={!dirty}
+        >
+          保存修改
+        </button>
+      </div>
+
+      {note && <div className="text-xs text-emerald-600">{note}</div>}
+    </div>
+  )
+}
+
+/** 历史：来源检索 + 屏幕识别历史（原记忆页内容）。 */
+function HistoryTab(): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<MemoryHit[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [sourceId, setSourceId] = useState<string | null>(null)
   const [dets, setDets] = useState<DetectionRecord[]>([])
 
-  const loadDets = (): void => void api.listDetections().then(setDets)
-  useEffect(loadDets, [])
+  const loadDets = useCallback((): void => void api.listDetections().then(setDets), [])
+  useEffect(() => loadDets(), [loadDets])
 
   const accept = async (id: string): Promise<void> => {
     await api.acceptDetection(id)
@@ -38,15 +253,6 @@ export default function Memory(): React.JSX.Element {
     loadDets()
   }
   const freshCount = dets.filter((d) => d.status === 'new').length
-
-  const wipeMemory = async (): Promise<void> => {
-    if (!window.confirm('将清空所有屏幕识别历史与来源记忆，无法恢复。任务与个人档案不受影响。确定清空？'))
-      return
-    await api.wipeMemory()
-    setHits(null)
-    setQuery('')
-    setDets([])
-  }
 
   const run = async (): Promise<void> => {
     const q = query.trim()
@@ -63,26 +269,10 @@ export default function Memory(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 pb-16">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">记忆</h1>
-          <p className="mt-0.5 text-xs text-slate-400">
-            搜索捕获过的历史内容（屏幕 / 剪贴板 / 文件），定位回来源。全部本地，不上传。
-          </p>
-        </div>
-        <button
-          onClick={() => void wipeMemory()}
-          className="mt-0.5 shrink-0 rounded-lg px-2.5 py-1 text-xs text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
-        >
-          清空所有记忆
-        </button>
-      </div>
-
+    <div className="flex flex-col gap-5">
       <input
         className={input}
-        autoFocus
-        placeholder="搜关键词，回车检索…"
+        placeholder="搜关键词，回车检索捕获过的历史内容…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
@@ -91,11 +281,9 @@ export default function Memory(): React.JSX.Element {
       />
 
       {busy && <div className="text-sm text-slate-400">检索中…</div>}
-
       {!busy && hits !== null && hits.length === 0 && (
         <div className="text-sm text-slate-400">没有匹配的历史内容。</div>
       )}
-
       {!busy && hits && hits.length > 0 && (
         <ul className="stagger flex flex-col gap-2">
           {hits.map((h) => (

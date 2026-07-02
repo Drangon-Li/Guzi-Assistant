@@ -93,6 +93,36 @@ export function periodLabel(p: WorkPeriod): string {
   return s === e ? s : `${s}–${e}`
 }
 
+/**
+ * 个人记忆生成 prompt：从多日工作记录 + 任务归纳「这个用户是谁、在做什么」的稳定画像，
+ * 供后续解析/助手注入（越用越懂用户）。区别于日报——记忆是长期画像，日报是当日汇报。
+ */
+export function buildPersonalMemoryPrompt(
+  userName: string,
+  activityLines: string[],
+  taskTitles: string[],
+  prevMemory: string
+): { instructions: string; text: string } {
+  const instructions = `你在为个人助手维护关于用户「${userName}」的长期记忆画像。基于其近期工作活动记录与任务，归纳这个人**在做什么、关注什么、有哪些长期项目/角色/协作方与习惯**，供助手日后更懂 TA。
+要求：
+- 输出 4~8 条要点，每条一句话，以「- 」开头；只写能从数据里稳定看出的事实与倾向，不臆测
+- 侧重可复用的画像（在做的项目、常用工具、角色职责、协作对象、作息倾向），不要罗列流水账或一次性琐事
+- 若给了「已有记忆」，在其基础上更新演进：保留仍成立的、修订过时的、补充新出现的
+- 只输出记忆正文，不要标题、不要代码块围栏、不要多余说明`
+  const text = `# 用户
+${userName}
+
+# 已有记忆
+${prevMemory.trim() || '（无，首次生成）'}
+
+# 近期工作活动（按时段）
+${activityLines.join('\n') || '（无）'}
+
+# 近期任务
+${taskTitles.join('\n') || '（无）'}`
+  return { instructions, text }
+}
+
 /** 从全部任务切出「这一天完成的」与「仍待办的」标题（日报素材；待办作明日计划候选）。 */
 export function splitTasksForDay(tasks: TaskRecord[], day: string): { done: string[]; open: string[] } {
   const OPEN = new Set(['not_started', 'scheduled', 'in_progress', 'overdue'])

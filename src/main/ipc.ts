@@ -6,6 +6,7 @@ import {
   deleteReport,
   deleteSourceContent,
   deleteWorkRecord,
+  getPersonalMemory,
   getProfile,
   getSettings,
   getSource,
@@ -14,14 +15,17 @@ import {
   listReports,
   listTasks,
   listWorkRecords,
+  listWorkRecordsSince,
   saveProfile,
   saveSettings,
   searchSources,
+  setPersonalMemory,
   updateTask,
   wipeAll,
   wipeMemory
 } from './db'
 import { generateDailyReport } from './report'
+import { refreshPersonalMemory } from './personal-memory'
 import { learnNotMine } from '@shared/belonging-learn'
 import {
   cancelPending,
@@ -239,7 +243,13 @@ export function registerIpc(): void {
 
   // 工作记录 / 应用时长 / 日报（「日报」页）
   ipcMain.handle('work-records:list', (_e, day: string) => listWorkRecords(day))
+  ipcMain.handle('work-records:since', (_e, sinceDay: string) => listWorkRecordsSince(sinceDay))
   ipcMain.handle('work-records:delete', (_e, id: string) => deleteWorkRecord(id))
+
+  // 个人记忆（「记忆」页）
+  ipcMain.handle('memory:get-personal', () => getPersonalMemory())
+  ipcMain.handle('memory:set-personal', (_e, content: string) => setPersonalMemory(content))
+  ipcMain.handle('memory:refresh-personal', () => refreshPersonalMemory())
   ipcMain.handle('app-usage:summary', (_e, day: string) => appUsageSummary(day))
   ipcMain.handle('reports:generate', async (_e, day: string) => {
     const r = await generateDailyReport(day)
