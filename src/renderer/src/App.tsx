@@ -241,7 +241,7 @@ function MainApp(): React.JSX.Element | null {
 
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className={`transition-opacity duration-150 ${pageVisible ? 'opacity-100' : 'opacity-0'}`}>
-          {shownPage === 'home' && <Home tasks={tasks} onNavigate={setPage} />}
+          {shownPage === 'home' && <Home tasks={tasks} userName={profile.name} onNavigate={setPage} />}
           {shownPage === 'schedule' && (
             <Schedule
               tasks={tasks}
