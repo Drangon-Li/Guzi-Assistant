@@ -171,7 +171,7 @@ export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.
 
       <Section
         title="今日麦田"
-        desc="地平线是一天的时间轴：有活动的小时长出一株麦子，穗越高、粒越满，那个小时干得越多。划过麦穗看细节。"
+        desc="地平线是一天的时间轴：有活动的小时长出一株麦子，记录越多穗子越长、结粒越多。划过麦穗数一数。"
       >
         <GrainEar byHour={byHour} />
         {records.length === 0 && (

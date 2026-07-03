@@ -1,8 +1,8 @@
 /**
- * 谷穗麦田——主界面签名视觉 v3：地平线就是一天的时间轴（0–24 时带刻度），
- * 每个有活动的小时长出一株麦子，穗高与穗形随记录密度生长；无活动小时留短茬。
- * 迭代记录：v1 把 24 小时平铺成"秃线挂圆点"、v2 密穗好看但弱化了时间线（用户两轮反馈）——
- * 本版高度=密度、横轴=时间，图表的可读性和麦田的收获感都保住。
+ * 谷穗麦田——主界面签名视觉 v4：地平线是一天的时间轴（0–24 时带刻度），
+ * 每个有活动的小时长出一株麦子；记录越多 → 穗段越长、结粒越多（成对谷粒可数），
+ * 「时间越长麦穗越多」一眼可见。无活动小时留短茬。
+ * 迭代记录：v1 秃线挂圆点 → v2 密穗但丢了时间线 → v3 高度=密度 → v4 粒数=密度（用户逐轮反馈）。
  */
 
 interface Props {
@@ -49,48 +49,55 @@ export default function GrainEar({ byHour }: Props): React.JSX.Element {
         if (c === 0) return <line key={h} x1={x} y1={GROUND} x2={x} y2={GROUND - 4} className="stroke-slate-300" strokeWidth="1.2" />
 
         const plump = c / max
-        const hgt = 22 + 56 * plump
-        const s = (0.72 + 0.42 * plump) * 1.5
+        const pairs = Math.max(1, Math.min(6, Math.ceil(plump * 6))) // 记录越多结粒越多
+        const earLen = 6 + pairs * 7 // 穗段随粒数变长
+        const stemH = 14 + 24 * plump
+        const sg = 0.78 + 0.3 * plump
         const lean = h % 2 ? 5 : -5 // 交错微倾，像有风
-        const topx = x + lean * (hgt / 46)
-        const topy = GROUND - hgt
+        const bx = x + lean * (stemH / 46)
+        const by = GROUND - stemH // 秆顶 = 穗基
+
+        const grainProps = {
+          fill: 'var(--color-brand)',
+          stroke: 'var(--color-brand-dark)',
+          strokeOpacity: 0.3,
+          strokeWidth: 0.8
+        }
+        const awnProps = { stroke: 'var(--color-brand-dark)', opacity: 0.4, strokeWidth: 1 }
 
         return (
           <g key={h}>
-            {/* 麦秆 */}
+            {/* 麦秆（纯秆段） */}
             <path
-              d={`M ${x} ${GROUND} Q ${x + lean * 0.3} ${GROUND - hgt * 0.55} ${topx} ${topy}`}
+              d={`M ${x} ${GROUND} Q ${x + lean * 0.3} ${GROUND - stemH * 0.55} ${bx} ${by}`}
               fill="none"
               stroke="var(--color-brand-dark)"
               opacity="0.45"
               strokeWidth="2"
               strokeLinecap="round"
             />
-            {/* 穗头：主粒 + 麦芒；较饱满的小时两侧再结小穗 */}
-            <g transform={`translate(${topx} ${topy}) rotate(${lean * 0.8})`}>
-              <title>{`${h}:00–${h + 1}:00 · ${c} 条记录${c === max && max > 1 ? '（今日最饱满）' : ''}`}</title>
-              <line x1="0" y1="-16" x2={lean > 0 ? 4 : -4} y2="-34" stroke="var(--color-brand-dark)" opacity="0.4" strokeWidth="1" />
-              {plump > 0.34 && (
-                <>
-                  <g transform={`translate(-7 -3) rotate(-30) scale(${s * 0.62})`}>
-                    <path d={GRAIN} fill="var(--color-brand)" opacity={0.4 + 0.5 * plump} />
-                  </g>
-                  <g transform={`translate(7 -3) rotate(30) scale(${s * 0.62})`}>
-                    <path d={GRAIN} fill="var(--color-brand)" opacity={0.4 + 0.5 * plump} />
-                  </g>
-                </>
-              )}
-              <g transform={`translate(0 -8) scale(${s})`}>
-                <path
-                  d={GRAIN}
-                  fill="var(--color-brand)"
-                  opacity={0.55 + 0.45 * plump}
-                  stroke="var(--color-brand-dark)"
-                  strokeOpacity="0.3"
-                  strokeWidth="0.8"
-                />
+            {/* 穗（整体微倾）：穗轴 + 成对谷粒自穗尖向下叠 + 尖端麦芒扇 */}
+            <g transform={`translate(${bx} ${by}) rotate(${lean * 0.9})`}>
+              <title>{`${h}:00–${h + 1}:00 · ${c} 条记录 · 结 ${pairs * 2 + 1} 粒${c === max && max > 1 ? '（今日最饱满）' : ''}`}</title>
+              <line x1="0" y1="0" x2="0" y2={-earLen} stroke="var(--color-brand-dark)" opacity="0.4" strokeWidth="1.6" strokeLinecap="round" />
+              <line x1="0" y1={-earLen} x2="-5" y2={-earLen - 15} {...awnProps} />
+              <line x1="0" y1={-earLen} x2="1" y2={-earLen - 18} {...awnProps} />
+              <line x1="0" y1={-earLen} x2="6" y2={-earLen - 14} {...awnProps} />
+              {/* 尖端主粒 */}
+              <g transform={`translate(0 ${-earLen}) scale(${sg})`}>
+                <path d={GRAIN} opacity={0.55 + 0.45 * plump} {...grainProps} />
                 <path d="M 0 -6.5 Q 1.2 0 0 6.5" fill="none" stroke="var(--color-brand-dark)" opacity="0.25" strokeWidth="0.7" />
               </g>
+              {/* 成对谷粒：自穗尖向下每 7px 一对，粒数=密度 */}
+              {Array.from({ length: pairs }, (_, k) => {
+                const yk = -earLen + 8 + k * 7
+                return [-1, 1].map((side) => (
+                  <g key={`${k}${side}`} transform={`translate(${side * 4.5} ${yk}) rotate(${side * 34}) scale(${sg})`}>
+                    <path d={GRAIN} opacity={0.5 + 0.5 * plump} {...grainProps} />
+                    <path d="M 0 -6.5 Q 1.2 0 0 6.5" fill="none" stroke="var(--color-brand-dark)" opacity="0.22" strokeWidth="0.7" />
+                  </g>
+                ))
+              })}
             </g>
           </g>
         )
