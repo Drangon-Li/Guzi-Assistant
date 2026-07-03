@@ -79,6 +79,36 @@ export const IDENTITIES: { value: 'student' | 'worker' | 'freelancer'; label: st
   { value: 'freelancer', label: '自由职业者', desc: '客户沟通、合同文件、交付与付款节点' }
 ]
 
+/** 身份类型 → 用户档案字段的呈现。数据模型不变（org/group/workHours 通用字符串），只按身份换标签与占位。 */
+export const IDENTITY_PROFILE_FIELDS: Record<
+  'student' | 'worker' | 'freelancer',
+  {
+    org: { label: string; placeholder: string }
+    group: { label: string; placeholder: string }
+    workHours: { label: string; placeholder: string }
+    notMinePlaceholder: string
+  }
+> = {
+  student: {
+    org: { label: '学校', placeholder: '如：北京中关村学院' },
+    group: { label: '班级 / 课题组', placeholder: '如：2025 级 / 张老师课题组' },
+    workHours: { label: '上课 / 科研时间偏好', placeholder: '如：工作日 9:00-22:00，周末补实验' },
+    notMinePlaceholder: '如：同门师姐、辅导员群里@别人的通知'
+  },
+  worker: {
+    org: { label: '公司', placeholder: '如：某某科技' },
+    group: { label: '部门 / 岗位', placeholder: '如：产品部 / 后端工程师' },
+    workHours: { label: '工作时间偏好', placeholder: '如：工作日 10:00-19:00，周三例会' },
+    notMinePlaceholder: '如：同事小王、@market、市场部'
+  },
+  freelancer: {
+    org: { label: '主要客户 / 平台', placeholder: '如：某某工作室、接单平台' },
+    group: { label: '业务方向', placeholder: '如：UI 设计 / 独立开发' },
+    workHours: { label: '接活 / 工作时间偏好', placeholder: '如：晚间为主，周一集中对接客户' },
+    notMinePlaceholder: '如：甲方群里@其他供应商的安排'
+  }
+}
+
 export const CONFIRM_MODES: {
   value: 'conservative' | 'standard' | 'aggressive'
   label: string
