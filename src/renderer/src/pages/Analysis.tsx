@@ -54,6 +54,9 @@ export default function Analysis(): React.JSX.Element {
   const [trendRecords, setTrendRecords] = useState<WorkRecord[]>([])
   const [trendUsage, setTrendUsage] = useState<(AppUsageEntry & { day: string })[]>([])
   const [usageYear, setUsageYear] = useState<(AppUsageEntry & { day: string })[]>([])
+  // 页内双视角：当日（概览/碎片化/分类/任务专注）与回顾（热力/趋势/日报回看），
+  // 拆成两个导航项会稀释侧边栏，Tab 即可（用户反馈板块过载后的取舍）
+  const [view, setView] = useState<'day' | 'review'>('day')
 
   const loadDay = useCallback((d: string) => {
     void api.listWorkRecords(d).then(setRecords)
@@ -146,16 +149,29 @@ export default function Analysis(): React.JSX.Element {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">分析</h1>
           <p className="mt-1 text-sm text-slate-400">
-            从行为数据看专注与碎片化。只统计应用名与时刻，不涉及屏幕内容。
+            {view === 'day'
+              ? '从行为数据看今天的专注与碎片化。只统计应用名与时刻，不涉及屏幕内容。'
+              : '历史节奏一览：时段热力、趋势与日报回看。'}
           </p>
         </div>
-        <DayNav day={day} onChange={setDay} />
+        <div className="flex shrink-0 items-center gap-3">
+          {view === 'day' && <DayNav day={day} onChange={setDay} />}
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              ['day', '当日'],
+              ['review', '回顾']
+            ]}
+          />
+        </div>
       </div>
 
+      {view === 'day' && (
       <Section title="当日概览">
         <div className="grid grid-cols-3 gap-3">
           {stats.map((s) => (
@@ -172,7 +188,10 @@ export default function Analysis(): React.JSX.Element {
           </p>
         )}
       </Section>
+      )}
 
+      {view === 'review' && (
+      <>
       <Section title="时段热力" desc="近一周每小时的记录分布；切「年度」看全年活跃日历。">
         <RecordHeat records7={trendRecords} usageYear={usageYear} />
       </Section>
@@ -196,7 +215,11 @@ export default function Analysis(): React.JSX.Element {
           ))}
         </div>
       </Section>
+      </>
+      )}
 
+      {view === 'day' && (
+      <>
       <Section
         title="注意力碎片化"
         desc="每小时的应用切换次数。频繁切换的时段适合合并同类任务、批量处理消息。"
@@ -274,8 +297,10 @@ export default function Analysis(): React.JSX.Element {
           </ul>
         )}
       </Section>
+      </>
+      )}
 
-      <ReportBrowser />
+      {view === 'review' && <ReportBrowser />}
     </div>
   )
 }

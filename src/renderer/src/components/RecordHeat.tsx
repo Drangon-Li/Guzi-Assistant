@@ -117,40 +117,50 @@ function YearGrid({ usage }: { usage: (AppUsageEntry & { day: string })[] }): Re
     weeks.push({ days, monthLabel: first ? `${Number(first.slice(5, 7))}月` : '' })
   }
 
+  const activeDays = [...secsByDay.values()].filter((s) => s > 0).length
+
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex gap-[3px]">
-        {weeks.map((w, i) => (
-          <span key={i} className="w-[10px] shrink-0 overflow-visible text-[9px] whitespace-nowrap text-slate-400">
-            {w.monthLabel}
-          </span>
-        ))}
-      </div>
-      <div className="flex gap-[3px]">
-        {weeks.map((w, i) => (
-          <div key={i} className="flex shrink-0 flex-col gap-[3px]">
-            {w.days.map((d, j) =>
-              d ? (
-                <div
-                  key={j}
-                  className={`size-[10px] rounded-[2px] ${yearCellCls(secsByDay.get(d) ?? 0)}`}
-                  title={`${d} · 活跃 ${secsByDay.get(d) ? formatDuration(secsByDay.get(d)!) : '0 分钟'}`}
-                />
-              ) : (
-                <div key={j} className="size-[10px]" />
-              )
-            )}
+      {/* 9px 格 + 2px 缝：54 周 ≈ 592px，稳在 max-w-3xl 卡片内；外层再兜底横向滚动防裁切 */}
+      <div className="overflow-x-auto pb-1">
+        <div className="flex flex-col gap-1">
+          <div className="flex gap-[2px]">
+            {weeks.map((w, i) => (
+              <span key={i} className="w-[9px] shrink-0 overflow-visible text-[9px] whitespace-nowrap text-slate-400">
+                {w.monthLabel}
+              </span>
+            ))}
           </div>
-        ))}
+          <div className="flex gap-[2px]">
+            {weeks.map((w, i) => (
+              <div key={i} className="flex shrink-0 flex-col gap-[2px]">
+                {w.days.map((d, j) =>
+                  d ? (
+                    <div
+                      key={j}
+                      className={`size-[9px] rounded-[2px] ${yearCellCls(secsByDay.get(d) ?? 0)}`}
+                      title={`${d} · 活跃 ${secsByDay.get(d) ? formatDuration(secsByDay.get(d)!) : '0 分钟'}`}
+                    />
+                  ) : (
+                    <div key={j} className="size-[9px]" />
+                  )
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
-      <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-slate-400">
-        少
-        <span className="size-[10px] rounded-[2px] bg-slate-100" />
-        <span className="size-[10px] rounded-[2px] bg-brand/25" />
-        <span className="size-[10px] rounded-[2px] bg-brand/50" />
-        <span className="size-[10px] rounded-[2px] bg-brand/75" />
-        <span className="size-[10px] rounded-[2px] bg-brand" />
-        多
+      <div className="flex items-center justify-between text-[10px] text-slate-400">
+        <span>{activeDays < 14 ? `已积累 ${activeDays} 个活跃日，日历会随使用慢慢点亮` : `全年活跃 ${activeDays} 天`}</span>
+        <span className="flex items-center gap-1">
+          少
+          <span className="size-[9px] rounded-[2px] bg-slate-100" />
+          <span className="size-[9px] rounded-[2px] bg-brand/25" />
+          <span className="size-[9px] rounded-[2px] bg-brand/50" />
+          <span className="size-[9px] rounded-[2px] bg-brand/75" />
+          <span className="size-[9px] rounded-[2px] bg-brand" />
+          多
+        </span>
       </div>
     </div>
   )
