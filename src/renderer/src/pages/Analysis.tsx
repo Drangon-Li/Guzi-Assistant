@@ -25,6 +25,7 @@ import {
 import { api } from '../api'
 import { BarRow, DayNav, Section, Segmented } from '../components/ui'
 import RecordHeat from '../components/RecordHeat'
+import MiniCalendar from '../components/MiniCalendar'
 
 const CATEGORY_META: Record<AppCategory, { label: string; cls: string }> = {
   productive: { label: '专注', cls: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
@@ -120,6 +121,11 @@ export default function Analysis(): React.JSX.Element {
     void api.appCategoryOverrides().then(setOverrides)
   }
   const overriddenApps = useMemo(() => new Set(overrides.map((o) => o.app)), [overrides])
+  // 小日历的"有数据"圆点：近一年内有活跃时长的日子
+  const activeDaySet = useMemo(
+    () => new Set(usageYear.filter((u) => u.seconds > 0).map((u) => u.day)),
+    [usageYear]
+  )
 
   const heatClass = (n: number): string =>
     n === 0 ? 'bg-slate-100' : n <= 2 ? 'bg-brand/30' : n <= 5 ? 'bg-brand/60' : 'bg-brand'
@@ -158,18 +164,23 @@ export default function Analysis(): React.JSX.Element {
               : '历史节奏一览：时段热力、趋势与日报回看。'}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
-          {view === 'day' && <DayNav day={day} onChange={setDay} />}
-          <Segmented
-            value={view}
-            onChange={setView}
-            options={[
-              ['day', '当日'],
-              ['review', '回顾']
-            ]}
-          />
-        </div>
+        <Segmented
+          value={view}
+          onChange={setView}
+          options={[
+            ['day', '当日'],
+            ['review', '回顾']
+          ]}
+        />
       </div>
+
+      {/* 日期导航独立成行：与标题挤一行会换行错乱（用户反馈）；小日历可跳任意一天 */}
+      {view === 'day' && (
+        <div className="-mt-2 flex items-center justify-between">
+          <DayNav day={day} onChange={setDay} />
+          <MiniCalendar day={day} onChange={setDay} activeDays={activeDaySet} />
+        </div>
+      )}
 
       {view === 'day' && (
       <Section title="当日概览">
@@ -192,8 +203,8 @@ export default function Analysis(): React.JSX.Element {
 
       {view === 'review' && (
       <>
-      <Section title="时段热力" desc="近一周每小时的记录分布；切「年度」看全年活跃日历。">
-        <RecordHeat records7={trendRecords} usageYear={usageYear} />
+      <Section title="时段热力" desc="按周看每小时的记录分布，可前后翻周；切「年度」看全年活跃日历。">
+        <RecordHeat />
       </Section>
 
       <Section title="近 7 天趋势" desc="柱高为深度工作时长，柱下数字为当日专注质量分。">
