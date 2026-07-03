@@ -54,6 +54,19 @@ function unregister(id: string): void {
   }
 }
 
+// ---- 通用具名快捷键（主界面/桌宠说话/快捷提问等新增键共用） ----
+
+export function initNamedHotkey(id: string, accelerator: string, trigger: () => void): boolean {
+  entryOf(id).handler = trigger
+  const ok = register(id, accelerator)
+  if (!ok) console.warn(`[hotkey] ${id} 快捷键 ${accelerator} 注册失败，可能被其他应用占用`)
+  return ok
+}
+
+export function setNamedHotkey(id: string, accelerator: string): boolean {
+  return register(id, accelerator)
+}
+
 // ---- 剪切板捕获快捷键（原有公开 API，签名不变） ----
 
 export function setHotkey(accelerator: string): boolean {

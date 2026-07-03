@@ -66,13 +66,21 @@ export function setPetScanning(on: boolean): void {
 /** 长按聆听：声波涟漪 + 常驻气泡，松开清除。与处理光环视觉区分。
  *  文案如实告知语音未上线——有反馈无后续比没有功能更伤信任（用户走查 P0）。
  *  聆听气泡不受气泡开关控制——它是用户主动按出来的即时反馈，不算打扰。 */
+let listeningOn = false
+
 export function setPetListening(on: boolean): void {
   if (on && quiet()) return
+  listeningOn = on
   setPetListeningWin(on)
   if (sayTimer) clearTimeout(sayTimer)
   sayToken++ // 使在途的气泡自动清除失效，防止把聆听气泡按住期间提前清掉
   processingBubble = false
   setPetBubble(on ? '听到啦！语音功能即将上线～' : null, 'waiting')
+}
+
+/** 全局快捷键：开/关说话（聆听）模式——与长按桌宠等效，但按一下切换而非按住。 */
+export function togglePetListening(): void {
+  setPetListening(!listeningOn)
 }
 
 /** 设置页「气泡提醒」总开关。 */

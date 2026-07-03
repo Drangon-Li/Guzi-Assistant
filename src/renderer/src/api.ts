@@ -131,6 +131,9 @@ export const api = {
   petSetPaused: (v: boolean) => inv<void>('pet:set-paused', v),
   petResetPosition: () => inv<void>('pet:reset-position'),
   petChatHide: () => inv<void>('pet:chat-hide'),
+  quickbarHide: () => inv<void>('quickbar:hide'),
+  /** 快捷提问框对话展开/收起：按内容高度调整窗口（底边固定向上生长） */
+  quickbarResize: (height: number) => inv<void>('quickbar:resize', height),
   themeGet: () => inv<boolean>('theme:get'),
 
   on: (channel: string, cb: (payload: unknown) => void) => window.eshell.on(channel, cb)

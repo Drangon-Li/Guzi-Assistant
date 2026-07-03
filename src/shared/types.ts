@@ -126,6 +126,12 @@ export interface AppSettings {
   hotkey: string
   /** 提交屏幕截图（交互框选截图 → 解析）的全局快捷键 */
   screenshotHotkey: string
+  /** 显示/隐藏主界面的全局快捷键 */
+  mainWindowHotkey: string
+  /** 开/关桌宠说话（聆听）模式的全局快捷键 */
+  petVoiceHotkey: string
+  /** 唤起快捷提问框（聚焦搜索式悬浮输入条）的全局快捷键 */
+  quickAskHotkey: string
   apiBase: string
   apiKey: string
   model: string
@@ -153,7 +159,7 @@ export interface AppSettings {
   screenSenseVlmConfirm: boolean
   /** 每日定时自动生成日报的时间（HH:mm）；空 = 不自动生成。默认空 */
   dailyReportTime: string
-  /** 检测卡/AI 建议卡闲置自动隐藏秒数；0=不自动隐藏（一直挂着）。默认 60 */
+  /** 检测卡/AI 建议卡无操作自动忽略倒计时秒数（进度条走满即视为拒绝）；0=不倒计时（一直挂着）。默认 5 */
   screenSenseCardHideSec: number
   /** 悬浮助手闲置自动收起秒数；0=不自动收起。默认 60 */
   assistantAutoCloseSec: number

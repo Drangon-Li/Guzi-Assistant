@@ -214,6 +214,9 @@ export function getSettings(): AppSettings {
   return {
     hotkey: map.hotkey || legacy[map.hotkeyMode] || 'Control+\\',
     screenshotHotkey: map.screenshotHotkey || 'Control+Shift+\\',
+    mainWindowHotkey: map.mainWindowHotkey || 'Alt+G',
+    petVoiceHotkey: map.petVoiceHotkey || 'Alt+V',
+    quickAskHotkey: map.quickAskHotkey || 'Alt+Space',
     // ?? 而不是 ||：用户显式清空后不能从 .env 静默复活
     apiBase: map.apiBase ?? env.ESHELL_API_BASE ?? '',
     apiKey: map.apiKey ?? env.ESHELL_API_KEY ?? '',
@@ -234,7 +237,7 @@ export function getSettings(): AppSettings {
     screenSenseVlmConfirm: map.screenSenseVlmConfirm === 'true',
     dailyReportTime: map.dailyReportTime ?? '',
     screenSenseCardHideSec:
-      map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 60,
+      map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 5,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
     theme: map.theme === 'light' || map.theme === 'dark' ? map.theme : 'system'
   }

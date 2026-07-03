@@ -50,7 +50,7 @@ import { parseToItems } from './parser'
 import { assistantAdd, assistantChat } from './assistant'
 import { exportTaskIcs } from './export'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
-import { setHotkey, setScreenshotHotkey } from './hotkey'
+import { setHotkey, setNamedHotkey, setScreenshotHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
 import {
@@ -77,6 +77,7 @@ import {
 } from './pet/controller'
 import { getPetPrefs } from './pet/state'
 import { hidePetChat } from './pet/pet-chat-window'
+import { hideQuickBar, resizeQuickBar } from './quickbar'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
 const STATUSES: TaskStatus[] = [
@@ -129,6 +130,18 @@ export function registerIpc(): void {
     if (patch.screenshotHotkey !== undefined) {
       ok = setScreenshotHotkey(patch.screenshotHotkey)
       if (!ok) delete patch.screenshotHotkey
+    }
+    if (patch.mainWindowHotkey !== undefined) {
+      ok = setNamedHotkey('mainWindow', patch.mainWindowHotkey)
+      if (!ok) delete patch.mainWindowHotkey
+    }
+    if (patch.petVoiceHotkey !== undefined) {
+      ok = setNamedHotkey('petVoice', patch.petVoiceHotkey)
+      if (!ok) delete patch.petVoiceHotkey
+    }
+    if (patch.quickAskHotkey !== undefined) {
+      ok = setNamedHotkey('quickAsk', patch.quickAskHotkey)
+      if (!ok) delete patch.quickAskHotkey
     }
     saveSettings(patch)
     // 主题：设 themeSource（驱动桌宠/窗口 shouldUseDarkColors）+ 主动广播给所有渲染窗口切 .dark
@@ -206,6 +219,10 @@ export function registerIpc(): void {
   ipcMain.handle('pet:set-paused', (_e, paused: boolean) => setPetPausedState(paused))
   ipcMain.handle('pet:reset-position', () => resetPetPosition())
   ipcMain.handle('pet:chat-hide', () => hidePetChat())
+  ipcMain.handle('quickbar:hide', () => hideQuickBar())
+  ipcMain.handle('quickbar:resize', (_e, height: number) => {
+    if (typeof height === 'number' && Number.isFinite(height)) resizeQuickBar(height)
+  })
   ipcMain.handle('source:delete', (_e, id: string) => {
     deleteSourceContent(id)
     deleteShot(id) // 删来源原文时一并删其加密截图
