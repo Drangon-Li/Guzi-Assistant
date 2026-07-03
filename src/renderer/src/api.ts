@@ -49,6 +49,7 @@ export const api = {
   listTasks: () => inv<TaskRecord[]>('tasks:list'),
   updateTask: (id: string, patch: Partial<TaskRecord>) => inv<void>('tasks:update', id, patch),
   bulkTasks: (ids: string[], status: TaskStatus) => inv<void>('tasks:bulk', ids, status),
+  quickAddTask: (text: string) => inv<{ added: number; titles: string[] }>('tasks:quick-add', text),
 
   captureFiles: (paths: string[]) => inv<ParseSummary[]>('capture:files', paths),
   captureScreenshot: () => inv<ParseSummary | null>('capture:screenshot'),

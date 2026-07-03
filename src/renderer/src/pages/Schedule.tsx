@@ -6,6 +6,7 @@ import EditTaskModal from '../components/EditTaskModal'
 import SourceModal from '../components/SourceModal'
 import TaskDetailModal from '../components/TaskDetailModal'
 import Timeline, { type TimelineMode } from './Timeline'
+import QuickAddTask from '../components/QuickAddTask'
 import { Segmented } from '../components/ui'
 
 interface Props {
@@ -46,6 +47,12 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
   const [editing, setEditing] = useState<TaskRecord | null>(null)
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
+  const [note, setNote] = useState('')
+
+  const flash = (msg: string): void => {
+    setNote(msg)
+    window.setTimeout(() => setNote(''), 3500)
+  }
 
   const active = tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).sort(byTime)
   const pending = tasks.filter((t) => t.status === 'pending')
@@ -255,6 +262,17 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
         />
       )}
       {sourceId && <SourceModal sourceId={sourceId} onClose={() => setSourceId(null)} />}
+
+      {/* 悬浮加号：随手记（自然语言解析）/ 表单 两种方式手动建日程 */}
+      <QuickAddTask onAdded={flash} />
+      {note && (
+        <div
+          key={note}
+          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg"
+        >
+          {note}
+        </div>
+      )}
     </div>
   )
 }
@@ -403,7 +421,7 @@ function PendingDetections(): React.JSX.Element | null {
       >
         <span className="text-sm text-slate-600">
           有 <b className="text-brand">{fresh.length}</b> 条检测待确认
-          <span className="ml-2 text-xs text-slate-400">弹卡错过的都在这里，不会丢</span>
+          <span className="ml-2 text-xs text-slate-400">弹卡错过的在这里；已过时的会自动转入忽略</span>
         </span>
         <span className={`shrink-0 text-xs text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`}>
           ›
