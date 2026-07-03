@@ -1,7 +1,7 @@
 import { app, Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions } from 'electron'
 import { initDb, getSettings } from './db'
 import { registerIpc, triggerClipboardCapture, triggerScreenshotCapture } from './ipc'
-import { initHotkey, initScreenshotHotkey, stopHotkey } from './hotkey'
+import { initHotkey, initNamedHotkey, initScreenshotHotkey, stopHotkey } from './hotkey'
 import { initDropbox } from './dropbox'
 import { ensureFeishu } from './feishu'
 import {
@@ -21,8 +21,10 @@ import {
   isPetVisible,
   getPetPausedState,
   setPetPausedState,
-  setPetListening
+  setPetListening,
+  togglePetListening
 } from './pet/controller'
+import { createQuickBar, toggleQuickBar } from './quickbar'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { startWellnessReminder, stopWellnessReminder } from './wellness-reminder'
 import { installAppMenu } from './app-menu'
@@ -136,10 +138,14 @@ if (!app.requestSingleInstanceLock()) {
       onLongPressEnd: () => setPetListening(false)
     })
     createPetChatWindow() // 预创建桌宠对话窗口（隐藏），点击/拖文件即时可用
+    createQuickBar() // 预创建快捷提问框（隐藏），按快捷键秒开
     createTray()
     setTrayRefresh(buildTrayMenu) // 监控启停/暂停时刷新托盘菜单
     initHotkey(getSettings().hotkey, triggerClipboardCapture)
     initScreenshotHotkey(getSettings().screenshotHotkey, triggerScreenshotCapture)
+    initNamedHotkey('mainWindow', getSettings().mainWindowHotkey, toggleMainWindow)
+    initNamedHotkey('petVoice', getSettings().petVoiceHotkey, togglePetListening)
+    initNamedHotkey('quickAsk', getSettings().quickAskHotkey, toggleQuickBar)
     initDropbox()
     ensureFeishu()
     applyScreenSenseSettings()

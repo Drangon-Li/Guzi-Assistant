@@ -15,6 +15,24 @@ const input =
 
 const CATS = ['通用', '快捷键', '助手', '集成', '屏幕感知', '数据', '关于'] as const
 
+type HotkeyField =
+  | 'hotkey'
+  | 'screenshotHotkey'
+  | 'screenSenseHotkey'
+  | 'mainWindowHotkey'
+  | 'petVoiceHotkey'
+  | 'quickAskHotkey'
+
+// 快捷键设置行：新增全局快捷键时在这里登记一行即可（录制/保存/展示逻辑通用）
+const HOTKEY_ROWS: { key: HotkeyField; label: string }[] = [
+  { key: 'hotkey', label: '提交剪切板' },
+  { key: 'screenshotHotkey', label: '提交屏幕截图' },
+  { key: 'screenSenseHotkey', label: '整屏感知扫描' },
+  { key: 'mainWindowHotkey', label: '打开主界面' },
+  { key: 'petVoiceHotkey', label: '桌宠说话模式' },
+  { key: 'quickAskHotkey', label: '快捷提问框' }
+]
+
 const CODE_KEYS: Record<string, string> = {
   Space: 'Space',
   Comma: ',',
@@ -68,9 +86,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
   const [note, setNote] = useState('')
-  const [recording, setRecording] = useState(false)
-  const [scanRecording, setScanRecording] = useState(false)
-  const [shotRecording, setShotRecording] = useState(false)
+  const [recordingKey, setRecordingKey] = useState<HotkeyField | null>(null)
   const [cat, setCat] = useState<(typeof CATS)[number]>('通用')
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
@@ -96,85 +112,33 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     window.setTimeout(() => setNote(''), 2500)
   }
 
-  const applyHotkey = async (acc: string): Promise<void> => {
-    const ok = await api.saveSettings({ hotkey: acc })
-    if (ok) {
-      setSettings((s) => (s ? { ...s, hotkey: acc } : s))
-      flash(`快捷键已设为 ${formatHotkey(acc)}`)
-    } else {
-      flash('注册失败：该组合可能被系统或其他应用占用')
-    }
-  }
-
-  const applyScanHotkey = async (acc: string): Promise<void> => {
-    await api.saveSettings({ screenSenseHotkey: acc })
-    setSettings((s) => (s ? { ...s, screenSenseHotkey: acc } : s))
-    flash(`扫描快捷键已设为 ${formatHotkey(acc)}`)
-  }
-
-  const applyScreenshotHotkey = async (acc: string): Promise<void> => {
-    const ok = await api.saveSettings({ screenshotHotkey: acc })
-    if (ok) {
-      setSettings((s) => (s ? { ...s, screenshotHotkey: acc } : s))
-      flash(`截图快捷键已设为 ${formatHotkey(acc)}`)
-    } else {
-      flash('注册失败：该组合可能被系统或其他应用占用')
-    }
-  }
-
+  // 统一的快捷键录制：进入录制态后按下的组合直接保存到对应设置字段
   useEffect(() => {
-    if (!recording) return
+    if (!recordingKey) return
+    const key = recordingKey
     const onKey = (e: KeyboardEvent): void => {
       e.preventDefault()
       e.stopPropagation()
       if (e.key === 'Escape') {
-        setRecording(false)
+        setRecordingKey(null)
         return
       }
       const acc = eventToAccelerator(e)
       if (!acc) return
-      setRecording(false)
-      void applyHotkey(acc)
+      setRecordingKey(null)
+      void (async () => {
+        const ok = await api.saveSettings({ [key]: acc })
+        if (ok) {
+          setSettings((s) => (s ? { ...s, [key]: acc } : s))
+          flash(`快捷键已设为 ${formatHotkey(acc)}`)
+        } else {
+          flash('注册失败：该组合可能被系统或其他应用占用')
+        }
+      })()
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [recording])
-
-  useEffect(() => {
-    if (!scanRecording) return
-    const onKey = (e: KeyboardEvent): void => {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.key === 'Escape') {
-        setScanRecording(false)
-        return
-      }
-      const acc = eventToAccelerator(e)
-      if (!acc) return
-      setScanRecording(false)
-      void applyScanHotkey(acc)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [scanRecording])
-
-  useEffect(() => {
-    if (!shotRecording) return
-    const onKey = (e: KeyboardEvent): void => {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.key === 'Escape') {
-        setShotRecording(false)
-        return
-      }
-      const acc = eventToAccelerator(e)
-      if (!acc) return
-      setShotRecording(false)
-      void applyScreenshotHotkey(acc)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [shotRecording])
+  }, [recordingKey])
 
   if (!profile || !settings) return <div className="p-8 text-sm text-slate-400">加载中…</div>
 
@@ -277,52 +241,26 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           <>
       <Section title="快捷键">
         <div className="flex flex-col gap-3 text-sm">
-          <div className="flex items-center gap-3">
-            <span className="w-24 shrink-0 text-slate-500">提交剪切板</span>
-            <button
-              onClick={() => setRecording(!recording)}
-              className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
-                recording
-                  ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
-                  : 'border-slate-300 hover:border-slate-400'
-              }`}
-            >
-              {recording ? '按下新组合键…' : formatHotkey(settings.hotkey)}
-            </button>
-            {recording && <span className="text-xs text-slate-400">Esc 取消</span>}
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-24 shrink-0 text-slate-500">提交屏幕截图</span>
-            <button
-              onClick={() => setShotRecording(!shotRecording)}
-              className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
-                shotRecording
-                  ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
-                  : 'border-slate-300 hover:border-slate-400'
-              }`}
-            >
-              {shotRecording ? '按下新组合键…' : formatHotkey(settings.screenshotHotkey)}
-            </button>
-            {shotRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-24 shrink-0 text-slate-500">整屏感知扫描</span>
-            <button
-              onClick={() => setScanRecording(!scanRecording)}
-              className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
-                scanRecording
-                  ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
-                  : 'border-slate-300 hover:border-slate-400'
-              }`}
-            >
-              {scanRecording ? '按下新组合键…' : formatHotkey(settings.screenSenseHotkey)}
-            </button>
-            {scanRecording && <span className="text-xs text-slate-400">Esc 取消</span>}
-          </div>
+          {HOTKEY_ROWS.map((row) => (
+            <div key={row.key} className="flex items-center gap-3">
+              <span className="w-24 shrink-0 text-slate-500">{row.label}</span>
+              <button
+                onClick={() => setRecordingKey(recordingKey === row.key ? null : row.key)}
+                className={`min-w-44 rounded-lg border px-4 py-2 font-medium ${
+                  recordingKey === row.key
+                    ? 'animate-pulse border-slate-400 bg-elevated text-slate-700'
+                    : 'border-slate-300 hover:border-slate-400'
+                }`}
+              >
+                {recordingKey === row.key ? '按下新组合键…' : formatHotkey(settings[row.key])}
+              </button>
+              {recordingKey === row.key && <span className="text-xs text-slate-400">Esc 取消</span>}
+            </div>
+          ))}
         </div>
         <p className="mt-2 text-xs leading-5 text-slate-400">
           点击按键框后直接按下想要的组合：需包含至少一个修饰键（⌘ ⌥ ⌃ ⇧），F1–F12
-          可单独使用。注册失败说明该组合被系统或其他应用占用。「整屏感知扫描」需先在「屏幕感知」里开启本地智能检测才会生效。
+          可单独使用。注册失败说明该组合被系统或其他应用占用。「整屏感知扫描」需先在「屏幕感知」里开启本地智能检测才会生效。「快捷提问框」在任意应用里唤起：回车问助手，⌘回车直接记日程。
         </p>
       </Section>
           </>
@@ -509,7 +447,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
             {settings.screenSensePopup && (
               <label className="flex items-center gap-3 pl-1 text-sm">
-                <span className="text-slate-500">弹窗无操作自动隐藏</span>
+                <span className="text-slate-500">弹窗无操作自动忽略</span>
                 <input
                   type="number"
                   min={0}
@@ -523,10 +461,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     const v = Math.min(600, Math.max(0, Number(e.target.value) || 0))
                     setSettings({ ...settings, screenSenseCardHideSec: v })
                     await api.saveSettings({ screenSenseCardHideSec: v })
-                    flash(v ? `弹窗 ${v} 秒无操作自动隐藏` : '弹窗将一直显示')
+                    flash(v ? `弹窗 ${v} 秒无操作自动忽略` : '弹窗将一直显示，需手动处理')
                   }}
                 />
-                <span className="text-xs text-slate-400">秒，0 = 不自动隐藏</span>
+                <span className="text-xs text-slate-400">秒（进度条走满自动忽略），0 = 一直显示</span>
               </label>
             )}
 

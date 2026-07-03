@@ -33,6 +33,14 @@ check(
 )
 check('无 reply 但有候选 → 默认引导语', parseAssistantOutput('{"candidates":[{"title":"a"}]}').reply === '我发现了这些事项：')
 check('无 reply 无候选 → （无回复）', parseAssistantOutput('{}').reply === '（无回复）')
+check(
+  '模型不守约输出纯文本 → 当纯回复不抛错',
+  parseAssistantOutput('今天没有安排，好好休息～').reply === '今天没有安排，好好休息～'
+)
+check(
+  '纯文本带代码围栏 → 去围栏后当纯回复',
+  parseAssistantOutput('```\n没有 JSON 的普通回答\n```').reply === '没有 JSON 的普通回答'
+)
 const addEnv = parseAssistantOutput('{"reply":"r","add":[{"candidate":1,"force":true},{"candidate":0},{"candidate":2.5},{"candidate":"x"}]}')
 check('add 过滤非法 candidate 序号（仅留正整数）', addEnv.add.length === 1 && addEnv.add[0].candidate === 1)
 check('add 的 force 透传', addEnv.add[0].force === true)

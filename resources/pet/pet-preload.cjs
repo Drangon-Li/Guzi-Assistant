@@ -50,6 +50,14 @@ ipcRenderer.on('openpets:pet-listening', (_event, on) => {
   })
 })
 
+// 贴边吸附：切 docked-left / docked-right 类（徽章锚点与气泡布局由 CSS 接管）。
+ipcRenderer.on('openpets:pet-dock', (_event, side) => {
+  applyWhenReady(() => {
+    document.documentElement.classList.toggle('docked-left', side === 'left')
+    document.documentElement.classList.toggle('docked-right', side === 'right')
+  })
+})
+
 const getInteractiveTarget = (event) => {
   const target = document.elementFromPoint(event.clientX, event.clientY)
   return target && target.closest('.pet-hitbox, .pet-shell, .bubble')

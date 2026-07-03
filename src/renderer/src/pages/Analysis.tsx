@@ -26,6 +26,7 @@ import { api } from '../api'
 import { BarRow, DayNav, Section, Segmented } from '../components/ui'
 import RecordHeat from '../components/RecordHeat'
 import MiniCalendar from '../components/MiniCalendar'
+import ReportModal from '../components/ReportModal'
 
 const CATEGORY_META: Record<AppCategory, { label: string; cls: string }> = {
   productive: { label: '专注', cls: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
@@ -372,8 +373,8 @@ function ReportBrowser(): React.JSX.Element {
             <li key={r.id} className="border-b border-slate-100 py-2 last:border-b-0">
               <div className="flex items-center gap-3">
                 <button
-                  className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:text-slate-500"
-                  onClick={() => setOpenId(openId === r.id ? null : r.id)}
+                  className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:text-brand"
+                  onClick={() => setOpenId(r.id)}
                 >
                   {r.title}
                 </button>
@@ -393,15 +394,16 @@ function ReportBrowser(): React.JSX.Element {
                   删除
                 </button>
               </div>
-              {openId === r.id && (
-                <pre className="mt-2 rounded-lg bg-slate-50 px-4 py-3 text-xs leading-6 whitespace-pre-wrap text-slate-700">
-                  {r.content}
-                </pre>
-              )}
             </li>
           ))}
         </ul>
       )}
+      {(() => {
+        const open = shown.find((r) => r.id === openId)
+        return open ? (
+          <ReportModal report={open} onExport={() => void exportReport(open)} onClose={() => setOpenId(null)} />
+        ) : null
+      })()}
       {note && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg">
           {note}

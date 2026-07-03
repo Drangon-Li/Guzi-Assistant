@@ -12,6 +12,10 @@ import { petPreloadPath, petUserDataDir } from './paths'
 
 const PET_WIN_WIDTH = 340
 const PET_WIN_HEIGHT = 420
+// 徽章圆边距屏幕左/右边缘 ≤ 此值时松手 → 吸附成半圆侧边标签
+const DOCK_SNAP_PX = 20
+// 徽章底边距窗口底部的固定留白（气泡/徽章几何共用）
+const PET_BOTTOM = 22
 
 type PetRecord = {
   reaction: PetReaction
@@ -124,11 +128,13 @@ export function getPetBadgeBounds(): { x: number; y: number; width: number; heig
   const win = accessor()
   if (!win || !win.isVisible()) return null
   const b = win.getBounds()
-  const petBottom = 22
-  const d = Math.ceil(PET_ART_WIDTH * getPetPrefs().scale)
+  const prefs = getPetPrefs()
+  const d = Math.ceil(PET_ART_WIDTH * prefs.scale)
+  // 吸附时徽章锚在窗口左/右边缘（半圆在屏幕内），未吸附居中
+  const cx = prefs.dock === 'left' ? b.x : prefs.dock === 'right' ? b.x + b.width : b.x + b.width / 2
   return {
-    x: Math.round(b.x + b.width / 2 - d / 2),
-    y: Math.round(b.y + b.height - petBottom - d),
+    x: Math.round(cx - d / 2),
+    y: Math.round(b.y + b.height - PET_BOTTOM - d),
     width: d,
     height: d
   }
@@ -177,9 +183,11 @@ export function setPetPaused(paused: boolean): void {
 }
 
 export function resetPetPosition(): void {
+  const win = accessor()
+  if (win) applyDock(win, null)
+  else savePetPrefs({ dock: null })
   const pos = defaultPosition()
   savePetPrefs({ position: pos })
-  const win = accessor()
   if (win) win.setPosition(pos.x, pos.y, false)
 }
 
@@ -191,6 +199,39 @@ function defaultPosition(): { x: number; y: number } {
     x: Math.round(workArea.x + workArea.width - PET_WIN_WIDTH - 24),
     y: Math.round(workArea.y + workArea.height - PET_WIN_HEIGHT - 24)
   }
+}
+
+/** 应用/解除吸附：换徽章锚点（CSS 类推送，不整页重渲染）+ 平移窗口让徽章视觉原地不动/贴边。 */
+function applyDock(win: BrowserWindow, dock: 'left' | 'right' | null): void {
+  const prefs = getPetPrefs()
+  if (prefs.dock === dock) return
+  const [wx, wy] = win.getPosition()
+  // 徽章中心当前屏幕 x（按旧锚点），换锚点后据此回推窗口位置，避免徽章跳位
+  const cx = prefs.dock === 'left' ? wx : prefs.dock === 'right' ? wx + PET_WIN_WIDTH : wx + PET_WIN_WIDTH / 2
+  savePetPrefs({ dock })
+  win.webContents.send('openpets:pet-dock', dock)
+  if (dock === null) {
+    win.setPosition(Math.round(cx - PET_WIN_WIDTH / 2), wy, false)
+    return
+  }
+  const d = Math.ceil(PET_ART_WIDTH * prefs.scale)
+  const wa = screen.getDisplayNearestPoint({ x: cx, y: wy + PET_WIN_HEIGHT - PET_BOTTOM - d / 2 }).workArea
+  const x = dock === 'left' ? wa.x : wa.x + wa.width - PET_WIN_WIDTH
+  // 纵向夹进工作区：徽章整圆可见（上下各留 8px）
+  const minY = wa.y + 8 - (PET_WIN_HEIGHT - PET_BOTTOM - d)
+  const maxY = wa.y + wa.height - 8 - PET_WIN_HEIGHT + PET_BOTTOM
+  win.setPosition(Math.round(x), Math.round(Math.min(Math.max(wy, minY), maxY)), false)
+}
+
+/** 松手时看徽章是否贴到了屏幕左/右边缘，是则吸附（拖拽开始时已解除吸附，锚点必为居中）。 */
+function maybeDockAtEdge(win: BrowserWindow): void {
+  const [wx, wy] = win.getPosition()
+  const d = Math.ceil(PET_ART_WIDTH * getPetPrefs().scale)
+  const cx = wx + PET_WIN_WIDTH / 2
+  const cy = wy + PET_WIN_HEIGHT - PET_BOTTOM - d / 2
+  const wa = screen.getDisplayNearestPoint({ x: cx, y: cy }).workArea
+  if (cx - d / 2 <= wa.x + DOCK_SNAP_PX) applyDock(win, 'left')
+  else if (cx + d / 2 >= wa.x + wa.width - DOCK_SNAP_PX) applyDock(win, 'right')
 }
 
 function cursorOverBadge(): boolean {
@@ -225,6 +266,8 @@ function installIpc(): void {
 
   ipcMain.on('openpets:pet-drag-start', (e, p: { screenX: number; screenY: number }) => {
     if (!fromPet(e)) return
+    // 从吸附态拽起：先解除吸附（徽章原地弹出为整圆），再按新窗口位置算拖拽偏移
+    if (getPetPrefs().dock) applyDock(currentPet!, null)
     const [wx, wy] = currentPet!.getPosition()
     dragOffset = { dx: wx - p.screenX, dy: wy - p.screenY }
     dragging = true
@@ -237,6 +280,7 @@ function installIpc(): void {
     if (!fromPet(e)) return
     dragging = false
     dragOffset = null
+    maybeDockAtEdge(currentPet!)
     persistPosition(currentPet!)
   })
   ipcMain.on('openpets:pet-clicked', (e) => {
@@ -313,7 +357,7 @@ function fullHtml(reaction: PetReaction, bubbleText: string | null): string {
   const prefs = getPetPrefs()
   const scale = prefs.scale
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN"${prefs.dock ? ` class="docked-${prefs.dock}"` : ''}>
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
@@ -333,7 +377,7 @@ function windowCss(paused: boolean, scale: PetScaleValue, isDark: boolean): stri
   const opacity = paused ? '0.62' : '1'
   // 圆形徽章直径（方形）。图标居中放在圈里，整体更精致。
   const diameter = Math.ceil(PET_ART_WIDTH * scale)
-  const petBottom = 22
+  const petBottom = PET_BOTTOM
   const hitPadding = 14
   const bubbleBottom = Math.ceil(petBottom + diameter + 8)
   // 跟随系统深浅色：徽章底 + 气泡 颜色
@@ -363,6 +407,20 @@ function windowCss(paused: boolean, scale: PetScaleValue, isDark: boolean): stri
     .bubble { position: absolute; left: 50%; bottom: ${bubbleBottom}px; z-index: 4; box-sizing: border-box; display: inline-flex; flex-direction: column; width: fit-content; min-width: 80px; max-width: min(220px, calc(100vw - 18px)); padding: 9px 12px; background: ${bubbleBg}; color: ${bubbleFg}; font: 700 12px/16px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; text-align: left; border: 1px solid ${bubbleBorder}; border-radius: 14px; box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16), 0 2px 5px rgba(15, 23, 42, 0.12); white-space: normal; overflow-wrap: break-word; pointer-events: auto; -webkit-app-region: no-drag; transform: translateX(-50%); transform-origin: 64% 100%; animation: bubble-in 180ms cubic-bezier(0.2, 0, 0, 1); }
     .bubble::after { content: ""; position: absolute; left: 64%; bottom: -7px; width: 12px; height: 12px; background: inherit; border-right: 1px solid ${bubbleTail}; border-bottom: 1px solid ${bubbleTail}; border-bottom-right-radius: 3px; transform: translateX(-50%) rotate(45deg); }
     .bubble-text { display: -webkit-box; min-width: 0; overflow: hidden; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow-wrap: break-word; }
+    /* 贴边吸附：徽章锚到窗口左/右边缘，半圆收进屏幕边成侧边标签；图标滑向可见半侧；气泡贴边内侧展开。
+       锚点(left)不加过渡——切换锚点时窗口坐标同步平移，加过渡会先跳半窗宽再滑回；贴附就该是瞬时的 */
+    .mark { transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+    html.docked-left .pet-hitbox { left: 0; }
+    html.docked-right .pet-hitbox { left: 100%; }
+    html.docked-left .pet-shell, html.docked-right .pet-shell { opacity: calc(var(--pet-opacity) * 0.85); }
+    html.docked-left .pet-shell:hover, html.docked-right .pet-shell:hover { opacity: var(--pet-opacity); }
+    html.docked-left .mark { transform: translateX(26%); }
+    html.docked-right .mark { transform: translateX(-26%); }
+    html.docked-left .bubble, html.docked-right .bubble { animation: none; transform: none; }
+    html.docked-left .bubble { left: 10px; transform-origin: 12% 100%; }
+    html.docked-left .bubble::after { left: 22px; }
+    html.docked-right .bubble { left: auto; right: 10px; transform-origin: 88% 100%; }
+    html.docked-right .bubble::after { left: auto; right: 16px; }
     .bubble.is-success { border-color: rgba(16, 185, 129, 0.4); }
     .bubble.is-error { border-color: rgba(239, 68, 68, 0.4); }
     .bubble.is-waiting { border-color: rgba(245, 158, 11, 0.45); }

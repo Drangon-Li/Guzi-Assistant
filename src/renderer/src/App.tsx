@@ -17,6 +17,7 @@ import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
 import Debug from './pages/Debug'
 import PetChat from './pages/PetChat'
+import QuickBar from './pages/QuickBar'
 import brandMark from './assets/agent-avatar.png'
 import {
   IconAccount,
@@ -42,6 +43,7 @@ export default function App(): React.JSX.Element {
   if (window.location.hash.includes('/preview')) return <PreviewCard />
   if (window.location.hash.includes('/debug')) return <Debug />
   if (window.location.hash.includes('/petchat')) return <PetChat />
+  if (window.location.hash.includes('/quickbar')) return <QuickBar />
   return <MainApp />
 }
 

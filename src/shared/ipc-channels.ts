@@ -68,6 +68,8 @@ export const INVOKE_CHANNELS = [
   'pet:set-paused',
   'pet:reset-position',
   'pet:chat-hide',
+  'quickbar:hide',
+  'quickbar:resize',
   'theme:get'
 ] as const
 
@@ -80,6 +82,7 @@ export const EVENT_CHANNELS = [
   'eshell:debug',
   'eshell:pet-chat-drop',
   'eshell:reports-updated',
+  'eshell:quickbar-show',
   'eshell:theme'
 ] as const
 

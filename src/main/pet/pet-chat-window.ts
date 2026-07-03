@@ -100,10 +100,13 @@ async function handlePetDrop(paths: string[]): Promise<void> {
     return
   }
   const content = `请先用一句话总结这个文件的内容，然后从中找出可能属于我的日程或待办（如有），按候选列出让我确认；没有就说明没有。\n\n文件名：${extracted.name}\n文件内容：\n${extracted.text}`
-  const display = `📎 拖入文件：${extracted.name}`
+  injectPetChat({ display: `📎 拖入文件：${extracted.name}`, content })
+}
+
+/** 打开对话框并注入一条用户消息（窗口未加载完则等 load 再送）。 */
+function injectPetChat(payload: { display: string; content: string }): void {
   showPetChat()
   const win = ensureWindow()
-  const payload = { display, content }
   if (win.webContents.isLoading()) {
     win.webContents.once('did-finish-load', () => win.webContents.send('eshell:pet-chat-drop', payload))
   } else {
