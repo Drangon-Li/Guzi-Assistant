@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ConfirmMode, Identity, Profile } from '@shared/types'
 import { api } from '../api'
-import { CONFIRM_MODES, IDENTITIES } from '../labels'
+import { CONFIRM_MODES, IDENTITIES, IDENTITY_PROFILE_FIELDS } from '../labels'
 
 interface Props {
   onDone: (p: Profile) => void
@@ -120,21 +120,31 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-slate-600">组织 / 学校 / 公司</span>
-                  <input className={input} value={org} onChange={(e) => setOrg(e.target.value)} />
+                  <span className="text-slate-600">{IDENTITY_PROFILE_FIELDS[identity].org.label}</span>
+                  <input
+                    className={input}
+                    value={org}
+                    onChange={(e) => setOrg(e.target.value)}
+                    placeholder={IDENTITY_PROFILE_FIELDS[identity].org.placeholder}
+                  />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-slate-600">班级 / 课题组 / 岗位</span>
-                  <input className={input} value={group} onChange={(e) => setGroup(e.target.value)} />
+                  <span className="text-slate-600">{IDENTITY_PROFILE_FIELDS[identity].group.label}</span>
+                  <input
+                    className={input}
+                    value={group}
+                    onChange={(e) => setGroup(e.target.value)}
+                    placeholder={IDENTITY_PROFILE_FIELDS[identity].group.placeholder}
+                  />
                 </label>
               </div>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-slate-600">工作 / 学习时间偏好</span>
+                <span className="text-slate-600">{IDENTITY_PROFILE_FIELDS[identity].workHours.label}</span>
                 <input
                   className={input}
                   value={workHours}
                   onChange={(e) => setWorkHours(e.target.value)}
-                  placeholder="如：工作日 9:00 - 22:00"
+                  placeholder={IDENTITY_PROFILE_FIELDS[identity].workHours.placeholder}
                 />
               </label>
             </>

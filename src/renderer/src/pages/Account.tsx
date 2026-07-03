@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Identity, Profile } from '@shared/types'
 import { api } from '../api'
-import { IDENTITIES } from '../labels'
+import { IDENTITIES, IDENTITY_PROFILE_FIELDS } from '../labels'
 import AccountSection from '../components/AccountSection'
 import PersonalMemory from '../components/PersonalMemory'
 
@@ -52,6 +52,9 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
   }
 
   if (!profile) return <div className="p-8 text-sm text-slate-400">加载中…</div>
+
+  // 档案字段呈现随身份类型即时切换（学生→学校/课题组，职场→公司/部门，自由职业→客户/业务方向）
+  const fields = IDENTITY_PROFILE_FIELDS[profile.identity]
 
   const saveProfileForm = async (): Promise<void> => {
     if (!profile.name.trim()) {
@@ -105,6 +108,9 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
                 </option>
               ))}
             </select>
+            <span className="text-xs text-slate-400">
+              会重点留意：{IDENTITIES.find((it) => it.value === profile.identity)?.desc}
+            </span>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-slate-500">常用昵称 / 英文名</span>
@@ -123,31 +129,34 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
               className={input}
               value={notMine}
               onChange={(e) => setNotMine(e.target.value)}
-              placeholder="如：同事小王、@market、市场部"
+              placeholder={fields.notMinePlaceholder}
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-500">组织 / 学校 / 公司</span>
+            <span className="text-slate-500">{fields.org.label}</span>
             <input
               className={input}
               value={profile.org}
               onChange={(e) => setProfile({ ...profile, org: e.target.value })}
+              placeholder={fields.org.placeholder}
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-500">班级 / 课题组 / 岗位</span>
+            <span className="text-slate-500">{fields.group.label}</span>
             <input
               className={input}
               value={profile.group}
               onChange={(e) => setProfile({ ...profile, group: e.target.value })}
+              placeholder={fields.group.placeholder}
             />
           </label>
           <label className="col-span-2 flex flex-col gap-1">
-            <span className="text-slate-500">工作 / 学习时间偏好</span>
+            <span className="text-slate-500">{fields.workHours.label}</span>
             <input
               className={input}
               value={profile.workHours}
               onChange={(e) => setProfile({ ...profile, workHours: e.target.value })}
+              placeholder={fields.workHours.placeholder}
             />
           </label>
         </div>

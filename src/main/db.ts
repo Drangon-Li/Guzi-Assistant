@@ -105,6 +105,13 @@ export function initDb(): void {
       custom INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS detection_notes (
+      id TEXT PRIMARY KEY,
+      detection_id TEXT,
+      title TEXT NOT NULL,
+      note TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS app_switches (
       ts TEXT NOT NULL,
       from_app TEXT,
@@ -817,7 +824,36 @@ export function personalMemoryText(): string {
   const parts: string[] = []
   if (m.base.trim()) parts.push(`【基本画像】\n${m.base.trim()}`)
   if (m.recent.trim()) parts.push(`【近期行为画像】\n${m.recent.trim()}`)
+  // 检测卡「备注」反馈：直接进解析/助手提示词，判断归属与取舍时优先遵循用户的人工纠错
+  const notes = listRecentDetectionNotes()
+  if (notes.length)
+    parts.push(
+      `【近期纠错备注】（用户对自动检测的人工反馈，同类判断优先遵循）\n${notes
+        .map((n) => `- 「${n.title}」：${n.note}`)
+        .join('\n')}`
+    )
   return parts.join('\n')
+}
+
+// ---------- detection_notes（检测卡「备注」：用户对检测结果的人工反馈，个性化学习素材）----------
+
+export function addDetectionNote(detectionId: string | null, title: string, note: string): void {
+  db.prepare(
+    'INSERT INTO detection_notes (id, detection_id, title, note, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(randomUUID(), detectionId, title.slice(0, 120), note.slice(0, 200), localNow())
+}
+
+/** 近期备注（默认 14 天内最多 8 条，新的在前）——注入提示词用，条数刻意收紧防噪声。 */
+export function listRecentDetectionNotes(
+  days = 14,
+  limit = 8
+): { title: string; note: string }[] {
+  const since = dayKey(new Date(Date.now() - days * 86_400_000))
+  return db
+    .prepare(
+      'SELECT title, note FROM detection_notes WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?'
+    )
+    .all(since, limit) as { title: string; note: string }[]
 }
 
 // ---------- focus_tasks（任务专注：用户自定义/隐藏的任务名偏好，用于校正模型的任务归并）----------
@@ -906,7 +942,7 @@ export function exportRange(fromDay: string, toDay: string): Record<string, unkn
 
 export function wipeAll(): void {
   db.exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories;'
+    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories; DELETE FROM detection_notes;'
   )
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
@@ -916,7 +952,7 @@ export function wipeAll(): void {
 /** 清空「记忆」：来源历史(sources+FTS)、屏幕识别历史(detections)、工作记录与个人画像。保留任务/档案/日报。 */
 export function wipeMemory(): void {
   db.exec(
-    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches;'
+    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM detection_notes;'
   )
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')

@@ -75,6 +75,8 @@ export const api = {
   acceptLocal: (payload: { item: ParsedItem; sourceText: string; detectionId?: string }) =>
     inv<AddedInfo>('suggestion:accept-local', payload),
   dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
+  noteDetection: (p: { detectionId: string | null; title: string; note: string }) =>
+    inv<void>('detections:note', p),
 
   listWorkRecords: (day: string) => inv<WorkRecord[]>('work-records:list', day),
   workRecordsSince: (sinceDay: string) => inv<WorkRecord[]>('work-records:since', sinceDay),

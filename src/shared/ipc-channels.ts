@@ -31,6 +31,7 @@ export const INVOKE_CHANNELS = [
   'suggestion:accept',
   'suggestion:accept-local',
   'detections:dismiss',
+  'detections:note',
   'work-records:list',
   'work-records:since',
   'work-records:delete',

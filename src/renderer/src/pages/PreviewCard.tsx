@@ -40,6 +40,9 @@ export default function PreviewCard(): React.JSX.Element | null {
   const [autoHideSec, setAutoHideSec] = useState(60)
   // 桌宠模式：卡片贴在桌宠旁，隐藏顶部冗余的「谷子助手」品牌行（桌宠已在旁边）
   const [petMode, setPetMode] = useState(false)
+  // 检测卡「备注」：快速反馈（不是我的/已完成/自由输入），存档并注入后续提示词帮模型学习
+  const [noteOpen, setNoteOpen] = useState(false)
+  const [noteText, setNoteText] = useState('')
 
   // 关闭前先播放淡出动画，再执行真正的隐藏 */
   const fadeOut = (action: () => void): void => {
@@ -49,6 +52,24 @@ export default function PreviewCard(): React.JSX.Element | null {
       setState({ phase: 'idle' })
       action()
     }, 250)
+  }
+
+  // 多卡队列切到下一张时收起备注输入
+  const localDetectionId = state.phase === 'local' ? state.local.detectionId : null
+  useEffect(() => {
+    setNoteOpen(false)
+    setNoteText('')
+  }, [localDetectionId])
+
+  const submitNote = (text: string): void => {
+    const note = text.trim()
+    if (!note || state.phase !== 'local') return
+    void api.noteDetection({
+      detectionId: state.local.detectionId ?? null,
+      title: state.local.title,
+      note
+    })
+    fadeOut(() => void api.previewHide())
   }
 
   const submit = async (capture: PendingCapture): Promise<void> => {
@@ -413,7 +434,47 @@ export default function PreviewCard(): React.JSX.Element | null {
             <div className="text-xs text-slate-500">
               {state.local.isoTime ? fmtTime(state.local.isoTime) : '未识别到具体时间'}
             </div>
+            {noteOpen && (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex flex-wrap gap-1">
+                  {['不是我的日程', '已经完成了', '时间不对'].map((t) => (
+                    <button
+                      key={t}
+                      className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-brand-soft hover:text-brand"
+                      onClick={() => submitNote(t)}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-1.5">
+                  <input
+                    autoFocus
+                    className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs focus:border-slate-400 focus:outline-none"
+                    placeholder="补充一句，帮我下次判断得更准…"
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') submitNote(noteText)
+                    }}
+                  />
+                  <button
+                    className="shrink-0 rounded-md bg-brand px-2.5 py-1 text-[11px] text-white hover:bg-brand-dark disabled:opacity-40"
+                    disabled={!noteText.trim()}
+                    onClick={() => submitNote(noteText)}
+                  >
+                    发送
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
+              <button
+                className="mr-auto rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                onClick={() => setNoteOpen(!noteOpen)}
+              >
+                {noteOpen ? '收起' : '备注'}
+              </button>
               <button
                 className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
                 onClick={() =>

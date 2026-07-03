@@ -17,6 +17,7 @@ import {
   listFocusTaskPrefs,
   getProfile,
   getSettings,
+  addDetectionNote,
   getSource,
   getTask,
   listReports,
@@ -245,6 +246,23 @@ export function registerIpc(): void {
   )
   // 悬浮建议卡「忽略」仍需回写检测状态（检测列表 UI 已随记忆页拆除）
   ipcMain.handle('detections:dismiss', (_e, id: string) => dismissDetection(id))
+  // 检测卡「备注」：存反馈（注入后续提示词）+「不是我的」语义顺带走归属学习 + 关闭该检测
+  ipcMain.handle(
+    'detections:note',
+    (_e, p: { detectionId: string | null; title: string; note: string }) => {
+      const note = p.note.trim()
+      if (!note) return
+      addDetectionNote(p.detectionId, p.title, note)
+      if (/不是我|别人|他的|她的|同事|其他人/.test(note)) {
+        const profile = getProfile()
+        if (profile) {
+          const next = learnNotMine(profile, `${p.title} ${note}`)
+          if (next !== profile) saveProfile(next)
+        }
+      }
+      if (p.detectionId) dismissDetection(p.detectionId)
+    }
+  )
   // 工作记录 / 应用时长 / 日报（「日报」页）
   ipcMain.handle('work-records:list', (_e, day: string) => listWorkRecords(day))
   ipcMain.handle('work-records:since', (_e, sinceDay: string) => listWorkRecordsSince(sinceDay))
