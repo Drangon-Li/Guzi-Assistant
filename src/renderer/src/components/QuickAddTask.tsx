@@ -96,9 +96,9 @@ export default function QuickAddTask({ onAdded }: { onAdded: (msg: string) => vo
 
   return (
     <>
-      {/* 悬浮加号：叠在右下角悬浮助手上方 */}
+      {/* 悬浮加号：页面右下角（悬浮助手无常驻按钮，底角是空的；助手面板 z-40 打开时盖过此钮无碍） */}
       <button
-        className="fixed right-6 bottom-[92px] z-20 flex size-12 items-center justify-center rounded-full bg-brand text-white shadow-lg transition-transform hover:scale-105 hover:bg-brand-dark"
+        className="fixed right-6 bottom-6 z-20 flex size-12 items-center justify-center rounded-full bg-brand text-white shadow-lg transition-transform hover:scale-105 hover:bg-brand-dark"
         title="新建日程"
         onClick={() => setOpen(true)}
       >
