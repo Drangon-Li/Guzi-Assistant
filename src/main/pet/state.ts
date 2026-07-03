@@ -16,6 +16,8 @@ export interface PetPrefs {
   perMonitor: Record<string, { x: number; y: number }>
   crossDisplay: boolean
   gravity: boolean
+  /** 贴边吸附：拖到屏幕左/右边缘松手后收成半圆侧边标签；null = 未吸附 */
+  dock: 'left' | 'right' | null
 }
 
 const DEFAULTS: PetPrefs = {
@@ -26,7 +28,8 @@ const DEFAULTS: PetPrefs = {
   position: null,
   perMonitor: {},
   crossDisplay: false,
-  gravity: false
+  gravity: false,
+  dock: null
 }
 
 let cache: PetPrefs | null = null
