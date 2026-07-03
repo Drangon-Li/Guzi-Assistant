@@ -171,7 +171,7 @@ export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.
 
       <Section
         title="今日谷穗"
-        desc="每个有活动的小时结成一粒谷，记录越密越饱满。划过谷粒看细节。"
+        desc="今天每个有活动的小时结成一粒谷，新的长在穗尖，记录越密越饱满。划过谷粒看细节。"
         actions={
           <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
             瘪
