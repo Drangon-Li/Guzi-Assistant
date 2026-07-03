@@ -3,6 +3,7 @@ import type { AppSettings, FeishuStatus, PermissionStatus, Profile } from '@shar
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
 import PetSettings from '../components/PetSettings'
+import FeedbackSection from '../components/FeedbackSection'
 import { Section } from '../components/ui'
 
 interface Props {
@@ -12,7 +13,7 @@ interface Props {
 const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
 
-const CATS = ['通用', '快捷键', '助手', '集成', '屏幕感知', '数据'] as const
+const CATS = ['通用', '快捷键', '助手', '集成', '屏幕感知', '数据', '关于'] as const
 
 const CODE_KEYS: Record<string, string> = {
   Space: 'Space',
@@ -779,6 +780,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
           </>
         )}
+        {cat === '关于' && <FeedbackSection />}
       </div>
 
       {note && (
