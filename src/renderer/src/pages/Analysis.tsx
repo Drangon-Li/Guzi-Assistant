@@ -19,10 +19,12 @@ import {
   hourlySwitches,
   longestRunSeconds,
   productiveRuns,
-  shortDwellShare
+  shortDwellShare,
+  taskSwitchCount
 } from '@shared/attention'
 import { api } from '../api'
 import { BarRow, DayNav, Section, Segmented } from '../components/ui'
+import RecordHeat from '../components/RecordHeat'
 
 const CATEGORY_META: Record<AppCategory, { label: string; cls: string }> = {
   productive: { label: '专注', cls: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
@@ -51,6 +53,7 @@ export default function Analysis(): React.JSX.Element {
   const [overrides, setOverrides] = useState<AppCategoryOverride[]>([])
   const [trendRecords, setTrendRecords] = useState<WorkRecord[]>([])
   const [trendUsage, setTrendUsage] = useState<(AppUsageEntry & { day: string })[]>([])
+  const [usageYear, setUsageYear] = useState<(AppUsageEntry & { day: string })[]>([])
 
   const loadDay = useCallback((d: string) => {
     void api.listWorkRecords(d).then(setRecords)
@@ -64,9 +67,11 @@ export default function Analysis(): React.JSX.Element {
 
   useEffect(() => {
     const weekAgo = lastNDays(7)[0]
+    const today = dayKey(new Date())
     void api.appCategoryOverrides().then(setOverrides)
     void api.workRecordsSince(weekAgo).then(setTrendRecords)
-    void api.appUsageRange(weekAgo, dayKey(new Date())).then(setTrendUsage)
+    void api.appUsageRange(weekAgo, today).then(setTrendUsage)
+    void api.appUsageRange(dayKey(new Date(Date.now() - 364 * 86_400_000)), today).then(setUsageYear)
   }, [])
 
   const cat = useMemo(() => {
@@ -132,7 +137,9 @@ export default function Analysis(): React.JSX.Element {
       value: avgSpan === null ? '—' : formatDuration(avgSpan),
       hint: `大众基准约 ${ATTENTION_BASELINE_SEC} 秒`
     },
-    { label: '应用切换', value: `${switches.length} 次` },
+    // 刻意不放「应用切换 N 百次」：数字大且无行动指引，只制造焦虑（用户反馈）；
+    // 任务级切换量级小、有语义，原始切换分布仍在下方碎片化区配着建议看
+    { label: '任务切换', value: `${taskSwitchCount(records)} 次`, hint: '不同任务之间的跳转' },
     { label: '最长专注块', value: longest ? formatDuration(longest) : '—' },
     { label: '深度工作块', value: `${blocks} 个` }
   ]
@@ -164,6 +171,10 @@ export default function Analysis(): React.JSX.Element {
             这一天没有活跃数据。开启「设置 → 屏幕感知」后自动积累。
           </p>
         )}
+      </Section>
+
+      <Section title="时段热力" desc="近一周每小时的记录分布；切「年度」看全年活跃日历。">
+        <RecordHeat records7={trendRecords} usageYear={usageYear} />
       </Section>
 
       <Section title="近 7 天趋势" desc="柱高为深度工作时长，柱下数字为当日专注质量分。">

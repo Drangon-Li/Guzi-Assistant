@@ -171,6 +171,20 @@ export function longestRunSeconds(runs: FocusRun[]): number {
   return runs.reduce((n, r) => Math.max(n, r.seconds), 0)
 }
 
+/**
+ * 任务切换次数：按时间排序的带任务标签记录中，相邻任务标签不同的次数。
+ * 概览卡用它替代「应用切换 N 百次」——量级小、有语义（查资料切浏览器不算切任务），不制造焦虑。
+ */
+export function taskSwitchCount(records: WorkRecord[]): number {
+  const tasks = records
+    .filter((r) => r.task)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map((r) => r.task)
+  let n = 0
+  for (let i = 1; i < tasks.length; i++) if (tasks[i] !== tasks[i - 1]) n++
+  return n
+}
+
 /** 每小时切换次数（长度 24），碎片化热力条用。 */
 export function hourlySwitches(switches: AppSwitchRecord[]): number[] {
   const byHour = Array<number>(24).fill(0)

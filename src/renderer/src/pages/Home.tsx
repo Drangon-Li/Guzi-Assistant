@@ -170,22 +170,12 @@ export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.
       </Section>
 
       <Section
-        title="今日谷穗"
-        desc="今天每个有活动的小时结成一粒谷，新的长在穗尖，记录越密越饱满。划过谷粒看细节。"
-        actions={
-          <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
-            瘪
-            <svg viewBox="0 0 20 12" className="h-3 w-5">
-              <ellipse cx="5" cy="6" rx="3" ry="2" fill="var(--color-brand)" opacity="0.35" />
-              <ellipse cx="14" cy="6" rx="4.5" ry="3" fill="var(--color-brand)" />
-            </svg>
-            饱满
-          </span>
-        }
+        title="今日麦田"
+        desc="地平线是一天的时间轴：有活动的小时长出一株麦子，穗越高、粒越满，那个小时干得越多。划过麦穗看细节。"
       >
         <GrainEar byHour={byHour} />
         {records.length === 0 && (
-          <p className="pt-1 text-center text-xs text-slate-400">谷穗还空着，开始工作后自然会结粒。</p>
+          <p className="pt-1 text-center text-xs text-slate-400">地里还没长东西，开始工作后自然会发芽。</p>
         )}
       </Section>
 
