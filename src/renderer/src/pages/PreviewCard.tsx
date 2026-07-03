@@ -43,6 +43,9 @@ export default function PreviewCard(): React.JSX.Element | null {
   // 检测卡「备注」：快速反馈（不是我的/已完成/自由输入），存档并注入后续提示词帮模型学习
   const [noteOpen, setNoteOpen] = useState(false)
   const [noteText, setNoteText] = useState('')
+  // 检测卡/建议卡倒计时自动忽略：进度条走满 = 拒绝（检测精度有限，沉默即否）；悬停/填备注时暂停
+  const [hovering, setHovering] = useState(false)
+  const [remainMs, setRemainMs] = useState<number | null>(null)
 
   // 关闭前先播放淡出动画，再执行真正的隐藏 */
   const fadeOut = (action: () => void): void => {
@@ -212,13 +215,32 @@ export default function PreviewCard(): React.JSX.Element | null {
       const t = window.setTimeout(close, state.phase === 'done' ? 1800 : 3000)
       return () => window.clearTimeout(t)
     }
-    // 检测卡/AI 建议卡需用户决策：闲置 autoHideSec 秒自动隐藏（不算拒绝，留在日程页「待确认」区兜底）
-    if ((state.phase === 'local' || state.phase === 'suggestion') && autoHideSec > 0) {
-      const t = window.setTimeout(close, autoHideSec * 1000)
-      return () => window.clearTimeout(t)
-    }
     return undefined
   }, [state, autoHideSec])
+
+  // 新检测卡/建议卡弹出（含多任务队列切下一张）：重置自动忽略倒计时；其余阶段无倒计时
+  useEffect(() => {
+    if ((state.phase === 'local' || state.phase === 'suggestion') && autoHideSec > 0)
+      setRemainMs(autoHideSec * 1000)
+    else setRemainMs(null)
+  }, [seq, state.phase, autoHideSec])
+
+  // 倒计时步进 + 走满自动忽略（= 拒绝：标记 dismissed，之后同内容不再重复弹）
+  const countdownPaused = hovering || noteOpen || closing
+  useEffect(() => {
+    if (remainMs === null || countdownPaused) return undefined
+    if (remainMs <= 0) {
+      setRemainMs(null)
+      fadeOut(() => {
+        if (state.phase === 'local' && state.local.detectionId)
+          void api.dismissDetection(state.local.detectionId)
+        void api.previewHide()
+      })
+      return undefined
+    }
+    const t = window.setTimeout(() => setRemainMs((m) => (m === null ? null : m - 100)), 100)
+    return () => window.clearTimeout(t)
+  }, [remainMs, countdownPaused, state])
 
   if (state.phase === 'idle') return null
   // 桌宠模式下：扫描/解析的 loading 由桌宠 Siri 光环表达，不弹空卡
@@ -228,7 +250,9 @@ export default function PreviewCard(): React.JSX.Element | null {
     <div className="flex h-screen items-end justify-end overflow-hidden p-2">
       <div
         key={seq}
-        className={`${closing ? 'animate-card-out' : 'animate-card-in'} flex w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-surface p-4 text-sm shadow-2xl`}
+        className={`${closing ? 'animate-card-out' : 'animate-card-in'} relative flex w-full flex-col gap-2.5 overflow-hidden rounded-2xl border border-slate-200 bg-surface p-4 text-sm shadow-2xl`}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
       >
         <div className="flex items-center gap-2">
           {!petMode && (
@@ -393,13 +417,8 @@ export default function PreviewCard(): React.JSX.Element | null {
               )}
               {state.item.location && <span>{state.item.location}</span>}
             </div>
+            {/* 不设「拒绝」：倒计时走满自动忽略，右上 ✕ 可立即关。用户只需在想要时点「同意」 */}
             <div className="flex justify-end gap-2">
-              <button
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
-                onClick={() => fadeOut(() => void api.previewHide())}
-              >
-                拒绝
-              </button>
               <button
                 className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
                 onClick={() => void acceptSuggestion(true)}
@@ -475,19 +494,7 @@ export default function PreviewCard(): React.JSX.Element | null {
               >
                 {noteOpen ? '收起' : '备注'}
               </button>
-              <button
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
-                onClick={() =>
-                  fadeOut(() => {
-                    // 拒绝：标记该检测已忽略，之后同内容不再重复弹
-                    if (state.phase === 'local' && state.local.detectionId)
-                      void api.dismissDetection(state.local.detectionId)
-                    void api.previewHide()
-                  })
-                }
-              >
-                拒绝
-              </button>
+              {/* 不设「拒绝」：倒计时走满自动忽略（等同拒绝），右上 ✕ 可立即忽略 */}
               <button
                 className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark"
                 onClick={() => void acceptLocalNow()}
@@ -496,6 +503,18 @@ export default function PreviewCard(): React.JSX.Element | null {
               </button>
             </div>
           </>
+        )}
+
+        {/* 自动忽略倒计时：进度条与卡片底边框融合（贴最底、横贯全宽、随圆角裁切），
+            涨满 = 拒绝收起；悬停或填备注时暂停（暂停时条变淡示意） */}
+        {remainMs !== null && (state.phase === 'local' || state.phase === 'suggestion') && (
+          <div
+            aria-hidden="true"
+            className={`absolute bottom-0 left-0 h-[3px] bg-brand transition-[width,opacity] duration-100 ease-linear ${
+              countdownPaused ? 'opacity-25' : 'opacity-60'
+            }`}
+            style={{ width: `${Math.min(100, (1 - remainMs / (autoHideSec * 1000)) * 100)}%` }}
+          />
         )}
 
         {state.phase === 'done' && (

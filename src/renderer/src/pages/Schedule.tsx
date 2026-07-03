@@ -379,7 +379,7 @@ function TaskRow({
 }
 
 /**
- * 待确认检测兜底区：弹卡 60s 自动隐藏或被错过的检测在这里回看处理。
+ * 待确认检测兜底区：没弹卡（完全被动模式）或弹卡未作决定的检测在这里回看处理。
  * （原「记忆 → 历史」的检测列表已随记忆页拆除，这里是唯一兜底入口。）
  */
 function PendingDetections(): React.JSX.Element | null {
@@ -421,7 +421,7 @@ function PendingDetections(): React.JSX.Element | null {
       >
         <span className="text-sm text-slate-600">
           有 <b className="text-brand">{fresh.length}</b> 条检测待确认
-          <span className="ml-2 text-xs text-slate-400">弹卡错过的在这里；已过时的会自动转入忽略</span>
+          <span className="ml-2 text-xs text-slate-400">检测到但还没确认的日程；已过时的会自动转入忽略</span>
         </span>
         <span className={`shrink-0 text-xs text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`}>
           ›
