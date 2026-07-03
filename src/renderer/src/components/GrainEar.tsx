@@ -49,10 +49,10 @@ export default function GrainEar({ byHour }: Props): React.JSX.Element {
         if (c === 0) return <line key={h} x1={x} y1={GROUND} x2={x} y2={GROUND - 4} className="stroke-slate-300" strokeWidth="1.2" />
 
         const plump = c / max
-        const pairs = Math.max(1, Math.min(6, Math.ceil(plump * 6))) // 记录越多结粒越多
-        const earLen = 6 + pairs * 7 // 穗段随粒数变长
-        const stemH = 14 + 24 * plump
-        const sg = 0.78 + 0.3 * plump
+        const pairs = Math.max(1, Math.min(5, Math.ceil(plump * 5))) // 记录越多结粒越多
+        const earLen = 4 + pairs * 8 // 穗段随粒数变长；对距 8px 保证粒粒可辨（7px 时高密会糊成实心块）
+        const stemH = 12 + 22 * plump + (h % 2 ? 6 : 0) // 相邻株高交错，满穗连排也不挤成一坨
+        const sg = 0.6 + 0.2 * plump
         const lean = h % 2 ? 5 : -5 // 交错微倾，像有风
         const bx = x + lean * (stemH / 46)
         const by = GROUND - stemH // 秆顶 = 穗基
@@ -90,9 +90,9 @@ export default function GrainEar({ byHour }: Props): React.JSX.Element {
               </g>
               {/* 成对谷粒：自穗尖向下每 7px 一对，粒数=密度 */}
               {Array.from({ length: pairs }, (_, k) => {
-                const yk = -earLen + 8 + k * 7
+                const yk = -earLen + 8 + k * 8
                 return [-1, 1].map((side) => (
-                  <g key={`${k}${side}`} transform={`translate(${side * 4.5} ${yk}) rotate(${side * 34}) scale(${sg})`}>
+                  <g key={`${k}${side}`} transform={`translate(${side * 4.5} ${yk}) rotate(${side * 38}) scale(${sg})`}>
                     <path d={GRAIN} opacity={0.5 + 0.5 * plump} {...grainProps} />
                     <path d="M 0 -6.5 Q 1.2 0 0 6.5" fill="none" stroke="var(--color-brand-dark)" opacity="0.22" strokeWidth="0.7" />
                   </g>
