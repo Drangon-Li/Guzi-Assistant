@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
+import { shouldRemindRenew } from '@shared/subscription'
 import { api } from './api'
 import { supabase, functionsBase } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
@@ -17,16 +18,24 @@ import PreviewCard from './pages/PreviewCard'
 import Debug from './pages/Debug'
 import PetChat from './pages/PetChat'
 import brandMark from './assets/agent-avatar.png'
+import {
+  IconAccount,
+  IconAnalysis,
+  IconReport,
+  IconSchedule,
+  IconSettings,
+  IconToday
+} from './components/nav-icons'
 
 type Page = 'home' | 'schedule' | 'reports' | 'analysis' | 'account' | 'settings'
 
 // 设置不在主导航里，固定在侧边栏底部
-const NAV: { key: Page; label: string }[] = [
-  { key: 'home', label: '今日' },
-  { key: 'schedule', label: '日程' },
-  { key: 'reports', label: '日报' },
-  { key: 'analysis', label: '分析' },
-  { key: 'account', label: '个人' }
+const NAV: { key: Page; label: string; icon: () => React.JSX.Element }[] = [
+  { key: 'home', label: '今日', icon: IconToday },
+  { key: 'schedule', label: '日程', icon: IconSchedule },
+  { key: 'reports', label: '日报', icon: IconReport },
+  { key: 'analysis', label: '分析', icon: IconAnalysis },
+  { key: 'account', label: '个人', icon: IconAccount }
 ]
 
 export default function App(): React.JSX.Element {
@@ -74,6 +83,27 @@ function MainApp(): React.JSX.Element | null {
   // 首启屏幕录制授权 gate：查当前权限状态（仅 macOS 可能非 granted）
   useEffect(() => {
     void api.permissions().then((p) => setScreenPerm(p.screen))
+  }, [])
+
+  // 订阅/试用到期前 3 天：让桌宠主动提醒一次（否则到期像故障——用户走查 P0）
+  useEffect(() => {
+    if (!supabase) return
+    const sb = supabase
+    void sb.auth.getSession().then(async ({ data }) => {
+      const uid = data.session?.user.id
+      if (!uid) return
+      const { data: s } = await sb
+        .from('subscriptions')
+        .select('plan, expires_at')
+        .eq('user_id', uid)
+        .single()
+      if (!s) return
+      const expiresMs = new Date(s.expires_at).getTime()
+      if (shouldRemindRenew(expiresMs, Date.now())) {
+        const days = Math.max(1, Math.ceil((expiresMs - Date.now()) / 86_400_000))
+        void api.remindRenew(s.plan === 'trial' ? 'trial' : 'paid', days)
+      }
+    })
   }, [])
 
   useEffect(() => {
@@ -190,12 +220,13 @@ function MainApp(): React.JSX.Element | null {
             <button
               key={item.key}
               onClick={() => setPage(item.key)}
-              className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+              className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                 page === item.key
                   ? 'bg-brand-soft font-medium text-brand'
                   : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
+              <item.icon />
               <span>{item.label}</span>
             </button>
           ))}
@@ -203,13 +234,14 @@ function MainApp(): React.JSX.Element | null {
         <div className="mt-auto flex flex-col gap-2 px-3 pb-5">
           <button
             onClick={() => setPage('settings')}
-            className={`flex items-center rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+            className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
               page === 'settings'
                 ? 'bg-brand-soft font-medium text-brand'
                 : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
-            设置
+            <IconSettings />
+            <span>设置</span>
           </button>
           <div className="px-2 text-[11px] leading-5 text-slate-400">
             复制内容后按 {hotkeyLabel}，快速提交剪切板。
@@ -219,7 +251,7 @@ function MainApp(): React.JSX.Element | null {
 
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className={`transition-opacity duration-150 ${pageVisible ? 'opacity-100' : 'opacity-0'}`}>
-          {shownPage === 'home' && <Home tasks={tasks} onNavigate={setPage} />}
+          {shownPage === 'home' && <Home tasks={tasks} userName={profile.name} onNavigate={setPage} />}
           {shownPage === 'schedule' && (
             <Schedule
               tasks={tasks}

@@ -19,10 +19,13 @@ import {
   hourlySwitches,
   longestRunSeconds,
   productiveRuns,
-  shortDwellShare
+  shortDwellShare,
+  taskSwitchCount
 } from '@shared/attention'
 import { api } from '../api'
 import { BarRow, DayNav, Section, Segmented } from '../components/ui'
+import RecordHeat from '../components/RecordHeat'
+import MiniCalendar from '../components/MiniCalendar'
 
 const CATEGORY_META: Record<AppCategory, { label: string; cls: string }> = {
   productive: { label: '专注', cls: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
@@ -51,6 +54,10 @@ export default function Analysis(): React.JSX.Element {
   const [overrides, setOverrides] = useState<AppCategoryOverride[]>([])
   const [trendRecords, setTrendRecords] = useState<WorkRecord[]>([])
   const [trendUsage, setTrendUsage] = useState<(AppUsageEntry & { day: string })[]>([])
+  const [usageYear, setUsageYear] = useState<(AppUsageEntry & { day: string })[]>([])
+  // 页内双视角：当日（概览/碎片化/分类/任务专注）与回顾（热力/趋势/日报回看），
+  // 拆成两个导航项会稀释侧边栏，Tab 即可（用户反馈板块过载后的取舍）
+  const [view, setView] = useState<'day' | 'review'>('day')
 
   const loadDay = useCallback((d: string) => {
     void api.listWorkRecords(d).then(setRecords)
@@ -64,9 +71,11 @@ export default function Analysis(): React.JSX.Element {
 
   useEffect(() => {
     const weekAgo = lastNDays(7)[0]
+    const today = dayKey(new Date())
     void api.appCategoryOverrides().then(setOverrides)
     void api.workRecordsSince(weekAgo).then(setTrendRecords)
-    void api.appUsageRange(weekAgo, dayKey(new Date())).then(setTrendUsage)
+    void api.appUsageRange(weekAgo, today).then(setTrendUsage)
+    void api.appUsageRange(dayKey(new Date(Date.now() - 364 * 86_400_000)), today).then(setUsageYear)
   }, [])
 
   const cat = useMemo(() => {
@@ -112,6 +121,11 @@ export default function Analysis(): React.JSX.Element {
     void api.appCategoryOverrides().then(setOverrides)
   }
   const overriddenApps = useMemo(() => new Set(overrides.map((o) => o.app)), [overrides])
+  // 小日历的"有数据"圆点：近一年内有活跃时长的日子
+  const activeDaySet = useMemo(
+    () => new Set(usageYear.filter((u) => u.seconds > 0).map((u) => u.day)),
+    [usageYear]
+  )
 
   const heatClass = (n: number): string =>
     n === 0 ? 'bg-slate-100' : n <= 2 ? 'bg-brand/30' : n <= 5 ? 'bg-brand/60' : 'bg-brand'
@@ -132,23 +146,43 @@ export default function Analysis(): React.JSX.Element {
       value: avgSpan === null ? '—' : formatDuration(avgSpan),
       hint: `大众基准约 ${ATTENTION_BASELINE_SEC} 秒`
     },
-    { label: '应用切换', value: `${switches.length} 次` },
+    // 刻意不放「应用切换 N 百次」：数字大且无行动指引，只制造焦虑（用户反馈）；
+    // 任务级切换量级小、有语义，原始切换分布仍在下方碎片化区配着建议看
+    { label: '任务切换', value: `${taskSwitchCount(records)} 次`, hint: '不同任务之间的跳转' },
     { label: '最长专注块', value: longest ? formatDuration(longest) : '—' },
     { label: '深度工作块', value: `${blocks} 个` }
   ]
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">分析</h1>
           <p className="mt-1 text-sm text-slate-400">
-            从行为数据看专注与碎片化。只统计应用名与时刻，不涉及屏幕内容。
+            {view === 'day'
+              ? '从行为数据看今天的专注与碎片化。只统计应用名与时刻，不涉及屏幕内容。'
+              : '历史节奏一览：时段热力、趋势与日报回看。'}
           </p>
         </div>
-        <DayNav day={day} onChange={setDay} />
+        <Segmented
+          value={view}
+          onChange={setView}
+          options={[
+            ['day', '当日'],
+            ['review', '回顾']
+          ]}
+        />
       </div>
 
+      {/* 日期导航独立成行：与标题挤一行会换行错乱（用户反馈）；小日历可跳任意一天 */}
+      {view === 'day' && (
+        <div className="-mt-2 flex items-center justify-between">
+          <DayNav day={day} onChange={setDay} />
+          <MiniCalendar day={day} onChange={setDay} activeDays={activeDaySet} />
+        </div>
+      )}
+
+      {view === 'day' && (
       <Section title="当日概览">
         <div className="grid grid-cols-3 gap-3">
           {stats.map((s) => (
@@ -164,6 +198,13 @@ export default function Analysis(): React.JSX.Element {
             这一天没有活跃数据。开启「设置 → 屏幕感知」后自动积累。
           </p>
         )}
+      </Section>
+      )}
+
+      {view === 'review' && (
+      <>
+      <Section title="时段热力" desc="按周看每小时的记录分布，可前后翻周；切「年度」看全年活跃日历。">
+        <RecordHeat />
       </Section>
 
       <Section title="近 7 天趋势" desc="柱高为深度工作时长，柱下数字为当日专注质量分。">
@@ -185,7 +226,11 @@ export default function Analysis(): React.JSX.Element {
           ))}
         </div>
       </Section>
+      </>
+      )}
 
+      {view === 'day' && (
+      <>
       <Section
         title="注意力碎片化"
         desc="每小时的应用切换次数。频繁切换的时段适合合并同类任务、批量处理消息。"
@@ -263,8 +308,10 @@ export default function Analysis(): React.JSX.Element {
           </ul>
         )}
       </Section>
+      </>
+      )}
 
-      <ReportBrowser />
+      {view === 'review' && <ReportBrowser />}
     </div>
   )
 }

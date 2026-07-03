@@ -4,6 +4,7 @@ import type {
   AppSettings,
   AppSwitchRecord,
   AppUsageEntry,
+  DetectionRecord,
   FeishuStatus,
   ParseSummary,
   PendingCapture,
@@ -48,6 +49,7 @@ export const api = {
   listTasks: () => inv<TaskRecord[]>('tasks:list'),
   updateTask: (id: string, patch: Partial<TaskRecord>) => inv<void>('tasks:update', id, patch),
   bulkTasks: (ids: string[], status: TaskStatus) => inv<void>('tasks:bulk', ids, status),
+  quickAddTask: (text: string) => inv<{ added: number; titles: string[] }>('tasks:quick-add', text),
 
   captureFiles: (paths: string[]) => inv<ParseSummary[]>('capture:files', paths),
   captureScreenshot: () => inv<ParseSummary | null>('capture:screenshot'),
@@ -74,9 +76,13 @@ export const api = {
     inv<AddedInfo>('suggestion:accept', payload),
   acceptLocal: (payload: { item: ParsedItem; sourceText: string; detectionId?: string }) =>
     inv<AddedInfo>('suggestion:accept-local', payload),
+  listDetections: () => inv<DetectionRecord[]>('detections:list'),
+  acceptDetection: (id: string) => inv<AddedInfo | null>('detections:accept', id),
   dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
   noteDetection: (p: { detectionId: string | null; title: string; note: string }) =>
     inv<void>('detections:note', p),
+  remindRenew: (kind: 'trial' | 'paid', days: number) =>
+    inv<void>('subscription:remind', kind, days),
 
   listWorkRecords: (day: string) => inv<WorkRecord[]>('work-records:list', day),
   workRecordsSince: (sinceDay: string) => inv<WorkRecord[]>('work-records:since', sinceDay),

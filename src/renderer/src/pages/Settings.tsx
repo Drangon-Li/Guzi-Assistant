@@ -3,6 +3,7 @@ import type { AppSettings, FeishuStatus, PermissionStatus, Profile } from '@shar
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
 import PetSettings from '../components/PetSettings'
+import FeedbackSection from '../components/FeedbackSection'
 import { Section } from '../components/ui'
 
 interface Props {
@@ -12,7 +13,7 @@ interface Props {
 const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
 
-const CATS = ['通用', '快捷键', '助手', '集成', '屏幕感知', '数据'] as const
+const CATS = ['通用', '快捷键', '助手', '集成', '屏幕感知', '数据', '关于'] as const
 
 const CODE_KEYS: Record<string, string> = {
   Space: 'Space',
@@ -203,7 +204,8 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
   return (
     <div className="mx-auto flex max-w-4xl gap-6 px-8 py-8">
-      <nav className="flex w-28 shrink-0 flex-col gap-1 pt-0.5">
+      {/* sticky：右侧内容长页滚动时分类栏钉在视口，不跟着滚走 */}
+      <nav className="sticky top-8 flex w-28 shrink-0 flex-col gap-1 self-start pt-0.5">
         <h1 className="mb-2 px-3 text-lg font-semibold">设置</h1>
         {CATS.map((c) => (
           <button
@@ -779,6 +781,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
           </>
         )}
+        {cat === '关于' && <FeedbackSection />}
       </div>
 
       {note && (

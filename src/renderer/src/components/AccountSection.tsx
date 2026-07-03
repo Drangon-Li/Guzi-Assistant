@@ -290,6 +290,9 @@ export default function AccountSection(): React.JSX.Element {
           {mode === 'login' ? '没有账号？注册' : '已有账号？登录'}
         </button>
       </div>
+      {mode === 'register' && (
+        <p className="text-xs text-slate-400">注册即送 7 天全功能试用，到期前会提醒，不自动扣费。</p>
+      )}
       {msg && <p className="text-xs leading-5 text-amber-700">{msg}</p>}
     </div>
   )

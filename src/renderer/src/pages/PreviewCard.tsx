@@ -212,7 +212,7 @@ export default function PreviewCard(): React.JSX.Element | null {
       const t = window.setTimeout(close, state.phase === 'done' ? 1800 : 3000)
       return () => window.clearTimeout(t)
     }
-    // 检测卡/AI 建议卡需用户决策：闲置 autoHideSec 秒自动隐藏（仍留在「记忆」历史，不算拒绝）
+    // 检测卡/AI 建议卡需用户决策：闲置 autoHideSec 秒自动隐藏（不算拒绝，留在日程页「待确认」区兜底）
     if ((state.phase === 'local' || state.phase === 'suggestion') && autoHideSec > 0) {
       const t = window.setTimeout(close, autoHideSec * 1000)
       return () => window.clearTimeout(t)

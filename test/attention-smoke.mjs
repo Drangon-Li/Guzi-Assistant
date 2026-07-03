@@ -1,6 +1,7 @@
 // 纯函数单测：注意力分析指标。运行：npm run test:attention
 import {
   ATTENTION_BASELINE_SEC,
+  taskSwitchCount,
   avgAttentionSpanSec,
   buildOverrideMap,
   categoryOf,
@@ -79,6 +80,15 @@ check('短段不计深度工作', deepWorkSeconds(runs) === 0)
 check('深度块数', deepBlockCount(longRuns) === 1 && deepBlockCount(runs) === 0)
 check('最长专注块', longestRunSeconds(longRuns) === 25 * 60)
 check('空记录 → 空段', productiveRuns([], cat).length === 0)
+
+// ---- taskSwitchCount ----
+const tr = (t, task) => ({ id: t, content: 'x', app: 'Code', task, createdAt: `2026-07-03T${t}` })
+check(
+  '任务切换按标签变化计数',
+  taskSwitchCount([tr('09:00', 'A'), tr('09:10', 'A'), tr('09:20', 'B'), tr('09:30', 'A')]) === 2
+)
+check('无标签记录不参与', taskSwitchCount([tr('09:00', 'A'), tr('09:05', null), tr('09:10', 'A')]) === 0)
+check('空记录 → 0', taskSwitchCount([]) === 0)
 
 // ---- hourlySwitches / shortDwellShare ----
 const sw = (t) => ({ ts: `2026-07-02T${t}`, fromApp: 'A', toApp: 'B' })

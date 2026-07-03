@@ -99,7 +99,7 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
                 <li className="rounded-xl border border-slate-200 px-4 py-3">
                   <span className="font-medium">2. 登录账号</span>
                   <span className="ml-2 text-xs text-slate-400">
-                    在「个人」页注册登录，AI 解析即开即用（每月有赠送积分）
+                    在「个人」页注册登录，注册即送 7 天全功能试用
                   </span>
                 </li>
                 <li className="rounded-xl border border-slate-200 px-4 py-3">

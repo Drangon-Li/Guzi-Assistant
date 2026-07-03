@@ -134,6 +134,7 @@ export function initDb(): void {
   // 切换事件只服务注意力分析，90 天后没有回看价值，启动时滚动清理
   const switchCutoff = dayKey(new Date(Date.now() - 90 * 86_400_000))
   db.prepare('DELETE FROM app_switches WHERE ts < ?').run(switchCutoff)
+  cleanupStaleDetections()
 
   // 老库迁移：早期版本没有 notes 列
   const taskCols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(
@@ -833,6 +834,21 @@ export function personalMemoryText(): string {
         .join('\n')}`
     )
   return parts.join('\n')
+}
+
+/**
+ * 待确认检测自动过期：会议类过点 1 天（会已开完，确认无意义）、其余 7 天未处理（基本是噪声）
+ * → 自动转忽略。只改状态不删数据。启动时与每次拉待确认列表前各清一遍。
+ */
+export function cleanupStaleDetections(): void {
+  const at = (ms: number): string => {
+    const d = new Date(ms)
+    const p = (n: number): string => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+  }
+  db.prepare(
+    "UPDATE detections SET status='dismissed' WHERE status='new' AND ((time_iso IS NOT NULL AND deadline=0 AND time_iso < ?) OR created_at < ?)"
+  ).run(at(Date.now() - 86_400_000), at(Date.now() - 7 * 86_400_000))
 }
 
 // ---------- detection_notes（检测卡「备注」：用户对检测结果的人工反馈，个性化学习素材）----------

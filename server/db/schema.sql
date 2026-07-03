@@ -208,6 +208,20 @@ create policy "own profile update" on public.profiles for update
 revoke update on table public.profiles from authenticated, anon;
 grant update (display_name, avatar) on table public.profiles to authenticated;
 
+-- ═══════════════ 用户反馈（设置 → 关于 → 联系我们）═══════════════
+-- 应用内直接提交，团队后台可见；RLS：登录用户只能写/看自己的。
+create table if not exists public.feedback (
+  id         bigint generated always as identity primary key,
+  user_id    uuid references auth.users (id) on delete set null,
+  content    text not null,
+  contact    text,                              -- 选填：微信/邮箱/QQ
+  ua         text,                              -- userAgent（含 Electron 版本，排查环境用）
+  created_at timestamptz not null default now()
+);
+alter table public.feedback enable row level security;
+create policy "own feedback insert" on public.feedback for insert to authenticated with check (auth.uid() = user_id);
+create policy "own feedback read"   on public.feedback for select using (auth.uid() = user_id);
+
 -- ⚠️ 一次性迁移（订阅制上线时手动执行一次）：存量已购积分折算订阅天数（1000 分 ≈ 30 天）。
 -- 执行前和用户确认折算率；执行后存量 purchased_balance 清零，流水留痕。
 -- insert into public.subscriptions (user_id, plan, expires_at)

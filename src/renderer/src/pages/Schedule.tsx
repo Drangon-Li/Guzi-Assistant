@@ -1,11 +1,12 @@
-import { useState } from 'react'
-import type { TaskRecord, TaskStatus } from '@shared/types'
+import { useCallback, useEffect, useState } from 'react'
+import type { DetectionRecord, TaskRecord, TaskStatus } from '@shared/types'
 import { api } from '../api'
 import { dayKey, fmtTime, PRIORITY_LABELS, STATUS_LABELS, todayKey, TYPE_LABELS } from '../labels'
 import EditTaskModal from '../components/EditTaskModal'
 import SourceModal from '../components/SourceModal'
 import TaskDetailModal from '../components/TaskDetailModal'
 import Timeline, { type TimelineMode } from './Timeline'
+import QuickAddTask from '../components/QuickAddTask'
 import { Segmented } from '../components/ui'
 
 interface Props {
@@ -46,6 +47,12 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
   const [editing, setEditing] = useState<TaskRecord | null>(null)
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
+  const [note, setNote] = useState('')
+
+  const flash = (msg: string): void => {
+    setNote(msg)
+    window.setTimeout(() => setNote(''), 3500)
+  }
 
   const active = tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).sort(byTime)
   const pending = tasks.filter((t) => t.status === 'pending')
@@ -135,6 +142,8 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
             <span className="shrink-0 text-xs font-medium text-amber-700">去确认 →</span>
           </button>
         )}
+
+        <PendingDetections />
 
         {tasks.length === 0 && (
           <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
@@ -253,6 +262,17 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
         />
       )}
       {sourceId && <SourceModal sourceId={sourceId} onClose={() => setSourceId(null)} />}
+
+      {/* 悬浮加号：随手记（自然语言解析）/ 表单 两种方式手动建日程 */}
+      <QuickAddTask onAdded={flash} />
+      {note && (
+        <div
+          key={note}
+          className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg"
+        >
+          {note}
+        </div>
+      )}
     </div>
   )
 }
@@ -353,6 +373,101 @@ function TaskRow({
         >
           来源
         </button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 待确认检测兜底区：弹卡 60s 自动隐藏或被错过的检测在这里回看处理。
+ * （原「记忆 → 历史」的检测列表已随记忆页拆除，这里是唯一兜底入口。）
+ */
+function PendingDetections(): React.JSX.Element | null {
+  const [dets, setDets] = useState<DetectionRecord[]>([])
+  const [open, setOpen] = useState(false)
+
+  const load = useCallback((): void => void api.listDetections().then(setDets), [])
+  useEffect(() => {
+    load()
+    // 检测无专属广播：蹭任务更新事件刷新（同意检测会触发它），展开时也会重新拉
+    return api.on('eshell:tasks-updated', load)
+  }, [load])
+
+  const fresh = dets.filter((d) => d.status === 'new')
+  if (!fresh.length) return null
+
+  const accept = async (id: string): Promise<void> => {
+    await api.acceptDetection(id)
+    load()
+  }
+  const dismiss = async (id: string): Promise<void> => {
+    await api.dismissDetection(id)
+    load()
+  }
+  // 积压兜底：历史弱信号可能攒几百条，逐条忽略不现实
+  const dismissAll = async (): Promise<void> => {
+    await Promise.all(fresh.map((d) => api.dismissDetection(d.id)))
+    load()
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-surface shadow-sm">
+      <button
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        onClick={() => {
+          if (!open) load()
+          setOpen(!open)
+        }}
+      >
+        <span className="text-sm text-slate-600">
+          有 <b className="text-brand">{fresh.length}</b> 条检测待确认
+          <span className="ml-2 text-xs text-slate-400">弹卡错过的在这里；已过时的会自动转入忽略</span>
+        </span>
+        <span className={`shrink-0 text-xs text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`}>
+          ›
+        </span>
+      </button>
+      {open && (
+        <ul className="border-t border-slate-100 px-4 py-1">
+          {fresh.length > 3 && (
+            <li className="flex justify-end py-1.5">
+              <button
+                className="text-[11px] text-slate-400 hover:text-red-500"
+                onClick={() => void dismissAll()}
+              >
+                全部忽略（{fresh.length}）
+              </button>
+            </li>
+          )}
+          {fresh.slice(0, 10).map((d) => (
+            <li key={d.id} className="flex items-center gap-3 border-b border-slate-100 py-2 last:border-b-0">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm">{d.title}</div>
+                <div className="mt-0.5 text-[11px] text-slate-400">
+                  {d.timeIso ? fmtTime(d.timeIso) : '未识别到时间'} · 检测于{' '}
+                  {d.createdAt.slice(5, 16).replace('T', ' ')}
+                </div>
+              </div>
+              <button
+                className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+                onClick={() => void dismiss(d.id)}
+              >
+                忽略
+              </button>
+              <button
+                className="shrink-0 rounded-lg bg-brand px-3 py-1 text-[11px] text-white hover:bg-brand-dark"
+                onClick={() => void accept(d.id)}
+              >
+                同意
+              </button>
+            </li>
+          ))}
+          {fresh.length > 10 && (
+            <li className="py-2 text-center text-[11px] text-slate-400">
+              还有 {fresh.length - 10} 条，处理后自动显示
+            </li>
+          )}
+        </ul>
       )}
     </div>
   )

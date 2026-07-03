@@ -1,31 +1,48 @@
-import { useCallback, useEffect, useState } from 'react'
-import type { AppUsageEntry, TaskRecord, WorkRecord } from '@shared/types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { AppCategoryOverride, AppUsageEntry, TaskRecord, WorkRecord } from '@shared/types'
 import { dayKey, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
+import { buildOverrideMap, categoryOf, deepWorkSeconds, productiveRuns } from '@shared/attention'
 import { api } from '../api'
 import { Section } from '../components/ui'
+import GrainEar from '../components/GrainEar'
 import brandMark from '../assets/agent-avatar.png'
 
 const ACTIVE_STATUS = new Set(['not_started', 'scheduled', 'in_progress', 'overdue'])
 
 interface Props {
   tasks: TaskRecord[]
+  userName: string
   onNavigate: (page: 'reports' | 'settings') => void
 }
 
-/** 「今日」主界面：口号 + 隐私承诺 + 今日概览 + 时段记录 + 最近工作记录。 */
-export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
+function greeting(h: number): string {
+  if (h >= 5 && h < 8) return '清晨好'
+  if (h < 11) return '早上好'
+  if (h < 13) return '中午好'
+  if (h < 18) return '下午好'
+  if (h < 23) return '晚上好'
+  return '夜深了'
+}
+
+/** 「今日」主界面：动态问候 + 数据叙事 + 今日概览 + 谷穗时间轴 + 最近工作记录。 */
+export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.Element {
   const [records, setRecords] = useState<WorkRecord[]>([])
+  const [ytdRecords, setYtdRecords] = useState<WorkRecord[]>([])
+  const [overrides, setOverrides] = useState<AppCategoryOverride[]>([])
   const [usage, setUsage] = useState<AppUsageEntry[]>([])
   const [senseOn, setSenseOn] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [note, setNote] = useState('')
 
   const today = dayKey(new Date())
+  const yesterday = dayKey(new Date(Date.now() - 86_400_000))
 
   const load = useCallback(() => {
     void api.listWorkRecords(today).then(setRecords)
+    void api.listWorkRecords(yesterday).then(setYtdRecords)
     void api.appUsageSummary(today).then(setUsage)
-  }, [today])
+    void api.appCategoryOverrides().then(setOverrides)
+  }, [today, yesterday])
 
   useEffect(() => {
     load()
@@ -61,31 +78,47 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
     (t) => ACTIVE_STATUS.has(t.status) && t.belongsToUser !== 'no'
   ).length
 
-  // 时段热力：按小时数工作记录条数
+  // 谷穗：按小时数工作记录条数（谷粒饱满度）
   const byHour = Array<number>(24).fill(0)
   for (const r of records) {
     const h = Number(r.createdAt.slice(11, 13))
     if (h >= 0 && h < 24) byHour[h]++
   }
-  const heatClass = (n: number): string =>
-    n === 0 ? 'bg-slate-100' : n === 1 ? 'bg-brand/30' : n <= 3 ? 'bg-brand/60' : 'bg-brand'
+  const grainCount = byHour.filter((n) => n > 0).length
+
+  // 数据叙事：今天专注多久、结了几粒谷；有可比数据时对比昨天此刻
+  const narrative = useMemo(() => {
+    if (!records.length)
+      return senseOn
+        ? '新的一天，谷穗还没结粒。开始工作后，我会帮你把每段专注攒成收获。'
+        : '开启屏幕感知后，我会帮你把每段专注攒成收获。'
+    const map = buildOverrideMap(overrides)
+    const cat = (app: string): ReturnType<typeof categoryOf> => categoryOf(app, map)
+    const deep = deepWorkSeconds(productiveRuns(records, cat))
+    const nowHm = new Date().toTimeString().slice(0, 5)
+    const deepYtd = deepWorkSeconds(
+      productiveRuns(ytdRecords.filter((r) => r.createdAt.slice(11, 16) <= nowHm), cat)
+    )
+    let s = deep
+      ? `今天已专注 ${formatDuration(deep)}，谷穗结了 ${grainCount} 粒`
+      : `今天谷穗结了 ${grainCount} 粒`
+    const diff = deep - deepYtd
+    if (deepYtd > 0 && Math.abs(diff) >= 600)
+      s += `，比昨天此时${diff > 0 ? '多' : '少'}专注 ${formatDuration(Math.abs(diff))}`
+    return s + '。'
+  }, [records, ytdRecords, overrides, senseOn, grainCount])
 
   const recent = groupWorkPeriods(records).slice(-5).reverse()
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
       <div className="flex items-start gap-4">
-        <img src={brandMark} alt="" className="mt-1 size-14 shrink-0 rounded-2xl border border-brand-soft bg-brand-soft/50 p-2" />
+        <img src={brandMark} alt="" className="mt-1 size-12 shrink-0 rounded-2xl border border-brand-soft bg-brand-soft/50 p-2" />
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold">把每天的忙碌，攒成看得见的收获</h1>
-          <p className="mt-1.5 text-sm leading-6 text-slate-400">
-            静默感知屏幕，帮你捕获待办、判断「哪些事是你的事」，顺手记好工作轨迹、写好每一份日报。
-          </p>
-          <div className="mt-2.5 flex flex-wrap gap-2 text-xs text-slate-500">
-            <span className="rounded-full border border-slate-200 px-2.5 py-1">截图用完即弃</span>
-            <span className="rounded-full border border-slate-200 px-2.5 py-1">只上传文字，不传截图</span>
-            <span className="rounded-full border border-slate-200 px-2.5 py-1">数据仅存本地</span>
-          </div>
+          <h1 className="text-2xl font-semibold">
+            {greeting(new Date().getHours())}，{userName}
+          </h1>
+          <p className="mt-1.5 text-sm leading-6 text-slate-400">{narrative}</p>
         </div>
       </div>
 
@@ -137,26 +170,13 @@ export default function Home({ tasks, onNavigate }: Props): React.JSX.Element {
       </Section>
 
       <Section
-        title="时段记录"
-        actions={
-          <span className="flex items-center gap-1 text-[10px] text-slate-400">
-            少
-            <span className="size-2.5 rounded-sm bg-slate-100" />
-            <span className="size-2.5 rounded-sm bg-brand/30" />
-            <span className="size-2.5 rounded-sm bg-brand/60" />
-            <span className="size-2.5 rounded-sm bg-brand" />
-            多
-          </span>
-        }
+        title="今日麦田"
+        desc="地平线是一天的时间轴：有活动的小时长出一株麦子，记录越多穗子越长、结粒越多。划过麦穗数一数。"
       >
-        <div className="flex gap-1">
-          {byHour.map((n, h) => (
-            <div key={h} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-              <div className={`h-7 w-full rounded ${heatClass(n)}`} title={`${h}:00 · ${n} 条记录`} />
-              {h % 6 === 0 && <span className="text-[10px] text-slate-400">{h}:00</span>}
-            </div>
-          ))}
-        </div>
+        <GrainEar byHour={byHour} />
+        {records.length === 0 && (
+          <p className="pt-1 text-center text-xs text-slate-400">地里还没长东西，开始工作后自然会发芽。</p>
+        )}
       </Section>
 
       <Section

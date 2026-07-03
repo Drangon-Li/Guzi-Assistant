@@ -18,8 +18,10 @@ import {
   getProfile,
   getSettings,
   addDetectionNote,
+  cleanupStaleDetections,
   getSource,
   getTask,
+  listDetections,
   listReports,
   listTasks,
   listWorkRecords,
@@ -37,12 +39,14 @@ import { learnNotMine } from '@shared/belonging-learn'
 import {
   cancelPending,
   clearPendings,
+  HINTS,
   readClipboardPending,
   submitFiles,
   submitPending,
   submitScreenshot,
   takeScreenshot
 } from './capture'
+import { parseToItems } from './parser'
 import { assistantAdd, assistantChat } from './assistant'
 import { exportTaskIcs } from './export'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
@@ -50,6 +54,7 @@ import { setHotkey, setScreenshotHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
 import {
+  acceptDetection,
   acceptLocal,
   acceptSuggestion,
   applyScreenSenseSettings,
@@ -63,6 +68,7 @@ import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
 import { broadcast, broadcastTheme, focusMain, hidePreview, showPreview } from './windows'
 import {
   applyExternalPetReaction,
+  applyExternalPetSay,
   setPetBubblesEnabled,
   setPetEnabled,
   setPetScaleValue,
@@ -95,6 +101,9 @@ export function triggerScreenshotCapture(): void {
     if (dataUrl) await submitScreenshot(dataUrl)
   })()
 }
+
+// 到期提醒每次运行只发一次（应用常驻，重启即重置）
+let renewReminded = false
 
 export function registerIpc(): void {
   ipcMain.handle('profile:get', () => getProfile())
@@ -244,9 +253,38 @@ export function registerIpc(): void {
     'suggestion:accept-local',
     (_e, p: { item: ParsedItem; sourceText: string; detectionId?: string }) => acceptLocal(p)
   )
-  // 悬浮建议卡「忽略」仍需回写检测状态（检测列表 UI 已随记忆页拆除）
+  // 检测回看（日程页「待确认」区）：错过/自动隐藏的弹卡在这里兜底处理；拉取前先清过期项
+  ipcMain.handle('detections:list', () => {
+    cleanupStaleDetections()
+    return listDetections()
+  })
+  ipcMain.handle('detections:accept', (_e, id: string) => acceptDetection(id))
   ipcMain.handle('detections:dismiss', (_e, id: string) => dismissDetection(id))
   // 检测卡「备注」：存反馈（注入后续提示词）+「不是我的」语义顺带走归属学习 + 关闭该检测
+  // 日程页悬浮加号·自然语言快建：解析后强制归属本人直接入库（用户亲手输入，无需再走确认流）
+  ipcMain.handle('tasks:quick-add', async (_e, text: string) => {
+    const hint = `${HINTS.text_input}\n这是用户在日程页为自己手动创建的日程/待办（belongs_to_user 一律填 yes），请尽量解析出明确时间。`
+    const items = await parseToItems({ text, hint })
+    for (const item of items)
+      assistantAdd({
+        sourceText: `手动创建：${text.slice(0, 200)}`,
+        item: { ...item, belongs_to_user: 'yes' },
+        force: true
+      })
+    broadcast('eshell:tasks-updated')
+    return { added: items.length, titles: items.map((i) => i.title) }
+  })
+
+  // 订阅/试用到期前提醒：渲染层查到快到期时让桌宠说一次（每次运行只提醒一回，不烦人）
+  ipcMain.handle('subscription:remind', (_e, kind: 'trial' | 'paid', days: number) => {
+    if (renewReminded) return
+    renewReminded = true
+    applyExternalPetSay(
+      kind === 'trial' ? `试用还剩 ${days} 天，订阅后不间断陪你～` : `订阅还有 ${days} 天到期，记得续费～`,
+      'waiting',
+      { durationMs: 12_000 }
+    )
+  })
   ipcMain.handle(
     'detections:note',
     (_e, p: { detectionId: string | null; title: string; note: string }) => {
