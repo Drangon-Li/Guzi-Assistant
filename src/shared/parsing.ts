@@ -335,7 +335,14 @@ export function parseModelOutput(text: string): ParsedItem[] {
 
 /** 从助手对话的模型输出中规整 {reply, candidates, add} 信封 */
 export function parseAssistantOutput(text: string): AssistantEnvelope {
-  const parsed = extractJson(text)
+  let parsed: Record<string, unknown>
+  try {
+    parsed = extractJson(text)
+  } catch {
+    // 模型偶尔不守约、直接输出对话原文（无 JSON 信封）：当纯回复用，不把格式问题抛给用户
+    const plain = text.replace(/```[a-z]*\n?|```/gi, '').trim()
+    return { reply: plain || '（无回复）', candidates: [], add: [] }
+  }
   const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : ''
   const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : []
   const candidates = rawCandidates
