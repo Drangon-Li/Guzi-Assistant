@@ -11,6 +11,7 @@ import {
 } from '@shared/work-report'
 import { api } from '../api'
 import { BarRow, DayNav, Section } from '../components/ui'
+import ReportModal from '../components/ReportModal'
 
 /** 「日报」页：当日工作记录时间线 + 应用/任务时长 + 生成/回看工作日报。 */
 export default function Reports(): React.JSX.Element {
@@ -200,11 +201,14 @@ export default function Reports(): React.JSX.Element {
         {usage.length === 0 ? (
           <p className="py-2 text-sm text-slate-400">暂无数据（持续监控开启时按前台应用自动累计）。</p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {usage.slice(0, 8).map((u) => (
-              <BarRow key={u.app} label={u.app} value={u.seconds} max={maxUsage} valueLabel={formatDuration(u.seconds)} />
-            ))}
-          </ul>
+          // 默认露出 top-5（第 6 行露一条缝提示可滚），其余滚动看——与工作记录一致的内滚模式
+          <div className="max-h-[148px] overflow-y-auto">
+            <ul className="flex flex-col gap-2">
+              {usage.map((u) => (
+                <BarRow key={u.app} label={u.app} value={u.seconds} max={maxUsage} valueLabel={formatDuration(u.seconds)} />
+              ))}
+            </ul>
+          </div>
         )}
       </Section>
 
@@ -212,18 +216,20 @@ export default function Reports(): React.JSX.Element {
         {focusList.length === 0 ? (
           <p className="py-2 text-sm text-slate-400">暂无任务归类，积累一些工作记录后自动出现。</p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {focusList.map((f) => (
-              <BarRow
-                key={f.task}
-                label={f.task}
-                value={f.seconds}
-                max={maxFocus}
-                valueLabel={f.seconds ? formatDuration(f.seconds) : '—'}
-                onDelete={() => void hideTask(f.task)}
-              />
-            ))}
-          </ul>
+          <div className="max-h-[148px] overflow-y-auto">
+            <ul className="flex flex-col gap-2">
+              {focusList.map((f) => (
+                <BarRow
+                  key={f.task}
+                  label={f.task}
+                  value={f.seconds}
+                  max={maxFocus}
+                  valueLabel={f.seconds ? formatDuration(f.seconds) : '—'}
+                  onDelete={() => void hideTask(f.task)}
+                />
+              ))}
+            </ul>
+          </div>
         )}
         <div className="mt-3 flex gap-2">
           <input
@@ -256,8 +262,8 @@ export default function Reports(): React.JSX.Element {
               <li key={r.id} className="border-b border-slate-100 py-2 last:border-b-0">
                 <div className="flex items-center gap-3">
                   <button
-                    className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:text-slate-500"
-                    onClick={() => setOpenReportId(openReportId === r.id ? null : r.id)}
+                    className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:text-brand"
+                    onClick={() => setOpenReportId(r.id)}
                   >
                     {r.title}
                   </button>
@@ -277,16 +283,18 @@ export default function Reports(): React.JSX.Element {
                     删除
                   </button>
                 </div>
-                {openReportId === r.id && (
-                  <pre className="mt-2 rounded-lg bg-slate-50 px-4 py-3 text-xs leading-6 whitespace-pre-wrap text-slate-700">
-                    {r.content}
-                  </pre>
-                )}
               </li>
             ))}
           </ul>
         )}
       </Section>
+
+      {(() => {
+        const open = reports.find((r) => r.id === openReportId)
+        return open ? (
+          <ReportModal report={open} onExport={() => void exportReport(open)} onClose={() => setOpenReportId(null)} />
+        ) : null
+      })()}
 
       {note && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg">
