@@ -199,6 +199,15 @@ begin
   return jsonb_build_object('ok', true, 'used', used);
 end; $$;
 
+-- ═══════════════ 账户资料自助编辑（头像/昵称）═══════════════
+-- 头像为客户端裁好的 128px JPEG data URL（约 5-8KB），直接存列，免 Storage 桶。
+-- 列级收口：登录用户仅能改自己行的 display_name/avatar，其余列不可写。
+alter table public.profiles add column if not exists avatar text;
+create policy "own profile update" on public.profiles for update
+  using (auth.uid() = id) with check (auth.uid() = id);
+revoke update on table public.profiles from authenticated, anon;
+grant update (display_name, avatar) on table public.profiles to authenticated;
+
 -- ⚠️ 一次性迁移（订阅制上线时手动执行一次）：存量已购积分折算订阅天数（1000 分 ≈ 30 天）。
 -- 执行前和用户确认折算率；执行后存量 purchased_balance 清零，流水留痕。
 -- insert into public.subscriptions (user_id, plan, expires_at)
