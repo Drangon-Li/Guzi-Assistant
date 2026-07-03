@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
+import { shouldRemindRenew } from '@shared/subscription'
 import { api } from './api'
 import { supabase, functionsBase } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
@@ -74,6 +75,27 @@ function MainApp(): React.JSX.Element | null {
   // 首启屏幕录制授权 gate：查当前权限状态（仅 macOS 可能非 granted）
   useEffect(() => {
     void api.permissions().then((p) => setScreenPerm(p.screen))
+  }, [])
+
+  // 订阅/试用到期前 3 天：让桌宠主动提醒一次（否则到期像故障——用户走查 P0）
+  useEffect(() => {
+    if (!supabase) return
+    const sb = supabase
+    void sb.auth.getSession().then(async ({ data }) => {
+      const uid = data.session?.user.id
+      if (!uid) return
+      const { data: s } = await sb
+        .from('subscriptions')
+        .select('plan, expires_at')
+        .eq('user_id', uid)
+        .single()
+      if (!s) return
+      const expiresMs = new Date(s.expires_at).getTime()
+      if (shouldRemindRenew(expiresMs, Date.now())) {
+        const days = Math.max(1, Math.ceil((expiresMs - Date.now()) / 86_400_000))
+        void api.remindRenew(s.plan === 'trial' ? 'trial' : 'paid', days)
+      }
+    })
   }, [])
 
   useEffect(() => {
