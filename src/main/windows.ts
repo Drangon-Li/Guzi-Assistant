@@ -128,6 +128,11 @@ export function broadcastTheme(): void {
   broadcast('eshell:theme', { dark })
 }
 
+/** 桌宠移动/变大小时，把贴在旁边的通知卡重新对齐（卡不可见时零开销）。 */
+export function repositionPreviewNearPet(): void {
+  if (previewWin && !previewWin.isDestroyed() && previewWin.isVisible()) positionPreview(previewWin)
+}
+
 export function hidePreview(): void {
   if (previewWin && !previewWin.isDestroyed()) previewWin.hide()
 }

@@ -137,10 +137,17 @@ export interface AddInstruction {
   force: boolean
 }
 
+/** 用户口头指令对已有任务的操作（「XX 我做完了，标记完成」/「把 XX 忽略吧」） */
+export interface TaskOpInstruction {
+  id: string
+  action: 'done' | 'ignored'
+}
+
 export interface AssistantEnvelope {
   reply: string
   candidates: ParsedItem[]
   add: AddInstruction[]
+  ops: TaskOpInstruction[]
 }
 
 export interface AddedInfo {
@@ -158,6 +165,8 @@ export interface AssistantTurnResult {
   reply: string
   candidates: ParsedItem[] | null
   added: AddedInfo[]
+  /** 本轮已执行的任务操作（标记完成/忽略），供 UI 展示确认 */
+  ops: { title: string; action: 'done' | 'ignored' }[]
   error: string | null
 }
 
@@ -184,7 +193,7 @@ status 含义：pending=待确认（用户还没确认，不算正式日程）�
 
 # 输出格式
 每轮只输出一个 JSON 对象，不要输出任何其他文字或代码块标记：
-{"reply":"对用户说的话","candidates":[],"add":[]}
+{"reply":"对用户说的话","candidates":[],"add":[],"ops":[]}
 
 ## reply（必填）
 简洁中文，可换行。列日程时一行一条、用「· 」开头，时间写成「6月15日 14:00」这种格式，并注明剩余时间（今天/明天/还有 N 天/已延期）。不要用 markdown 表格或标题。
@@ -209,6 +218,12 @@ ${EXTRACT_RULES}
 - 用户明确表示明知重复仍要添加 → 该项带 "force": true
 - 加入后在 reply 里确认（标题 + 时间）；用户表示都不要时 add 为 [] 并在 reply 里确认不添加
 - 没有候选时用户却要求添加 → 在 reply 里说明需要先把信息发给你
+
+## ops（用户要求操作已有任务时才填）
+当用户明确表示某个已有任务的状态变化（如"XX 我已经完成了，帮我标记完成""把 XX 忽略/删掉吧"）时填写：[{"id":"任务数据里该任务的 id","action":"done" 或 "ignored"}]。
+- id 必须原样取自上方「用户的任务数据」；用户描述模糊、可能对应多条任务时**不要填 ops**，在 reply 里列出疑似项让用户确认
+- done=标记完成；ignored=忽略/不再关注（用户说"删除"也用 ignored）
+- 执行后在 reply 里用一句话确认（任务标题 + 做了什么）；找不到对应任务时 ops 为 [] 并在 reply 里直说
 
 # 当前候选列表（用户上一轮收到的草稿）
 ${candidates && candidates.length ? JSON.stringify(candidates.map((c, i) => ({ 序号: i + 1, ...c }))) : '（无）'}
@@ -341,7 +356,7 @@ export function parseAssistantOutput(text: string): AssistantEnvelope {
   } catch {
     // 模型偶尔不守约、直接输出对话原文（无 JSON 信封）：当纯回复用，不把格式问题抛给用户
     const plain = text.replace(/```[a-z]*\n?|```/gi, '').trim()
-    return { reply: plain || '（无回复）', candidates: [], add: [] }
+    return { reply: plain || '（无回复）', candidates: [], add: [], ops: [] }
   }
   const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : ''
   const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : []
@@ -359,7 +374,12 @@ export function parseAssistantOutput(text: string): AssistantEnvelope {
       patch: typeof a.patch === 'object' && a.patch !== null ? (a.patch as Record<string, unknown>) : null,
       force: a.force === true
     }))
-  return { reply: reply || (candidates.length ? '我发现了这些事项：' : '（无回复）'), candidates, add }
+  const rawOps = Array.isArray(parsed.ops) ? parsed.ops : []
+  const ops = rawOps
+    .filter((o): o is Record<string, unknown> => typeof o === 'object' && o !== null)
+    .filter((o) => typeof o.id === 'string' && !!o.id && (o.action === 'done' || o.action === 'ignored'))
+    .map((o) => ({ id: o.id as string, action: o.action as 'done' | 'ignored' }))
+  return { reply: reply || (candidates.length ? '我发现了这些事项：' : '（无回复）'), candidates, add, ops }
 }
 
 /** 把对话中提出的修改应用到候选事项上（字段逐一校验，非法值忽略） */

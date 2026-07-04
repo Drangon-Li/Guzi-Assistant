@@ -4,10 +4,13 @@ import {
   deleteSourceRow,
   findDuplicateTitle,
   getProfile,
+  getTask,
   listTasks,
-  personalMemoryText
+  personalMemoryText,
+  updateTask
 } from './db'
 import { broadcast } from './windows'
+import { applyExternalPetReaction } from './pet/controller'
 import { callModel } from './parser'
 import {
   applyCandidatePatch,
@@ -87,12 +90,13 @@ export async function assistantChat(payload: {
   candidates: CandidateContext | null
 }): Promise<AssistantTurnResult> {
   const profile = getProfile()
-  if (!profile) return { reply: '', candidates: null, added: [], error: '尚未完成用户档案设置' }
+  if (!profile) return { reply: '', candidates: null, added: [], ops: [], error: '尚未完成用户档案设置' }
 
   const tasks = listTasks()
     .filter((t) => t.status !== 'done' && t.status !== 'ignored')
     .slice(0, 60)
     .map((t) => ({
+      id: t.id, // 供口头操作指令（ops）精确指认任务
       title: t.title,
       status: t.status,
       start_time: t.startTime,
@@ -135,13 +139,33 @@ export async function assistantChat(payload: {
       if (picks.length) added = addCandidates(payload.candidates.sourceText, picks)
     }
 
+    // 口头指令操作已有任务（「XX 做完了标记完成」「把 XX 忽略」）：校验 id 真实存在再执行
+    const ops: { title: string; action: 'done' | 'ignored' }[] = []
+    for (const op of env.ops) {
+      const task = getTask(op.id)
+      if (!task || task.status === op.action) continue
+      updateTask(op.id, { status: op.action })
+      ops.push({ title: task.title, action: op.action })
+    }
+    if (ops.length) {
+      if (ops.some((o) => o.action === 'done')) applyExternalPetReaction('success')
+      broadcast('eshell:tasks-updated')
+    }
+
     return {
       reply: env.reply,
       candidates: env.candidates.length ? env.candidates : null,
       added,
+      ops,
       error: null
     }
   } catch (e) {
-    return { reply: '', candidates: null, added: [], error: e instanceof Error ? e.message : String(e) }
+    return {
+      reply: '',
+      candidates: null,
+      added: [],
+      ops: [],
+      error: e instanceof Error ? e.message : String(e)
+    }
   }
 }

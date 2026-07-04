@@ -165,6 +165,12 @@ export interface AppSettings {
   assistantAutoCloseSec: number
   /** 外观主题：跟随系统 / 浅色 / 深色。默认 system */
   theme: 'system' | 'light' | 'dark'
+  /** 对外 MCP 服务：把任务/工作记录/日报能力暴露给用户自己的 AI 客户端。默认关 */
+  mcpEnabled: boolean
+  /** MCP 服务监听端口（仅绑定 127.0.0.1）。默认 38999 */
+  mcpPort: number
+  /** MCP Bearer token（设置页生成/重置；空 = 未生成，服务不会启动） */
+  mcpToken: string
 }
 
 export interface FeishuStatus {

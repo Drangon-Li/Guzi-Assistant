@@ -17,8 +17,9 @@ interface Msg {
 
 /** 快捷提问框（#/quickbar）：全局快捷键唤起的独立气泡对话模式。
  *  窗口本体是 vibrancy 磨砂卡（Spotlight 式），对话区在上、输入条在下、一张卡到底。
- *  Enter 发送，回答以气泡在输入条上方展开（不跳桌宠对话框）；⌘Enter 快捷建日程；
- *  ⌘K 新对话；Esc/失焦收起（对话保留，下次唤起接着聊）。 */
+ *  Enter 发送，回答以气泡在输入条上方展开（不跳桌宠对话框），支持口头指令
+ *  （「XX 做完了标记完成」）；⌘Enter 快捷建日程；Esc/失焦收起。
+ *  每次唤起都是全新对话（用户明确要求：⌥Space 即新会话）。 */
 export default function QuickBar(): React.JSX.Element {
   const [text, setText] = useState('')
   const [msgs, setMsgs] = useState<Msg[]>([])
@@ -32,11 +33,13 @@ export default function QuickBar(): React.JSX.Element {
   const boxRef = useRef<HTMLDivElement | null>(null)
   const idRef = useRef(0)
 
-  // 每次唤起：清输入、聚焦；对话保留（Esc 只是收起）
+  // 每次唤起：全新对话（清空气泡与输入）、聚焦
   useEffect(() => {
     return api.on('eshell:quickbar-show', () => {
+      setMsgs([])
       setText('')
       setResult('')
+      setBusy(false)
       setShowNonce((n) => n + 1)
       inputRef.current?.focus()
     })
@@ -79,10 +82,11 @@ export default function QuickBar(): React.JSX.Element {
         content: res.error ? `出错了：${res.error}` : res.reply || '（无回复）'
       }
       if (!res.error) {
-        if (res.added.length)
-          reply.addedNotes = res.added.map((a) =>
-            a.duplicate ? `「${a.title}」已存在，未重复添加` : `✓ 已加入「${a.title}」`
-          )
+        const notes = res.added.map((a) =>
+          a.duplicate ? `「${a.title}」已存在，未重复添加` : `✓ 已加入「${a.title}」`
+        )
+        notes.push(...res.ops.map((o) => (o.action === 'done' ? `✓ 已完成：${o.title}` : `已忽略：${o.title}`)))
+        if (notes.length) reply.addedNotes = notes
         if (res.candidates?.length)
           reply.candidates = { ctx: { sourceText: q, items: res.candidates }, added: {} }
       }
@@ -133,12 +137,6 @@ export default function QuickBar(): React.JSX.Element {
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.nativeEvent.isComposing) return // 中文输入法上屏的 Enter 不当提交
     if (e.key === 'Escape') void api.quickbarHide()
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-      e.preventDefault()
-      setMsgs([])
-      setResult('')
-      return
-    }
     if (e.key !== 'Enter') return
     e.preventDefault()
     if (e.metaKey || e.ctrlKey) void quickAdd()
@@ -240,7 +238,7 @@ export default function QuickBar(): React.JSX.Element {
             ) : result ? (
               <span className="text-brand">{result}</span>
             ) : msgs.length ? (
-              '⏎ 发送 · ⌘⏎ 记日程 · ⌘K 新对话 · Esc 退出'
+              '⏎ 发送 · ⌘⏎ 记日程 · Esc 退出'
             ) : (
               '⏎ 问助手 · ⌘⏎ 记日程 · Esc 关闭'
             )}

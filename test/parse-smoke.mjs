@@ -44,6 +44,14 @@ check(
 const addEnv = parseAssistantOutput('{"reply":"r","add":[{"candidate":1,"force":true},{"candidate":0},{"candidate":2.5},{"candidate":"x"}]}')
 check('add 过滤非法 candidate 序号（仅留正整数）', addEnv.add.length === 1 && addEnv.add[0].candidate === 1)
 check('add 的 force 透传', addEnv.add[0].force === true)
+const opsEnv = parseAssistantOutput(
+  '{"reply":"r","ops":[{"id":"abc","action":"done"},{"id":"","action":"done"},{"id":"x","action":"delete"},{"id":"y","action":"ignored"}]}'
+)
+check(
+  'ops 只留合法项（非空 id + done/ignored）',
+  opsEnv.ops.length === 2 && opsEnv.ops[0].action === 'done' && opsEnv.ops[1].id === 'y'
+)
+check('无 ops 字段 → 空数组', parseAssistantOutput('{"reply":"r"}').ops.length === 0)
 
 // ---- applyCandidatePatch ----
 const base = normalizeItem({ title: '原标题', due_time: '2026-06-20T09:00', priority: 'low' })

@@ -28,7 +28,14 @@ let onClickHandler: (() => void) | null = null
 let onDblClickHandler: (() => void) | null = null
 let onLongPressStartHandler: (() => void) | null = null
 let onLongPressEndHandler: (() => void) | null = null
+let onPetMovedHandler: (() => void) | null = null
 let ipcInstalled = false
+
+/** 桌宠位置/大小变化时的回调（index 接线：让贴在旁边的通知卡跟着走）。
+ *  用注入而非直接 import windows.ts——后者已 import 本模块，反向引用会成环。 */
+export function setOnPetMoved(fn: () => void): void {
+  onPetMovedHandler = fn
+}
 
 // 拖拽状态（单例桌宠）
 let dragging = false
@@ -101,6 +108,8 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
 
   if (!cursorPoll) cursorPoll = setInterval(syncInteractivity, 100)
   renderInto(win)
+  // 上次退出时处于吸附态：按当前屏幕重算吸附几何（也顺带矫正旧版本存的贴边坐标）
+  if (prefs.dock) applyDockGeometry(win, prefs.dock)
   if (prefs.enabled) win.showInactive() // 暂停态仍显示（变暗），仅 enabled 控制显隐
   return win
 }
@@ -128,12 +137,10 @@ export function getPetBadgeBounds(): { x: number; y: number; width: number; heig
   const win = accessor()
   if (!win || !win.isVisible()) return null
   const b = win.getBounds()
-  const prefs = getPetPrefs()
-  const d = Math.ceil(PET_ART_WIDTH * prefs.scale)
-  // 吸附时徽章锚在窗口左/右边缘（半圆在屏幕内），未吸附居中
-  const cx = prefs.dock === 'left' ? b.x : prefs.dock === 'right' ? b.x + b.width : b.x + b.width / 2
+  const d = Math.ceil(PET_ART_WIDTH * getPetPrefs().scale)
+  // 徽章锚点恒为窗口中心（吸附靠窗口半出屏实现，不切锚点），bounds 可能部分在屏外
   return {
-    x: Math.round(cx - d / 2),
+    x: Math.round(b.x + b.width / 2 - d / 2),
     y: Math.round(b.y + b.height - PET_BOTTOM - d),
     width: d,
     height: d
@@ -174,6 +181,7 @@ export function setPetScale(scale: PetScaleValue): void {
   savePetPrefs({ scale })
   const win = accessor()
   if (win) renderInto(win)
+  onPetMovedHandler?.() // 徽章大小变了，锚在旁边的卡重新对齐
 }
 
 export function setPetPaused(paused: boolean): void {
@@ -189,6 +197,7 @@ export function resetPetPosition(): void {
   const pos = defaultPosition()
   savePetPrefs({ position: pos })
   if (win) win.setPosition(pos.x, pos.y, false)
+  onPetMovedHandler?.()
 }
 
 // ---------------------------------------------------------------------------
@@ -201,37 +210,49 @@ function defaultPosition(): { x: number; y: number } {
   }
 }
 
-/** 应用/解除吸附：换徽章锚点（CSS 类推送，不整页重渲染）+ 平移窗口让徽章视觉原地不动/贴边。 */
+/** 应用/解除吸附。吸附 = 纯窗口位置（半出屏，徽章圆心压屏幕边缘），锚点从不变化；
+ *  dock 类只管不透明度/图标偏移/气泡侧移等纯装饰。早期实现切 CSS 锚点 + 平移窗口补偿，
+ *  但类名走 IPC、坐标走原生，相差 1-2 帧，点击吸附态桌宠会闪现未吸附整圆（用户实测）。 */
 function applyDock(win: BrowserWindow, dock: 'left' | 'right' | null): void {
-  const prefs = getPetPrefs()
-  if (prefs.dock === dock) return
-  const [wx, wy] = win.getPosition()
-  // 徽章中心当前屏幕 x（按旧锚点），换锚点后据此回推窗口位置，避免徽章跳位
-  const cx = prefs.dock === 'left' ? wx : prefs.dock === 'right' ? wx + PET_WIN_WIDTH : wx + PET_WIN_WIDTH / 2
+  if (getPetPrefs().dock === dock) return
   savePetPrefs({ dock })
   win.webContents.send('openpets:pet-dock', dock)
-  if (dock === null) {
-    win.setPosition(Math.round(cx - PET_WIN_WIDTH / 2), wy, false)
-    return
-  }
-  const d = Math.ceil(PET_ART_WIDTH * prefs.scale)
-  const wa = screen.getDisplayNearestPoint({ x: cx, y: wy + PET_WIN_HEIGHT - PET_BOTTOM - d / 2 }).workArea
-  const x = dock === 'left' ? wa.x : wa.x + wa.width - PET_WIN_WIDTH
+  if (dock) applyDockGeometry(win, dock)
+  // 解除吸附不动窗口：徽章原地（半贴边），拖离边缘的过程自然把它带出来
+}
+
+/** 吸附几何：窗口平移到「徽章圆心正好在屏幕左/右边缘」，纵向夹进工作区。 */
+function applyDockGeometry(win: BrowserWindow, dock: 'left' | 'right'): void {
+  const [wx, wy] = win.getPosition()
+  const d = Math.ceil(PET_ART_WIDTH * getPetPrefs().scale)
+  const wa = screen.getDisplayNearestPoint({
+    x: wx + PET_WIN_WIDTH / 2,
+    y: wy + PET_WIN_HEIGHT - PET_BOTTOM - d / 2
+  }).workArea
+  const x = dock === 'left' ? wa.x - PET_WIN_WIDTH / 2 : wa.x + wa.width - PET_WIN_WIDTH / 2
   // 纵向夹进工作区：徽章整圆可见（上下各留 8px）
   const minY = wa.y + 8 - (PET_WIN_HEIGHT - PET_BOTTOM - d)
   const maxY = wa.y + wa.height - 8 - PET_WIN_HEIGHT + PET_BOTTOM
   win.setPosition(Math.round(x), Math.round(Math.min(Math.max(wy, minY), maxY)), false)
 }
 
-/** 松手时看徽章是否贴到了屏幕左/右边缘，是则吸附（拖拽开始时已解除吸附，锚点必为居中）。 */
+/** 该点是否落在某个显示器内——吸附前确认目标边缘外侧没有邻屏（内侧边吸附会把半圆露在邻屏上）。 */
+function pointOnAnyDisplay(x: number, y: number): boolean {
+  return screen
+    .getAllDisplays()
+    .some((d) => x >= d.bounds.x && x < d.bounds.x + d.bounds.width && y >= d.bounds.y && y < d.bounds.y + d.bounds.height)
+}
+
+/** 松手时看徽章是否贴到了屏幕左/右外侧边缘，是则吸附。 */
 function maybeDockAtEdge(win: BrowserWindow): void {
   const [wx, wy] = win.getPosition()
   const d = Math.ceil(PET_ART_WIDTH * getPetPrefs().scale)
   const cx = wx + PET_WIN_WIDTH / 2
   const cy = wy + PET_WIN_HEIGHT - PET_BOTTOM - d / 2
   const wa = screen.getDisplayNearestPoint({ x: cx, y: cy }).workArea
-  if (cx - d / 2 <= wa.x + DOCK_SNAP_PX) applyDock(win, 'left')
-  else if (cx + d / 2 >= wa.x + wa.width - DOCK_SNAP_PX) applyDock(win, 'right')
+  if (cx - d / 2 <= wa.x + DOCK_SNAP_PX && !pointOnAnyDisplay(wa.x - 8, cy)) applyDock(win, 'left')
+  else if (cx + d / 2 >= wa.x + wa.width - DOCK_SNAP_PX && !pointOnAnyDisplay(wa.x + wa.width + 8, cy))
+    applyDock(win, 'right')
 }
 
 function cursorOverBadge(): boolean {
@@ -266,15 +287,16 @@ function installIpc(): void {
 
   ipcMain.on('openpets:pet-drag-start', (e, p: { screenX: number; screenY: number }) => {
     if (!fromPet(e)) return
-    // 从吸附态拽起：先解除吸附（徽章原地弹出为整圆），再按新窗口位置算拖拽偏移
-    if (getPetPrefs().dock) applyDock(currentPet!, null)
     const [wx, wy] = currentPet!.getPosition()
     dragOffset = { dx: wx - p.screenX, dy: wy - p.screenY }
     dragging = true
   })
   ipcMain.on('openpets:pet-drag-move', (e, p: { screenX: number; screenY: number }) => {
     if (!fromPet(e) || !dragging || !dragOffset) return
+    // 真开始拖动才解除吸附（纯装饰类切换，不动坐标）——单纯点击不折腾 dock 状态
+    if (getPetPrefs().dock) applyDock(currentPet!, null)
     currentPet!.setPosition(Math.round(p.screenX + dragOffset.dx), Math.round(p.screenY + dragOffset.dy), false)
+    onPetMovedHandler?.() // 贴在旁边的通知卡实时跟走
   })
   ipcMain.on('openpets:pet-drag-end', (e) => {
     if (!fromPet(e)) return
@@ -282,6 +304,7 @@ function installIpc(): void {
     dragOffset = null
     maybeDockAtEdge(currentPet!)
     persistPosition(currentPet!)
+    onPetMovedHandler?.() // 吸附微调后再对齐一次
   })
   ipcMain.on('openpets:pet-clicked', (e) => {
     if (!fromPet(e)) return
@@ -407,19 +430,17 @@ function windowCss(paused: boolean, scale: PetScaleValue, isDark: boolean): stri
     .bubble { position: absolute; left: 50%; bottom: ${bubbleBottom}px; z-index: 4; box-sizing: border-box; display: inline-flex; flex-direction: column; width: fit-content; min-width: 80px; max-width: min(220px, calc(100vw - 18px)); padding: 9px 12px; background: ${bubbleBg}; color: ${bubbleFg}; font: 700 12px/16px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; text-align: left; border: 1px solid ${bubbleBorder}; border-radius: 14px; box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16), 0 2px 5px rgba(15, 23, 42, 0.12); white-space: normal; overflow-wrap: break-word; pointer-events: auto; -webkit-app-region: no-drag; transform: translateX(-50%); transform-origin: 64% 100%; animation: bubble-in 180ms cubic-bezier(0.2, 0, 0, 1); }
     .bubble::after { content: ""; position: absolute; left: 64%; bottom: -7px; width: 12px; height: 12px; background: inherit; border-right: 1px solid ${bubbleTail}; border-bottom: 1px solid ${bubbleTail}; border-bottom-right-radius: 3px; transform: translateX(-50%) rotate(45deg); }
     .bubble-text { display: -webkit-box; min-width: 0; overflow: hidden; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow-wrap: break-word; }
-    /* 贴边吸附：徽章锚到窗口左/右边缘，半圆收进屏幕边成侧边标签；图标滑向可见半侧；气泡贴边内侧展开。
-       锚点(left)不加过渡——切换锚点时窗口坐标同步平移，加过渡会先跳半窗宽再滑回；贴附就该是瞬时的 */
+    /* 贴边吸附（窗口半出屏、徽章圆心压屏幕边缘，见 applyDock）：dock 类只做纯装饰——
+       降不透明度、图标滑向可见半侧、气泡挪到可见半窗内。锚点/坐标一概不动，避免 IPC 与原生调用的时序闪烁 */
     .mark { transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1); }
-    html.docked-left .pet-hitbox { left: 0; }
-    html.docked-right .pet-hitbox { left: 100%; }
     html.docked-left .pet-shell, html.docked-right .pet-shell { opacity: calc(var(--pet-opacity) * 0.85); }
     html.docked-left .pet-shell:hover, html.docked-right .pet-shell:hover { opacity: var(--pet-opacity); }
     html.docked-left .mark { transform: translateX(26%); }
     html.docked-right .mark { transform: translateX(-26%); }
-    html.docked-left .bubble, html.docked-right .bubble { animation: none; transform: none; }
-    html.docked-left .bubble { left: 10px; transform-origin: 12% 100%; }
+    html.docked-left .bubble, html.docked-right .bubble { animation: none; transform: none; max-width: calc(50% - 16px); }
+    html.docked-left .bubble { left: calc(50% + 8px); transform-origin: 12% 100%; }
     html.docked-left .bubble::after { left: 22px; }
-    html.docked-right .bubble { left: auto; right: 10px; transform-origin: 88% 100%; }
+    html.docked-right .bubble { left: auto; right: calc(50% + 8px); transform-origin: 88% 100%; }
     html.docked-right .bubble::after { left: auto; right: 16px; }
     .bubble.is-success { border-color: rgba(16, 185, 129, 0.4); }
     .bubble.is-error { border-color: rgba(239, 68, 68, 0.4); }
