@@ -239,7 +239,10 @@ export function getSettings(): AppSettings {
     screenSenseCardHideSec:
       map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 5,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
-    theme: map.theme === 'light' || map.theme === 'dark' ? map.theme : 'system'
+    theme: map.theme === 'light' || map.theme === 'dark' ? map.theme : 'system',
+    mcpEnabled: map.mcpEnabled === 'true',
+    mcpPort: Number(map.mcpPort) || 38999,
+    mcpToken: map.mcpToken ?? ''
   }
 }
 

@@ -87,7 +87,7 @@ export function createQuickBar(): void {
 export function showQuickBar(): void {
   const win = ensureWindow()
   // 跟随鼠标所在屏幕，水平居中、贴近屏幕下方（上三分之一让给系统聚焦搜索，避免视觉重合）。
-  // 对话保留时窗口可能已长高：始终按底边对齐（底边距工作区下缘 60px）
+  // 每次唤起渲染层会清空对话（新会话），窗口高度随后收缩；此刻仍按当前高度做底边对齐即可
   const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
   const h = win.getBounds().height
   win.setPosition(Math.round(wa.x + (wa.width - QB_W) / 2), Math.round(wa.y + wa.height - h - 60), false)

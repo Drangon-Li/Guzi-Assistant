@@ -78,6 +78,7 @@ import {
 import { getPetPrefs } from './pet/state'
 import { hidePetChat } from './pet/pet-chat-window'
 import { hideQuickBar, resizeQuickBar } from './quickbar'
+import { applyMcpSettings } from './mcp-server'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
 const STATUSES: TaskStatus[] = [
@@ -159,6 +160,8 @@ export function registerIpc(): void {
       patch.dailyReportTime !== undefined
     )
       applyScreenSenseSettings()
+    if (patch.mcpEnabled !== undefined || patch.mcpPort !== undefined || patch.mcpToken !== undefined)
+      applyMcpSettings()
     broadcast('eshell:settings-updated')
     return ok
   })

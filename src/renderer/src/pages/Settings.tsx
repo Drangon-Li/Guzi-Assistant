@@ -54,6 +54,13 @@ const CODE_KEYS: Record<string, string> = {
   ArrowRight: 'Right'
 }
 
+/** 生成 MCP Bearer token：48 位十六进制随机串（浏览器安全随机源） */
+function genMcpToken(): string {
+  const buf = new Uint8Array(24)
+  crypto.getRandomValues(buf)
+  return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 /** KeyboardEvent → Electron accelerator；组合不完整时返回 null（继续等待按键） */
 function eventToAccelerator(e: KeyboardEvent): string | null {
   const mods: string[] = []
@@ -327,6 +334,106 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               把文件直接拖到菜单栏的 谷子助手 图标上即可提交解析，无需安装。
             </div>
           </div>
+        </div>
+      </Section>
+
+      <Section title="MCP 接口">
+        <p className="mb-3 text-xs leading-5 text-slate-400">
+          把谷子的任务、工作记录、日报能力以 MCP 工具暴露给你自己的 AI 客户端（Claude Desktop / Cursor / Claude
+          Code 等），让它们替你查日程、加任务、标完成。服务只监听本机（127.0.0.1），凭下方 token
+          访问——token 即访问凭证，请勿泄露给他人。
+        </p>
+        <div className="flex flex-col gap-3 text-sm">
+          <label className="flex items-center justify-between gap-4">
+            <span>启用 MCP 服务</span>
+            <input
+              type="checkbox"
+              checked={settings.mcpEnabled}
+              onChange={async (e) => {
+                const on = e.target.checked
+                const patch: Partial<AppSettings> = { mcpEnabled: on }
+                if (on && !settings.mcpToken) patch.mcpToken = genMcpToken()
+                await api.saveSettings(patch)
+                setSettings((s) => (s ? { ...s, ...patch } : s))
+                flash(on ? 'MCP 服务已启动' : 'MCP 服务已停止')
+              }}
+            />
+          </label>
+          {settings.mcpEnabled && (
+            <>
+              <div className="flex items-center gap-3">
+                <span className="w-16 shrink-0 text-slate-500">端口</span>
+                <input
+                  type="number"
+                  min={1024}
+                  max={65535}
+                  className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                  value={settings.mcpPort}
+                  onChange={(e) => setSettings({ ...settings, mcpPort: Number(e.target.value) })}
+                  onBlur={async (e) => {
+                    const v = Math.min(65535, Math.max(1024, Number(e.target.value) || 38999))
+                    setSettings({ ...settings, mcpPort: v })
+                    await api.saveSettings({ mcpPort: v })
+                    flash(`MCP 服务已在端口 ${v} 重启`)
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="w-16 shrink-0 text-slate-500">地址</span>
+                <code className="rounded bg-slate-100 px-2 py-1 font-mono text-xs">
+                  http://127.0.0.1:{settings.mcpPort}/mcp
+                </code>
+                <button
+                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(`http://127.0.0.1:${settings.mcpPort}/mcp`)
+                    flash('地址已复制')
+                  }}
+                >
+                  复制
+                </button>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="w-16 shrink-0 text-slate-500">Token</span>
+                <code className="rounded bg-slate-100 px-2 py-1 font-mono text-xs">
+                  {settings.mcpToken ? `${settings.mcpToken.slice(0, 8)}…` : '（未生成）'}
+                </code>
+                <button
+                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(settings.mcpToken)
+                    flash('Token 已复制')
+                  }}
+                >
+                  复制
+                </button>
+                <button
+                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                  onClick={async () => {
+                    const t = genMcpToken()
+                    await api.saveSettings({ mcpToken: t })
+                    setSettings((s) => (s ? { ...s, mcpToken: t } : s))
+                    flash('已重新生成，旧 token 立即失效，请更新客户端配置')
+                  }}
+                >
+                  重新生成
+                </button>
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-slate-500">客户端配置示例（Claude Desktop / Cursor 的 mcpServers）：</div>
+                <pre className="overflow-x-auto rounded-lg bg-slate-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-600">
+                  {`{
+  "mcpServers": {
+    "gooz": {
+      "url": "http://127.0.0.1:${settings.mcpPort}/mcp",
+      "headers": { "Authorization": "Bearer ${settings.mcpToken || '<token>'}" }
+    }
+  }
+}`}
+                </pre>
+              </div>
+            </>
+          )}
         </div>
       </Section>
 

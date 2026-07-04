@@ -12,8 +12,15 @@ import {
   isWatchPaused
 } from './screenwatch'
 import { submitExternalFiles } from './capture'
-import { appState, createMainWindow, focusMain, openDebugWindow, toggleMainWindow } from './windows'
-import { createPetWindow } from './pet/pet-window'
+import {
+  appState,
+  createMainWindow,
+  focusMain,
+  openDebugWindow,
+  repositionPreviewNearPet,
+  toggleMainWindow
+} from './windows'
+import { createPetWindow, setOnPetMoved } from './pet/pet-window'
 import { togglePetChat, createPetChatWindow } from './pet/pet-chat-window'
 import {
   showPet,
@@ -25,6 +32,7 @@ import {
   togglePetListening
 } from './pet/controller'
 import { createQuickBar, toggleQuickBar } from './quickbar'
+import { applyMcpSettings, stopMcpServer } from './mcp-server'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { startWellnessReminder, stopWellnessReminder } from './wellness-reminder'
 import { installAppMenu } from './app-menu'
@@ -137,6 +145,7 @@ if (!app.requestSingleInstanceLock()) {
       onLongPressStart: () => setPetListening(true),
       onLongPressEnd: () => setPetListening(false)
     })
+    setOnPetMoved(repositionPreviewNearPet) // 拖桌宠时贴在旁边的通知卡跟着走
     createPetChatWindow() // 预创建桌宠对话窗口（隐藏），点击/拖文件即时可用
     createQuickBar() // 预创建快捷提问框（隐藏），按快捷键秒开
     createTray()
@@ -149,6 +158,7 @@ if (!app.requestSingleInstanceLock()) {
     initDropbox()
     ensureFeishu()
     applyScreenSenseSettings()
+    applyMcpSettings() // 对外 MCP 服务（默认关，设置页开启）
     startDailyBrief()
     startWellnessReminder()
   })
@@ -165,6 +175,7 @@ if (!app.requestSingleInstanceLock()) {
     stopHotkey()
     stopDailyBrief()
     stopWellnessReminder()
+    stopMcpServer()
   })
   // 常驻托盘：所有窗口关闭后不退出
   app.on('window-all-closed', () => {})
