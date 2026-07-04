@@ -33,6 +33,7 @@ import {
 } from './pet/controller'
 import { createQuickBar, toggleQuickBar } from './quickbar'
 import { applyMcpSettings, stopMcpServer } from './mcp-server'
+import { scheduleStartupUpdateCheck } from './updater'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { startWellnessReminder, stopWellnessReminder } from './wellness-reminder'
 import { installAppMenu } from './app-menu'
@@ -161,6 +162,7 @@ if (!app.requestSingleInstanceLock()) {
     applyMcpSettings() // 对外 MCP 服务（默认关，设置页开启）
     startDailyBrief()
     startWellnessReminder()
+    if (app.isPackaged) scheduleStartupUpdateCheck() // dev 实例天天重启，别拿开发机刷清单
   })
 
   // macOS 惯例：仅在没有可见窗口时（如点 Dock 图标重开）才显示主窗；

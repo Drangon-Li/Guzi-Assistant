@@ -246,7 +246,7 @@ export default function AssistantChat({
             <div className="flex gap-3">
               <Avatar role="assistant" initial="纸" />
               <div className="flex max-w-[82%] flex-col gap-3">
-                <div className="rounded-2xl rounded-tl-sm bg-elevated px-4 py-3 text-sm leading-6">
+                <div className="select-text rounded-2xl rounded-tl-sm bg-elevated px-4 py-3 text-sm leading-6">
                   你好，我是谷子。我会自动留意你设备上的通知、消息和聊天记录，从中帮你拎出该办的事，主动提给你确认；你也可以直接问我日程安排。
                   <span className="mt-1 block text-xs text-slate-400">
                     （需要时也能手动把内容发我：复制后按 {hotkeyLabel}）
@@ -270,7 +270,7 @@ export default function AssistantChat({
           {msgs.map((m) =>
             m.role === 'user' ? (
               <div key={m.id} className="flex justify-end gap-3">
-                <div className="max-w-[82%] rounded-2xl rounded-tr-sm bg-userbubble px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-slate-800 shadow-sm">
+                <div className="select-text max-w-[82%] rounded-2xl rounded-tr-sm bg-userbubble px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-slate-800 shadow-sm">
                   {m.displayText ?? m.text}
                 </div>
                 <Avatar role="user" initial={userName.slice(0, 1) || '我'} />
@@ -280,7 +280,7 @@ export default function AssistantChat({
                 <Avatar role="assistant" initial="纸" />
                 <div className="flex max-w-[82%] min-w-0 flex-col gap-2">
                   <div
-                    className={`rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap ${
+                    className={`select-text rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap ${
                       m.error ? 'border border-red-200 bg-red-50 text-red-600' : 'bg-elevated'
                     }`}
                   >
@@ -358,7 +358,7 @@ export default function AssistantChat({
             <div className="flex gap-3">
               <Avatar role="assistant" initial="纸" />
               <div className="flex max-w-[82%] min-w-0 flex-col gap-2">
-                <div className="rounded-2xl rounded-tl-sm bg-elevated px-4 py-2.5 text-sm leading-6">
+                <div className="select-text rounded-2xl rounded-tl-sm bg-elevated px-4 py-2.5 text-sm leading-6">
                   我从你之前提交的内容里发现了 {pending.length} 个待确认事项：
                 </div>
                 {pending.map((t) => (

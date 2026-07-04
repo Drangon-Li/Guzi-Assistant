@@ -94,6 +94,8 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
   const [note, setNote] = useState('')
   const [recordingKey, setRecordingKey] = useState<HotkeyField | null>(null)
+  const [appVersion, setAppVersion] = useState('')
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [cat, setCat] = useState<(typeof CATS)[number]>('通用')
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
@@ -108,6 +110,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
   useEffect(() => {
     void api.getProfile().then(setProfile)
+    void api.appVersion().then(setAppVersion)
     void api.getSettings().then(setSettings)
     void api.quickActionStatus().then(setQaInstalled)
     void api.feishuStatus().then(setFeishu)
@@ -380,7 +383,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               </div>
               <div className="flex items-center gap-3">
                 <span className="w-16 shrink-0 text-slate-500">地址</span>
-                <code className="rounded bg-slate-100 px-2 py-1 font-mono text-xs">
+                <code className="select-all rounded bg-slate-100 px-2 py-1 font-mono text-xs">
                   http://127.0.0.1:{settings.mcpPort}/mcp
                 </code>
                 <button
@@ -395,7 +398,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               </div>
               <div className="flex items-center gap-3">
                 <span className="w-16 shrink-0 text-slate-500">Token</span>
-                <code className="rounded bg-slate-100 px-2 py-1 font-mono text-xs">
+                <code className="select-all rounded bg-slate-100 px-2 py-1 font-mono text-xs">
                   {settings.mcpToken ? `${settings.mcpToken.slice(0, 8)}…` : '（未生成）'}
                 </code>
                 <button
@@ -421,7 +424,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               </div>
               <div>
                 <div className="mb-1 text-xs text-slate-500">客户端配置示例（Claude Desktop / Cursor 的 mcpServers）：</div>
-                <pre className="overflow-x-auto rounded-lg bg-slate-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-600">
+                <pre className="select-text overflow-x-auto rounded-lg bg-slate-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-600">
                   {`{
   "mcpServers": {
     "gooz": {
@@ -826,7 +829,30 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       </Section>
           </>
         )}
-        {cat === '关于' && <FeedbackSection />}
+        {cat === '关于' && (
+          <>
+            <Section title="版本">
+              <div className="flex items-center gap-3 text-sm">
+                <span className="text-slate-500">当前版本 {appVersion || '…'}</span>
+                <button
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  disabled={checkingUpdate}
+                  onClick={async () => {
+                    setCheckingUpdate(true)
+                    try {
+                      await api.checkUpdate() // 结果由系统对话框反馈
+                    } finally {
+                      setCheckingUpdate(false)
+                    }
+                  }}
+                >
+                  {checkingUpdate ? '检查中…' : '检查更新'}
+                </button>
+              </div>
+            </Section>
+            <FeedbackSection />
+          </>
+        )}
       </div>
 
       {note && (

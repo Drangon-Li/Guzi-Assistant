@@ -70,6 +70,8 @@ export const INVOKE_CHANNELS = [
   'pet:chat-hide',
   'quickbar:hide',
   'quickbar:resize',
+  'app:check-update',
+  'app:version',
   'theme:get'
 ] as const
 

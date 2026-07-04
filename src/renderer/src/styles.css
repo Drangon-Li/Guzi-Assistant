@@ -41,6 +41,16 @@ body {
   color: var(--color-fg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* 桌面应用惯例：界面文案不可选中（拖选一片蓝很出戏）；
+     正文类内容用 .select-text / 输入框由下方规则重新放开 */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 ::selection {

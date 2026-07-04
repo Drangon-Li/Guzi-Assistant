@@ -131,6 +131,9 @@ export const api = {
   petSetPaused: (v: boolean) => inv<void>('pet:set-paused', v),
   petResetPosition: () => inv<void>('pet:reset-position'),
   petChatHide: () => inv<void>('pet:chat-hide'),
+  appVersion: () => inv<string>('app:version'),
+  /** 手动检查更新：结果通过系统对话框反馈，返回值供按钮态使用 */
+  checkUpdate: () => inv<{ status: 'update' | 'latest' | 'error'; version?: string }>('app:check-update'),
   quickbarHide: () => inv<void>('quickbar:hide'),
   /** 快捷提问框对话展开/收起：按内容高度调整窗口（底边固定向上生长） */
   quickbarResize: (height: number) => inv<void>('quickbar:resize', height),
