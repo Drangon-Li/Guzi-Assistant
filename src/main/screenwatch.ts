@@ -44,16 +44,21 @@ interface DetectHit {
   item: ParsedItem
 }
 
-// 工作记录搭同一次识别调用的便车：让模型在 items 之外多回 work_summary + focus_task 两个顶层字段
+// 工作记录搭同一次识别调用的便车：让模型在 items 之外多回 work_summary + focus_task 两个顶层字段。
+// 措辞上三道防偏置（用户实测踩坑：示例里的真实任务名 + 「优先复用已知任务」会让模型把
+// 不相干的活动全吸进同一个标签，一错错一下午）：
+// ① 示例不用用户的真实任务名 ② 复用已知任务须屏幕内容明确对应 ③ 描述只依据屏幕可见内容
 function workSummaryHint(prevSummary: string, taskCandidates: string[]): string {
-  const cand = taskCandidates.length ? `已知任务列表：${taskCandidates.join('、')}。` : ''
+  const cand = taskCandidates.length
+    ? `已知任务列表：${taskCandidates.join('、')}。仅当屏幕内容与某个已知任务明确对应（出现该任务的关键词、文件名或主题）时才复用其名称；对应不上就按屏幕内容起贴切的新名，不要为了复用而硬套。`
+    : ''
   const base =
     '另外，在返回的 JSON 中额外加两个顶层字段：' +
-    '① "work_summary"：一句不超过 40 字的中文，客观描述屏幕上正在进行的**工作/学习活动**（如「在 VS Code 中编辑项目代码」）。与工作学习无关或信息量极低的画面（随意浏览文件夹、刷聊天/社交消息、系统设置页、视频娱乐等）填 null，不要硬凑。' +
-    `② "focus_task"：该活动归属的任务名——任务级、粗粒度、名称稳定（如「开发谷子助手」「撰写博资考 PPT」）。${cand}优先复用已知任务名，确实是新任务再起新名；work_summary 为 null 时它也为 null。`
+    '① "work_summary"：一句不超过 40 字的中文，客观描述屏幕上正在进行的**工作/学习活动**（如「在 VS Code 中编辑项目代码」）。只依据屏幕可见内容描述，不要凭任务列表或历史记录猜测屏幕上看不到的项目名/用途；看不出具体属于哪个项目就写通用描述（如「在 WPS 中编辑演示文稿」）。与工作学习无关或信息量极低的画面（随意浏览文件夹、刷聊天/社交消息、系统设置页、视频娱乐等）填 null，不要硬凑。' +
+    `② "focus_task"：该活动归属的任务名——任务级、粗粒度、名称稳定。${cand}work_summary 为 null 时它也为 null。`
   // 传入上一条描述：同一活动持续中 → 原样返回同一句，让相邻记录能聚合成时段（避免措辞漂移拆成多段）
   return prevSummary
-    ? `${base}\n若当前活动与上一条描述「${prevSummary}」本质相同，work_summary 请原样返回完全一致的字符串。`
+    ? `${base}\n若当前屏幕内容与上一条描述「${prevSummary}」本质上是同一活动，work_summary 请原样返回完全一致的字符串；若屏幕主题已明显变化，按当前内容重新描述，不要沿用旧描述。`
     : base
 }
 
