@@ -147,7 +147,10 @@ export default function QuickBar(): React.JSX.Element {
   return (
     <div className="flex h-screen w-screen flex-col justify-end overflow-hidden">
       <div ref={boxRef} className="flex flex-col">
-        <div key={showNonce} className="animate-modal-in flex flex-col">
+        {/* 半透明 surface 水洗：磨砂亮度随背后内容浮动（深色背景会把浅色磨砂压成中灰，
+            文字直接打在裸磨砂上对比不稳，用户实测发糊）。70% 语义底色 + slate-600 级文字，
+            四种「主题×背景」组合按合成算术对比度均 ≥4.2:1，磨砂质感仍透出 */}
+        <div key={showNonce} className="animate-modal-in flex flex-col bg-surface/70">
         {(msgs.length > 0 || busy) && (
           <div
             ref={listRef}
@@ -240,13 +243,13 @@ export default function QuickBar(): React.JSX.Element {
           <input
             ref={inputRef}
             autoFocus
-            className="min-w-0 flex-1 bg-transparent text-[15px] text-slate-700 outline-none placeholder:text-slate-400"
+            className="min-w-0 flex-1 bg-transparent text-[15px] text-slate-800 outline-none placeholder:text-slate-600"
             placeholder={msgs.length ? '继续问…' : '问谷子任何事，或说一件要记的日程…'}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
           />
-          <div className="shrink-0 text-[11px] text-slate-400">
+          <div className="shrink-0 text-[11px] text-slate-600">
             {msgs.length ? '⏎ 发送 · Esc 退出' : '⏎ 问助手或记日程 · Esc 关闭'}
           </div>
         </div>
