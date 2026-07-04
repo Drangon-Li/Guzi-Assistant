@@ -139,13 +139,14 @@ export async function assistantChat(payload: {
       if (picks.length) added = addCandidates(payload.candidates.sourceText, picks)
     }
 
-    // 口头指令操作已有任务（「XX 做完了标记完成」「把 XX 忽略」）：校验 id 真实存在再执行
-    const ops: { title: string; action: 'done' | 'ignored' }[] = []
+    // 口头指令操作已有任务（「XX 做完了标记完成」「把 XX 忽略」）：校验 id 真实存在再执行；
+    // 带回原状态，UI 可一键撤销（口头指令没有确认环节，撤销是误伤的安全网）
+    const ops: { id: string; title: string; action: 'done' | 'ignored'; prevStatus: TaskStatus }[] = []
     for (const op of env.ops) {
       const task = getTask(op.id)
       if (!task || task.status === op.action) continue
       updateTask(op.id, { status: op.action })
-      ops.push({ title: task.title, action: op.action })
+      ops.push({ id: op.id, title: task.title, action: op.action, prevStatus: task.status })
     }
     if (ops.length) {
       if (ops.some((o) => o.action === 'done')) applyExternalPetReaction('success')

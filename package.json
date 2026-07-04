@@ -38,7 +38,9 @@
     "test:sensitive": "node test/sensitive-smoke.mjs",
     "test:attention": "node test/attention-smoke.mjs",
     "test:subscription": "node test/subscription-smoke.mjs",
-    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs && node test/ics-smoke.mjs && node test/parse-smoke.mjs && node test/labels-smoke.mjs && node test/ipc-channels-smoke.mjs && node test/daily-brief-smoke.mjs && node test/belonging-hints-smoke.mjs && node test/task-filters-smoke.mjs && node test/phash-smoke.mjs && node test/safe-path-smoke.mjs && node test/fts-query-smoke.mjs && node test/chat-layout-smoke.mjs && node test/belonging-learn-smoke.mjs && node test/app-exclude-smoke.mjs && node test/billing-credits-smoke.mjs && node test/shot-retention-smoke.mjs && node test/chpay-smoke.mjs && node test/pet-reaction-smoke.mjs && node test/work-report-smoke.mjs && node test/sensitive-smoke.mjs && node test/attention-smoke.mjs && node test/subscription-smoke.mjs"
+    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs && node test/ics-smoke.mjs && node test/parse-smoke.mjs && node test/labels-smoke.mjs && node test/ipc-channels-smoke.mjs && node test/daily-brief-smoke.mjs && node test/belonging-hints-smoke.mjs && node test/task-filters-smoke.mjs && node test/phash-smoke.mjs && node test/safe-path-smoke.mjs && node test/fts-query-smoke.mjs && node test/chat-layout-smoke.mjs && node test/belonging-learn-smoke.mjs && node test/app-exclude-smoke.mjs && node test/billing-credits-smoke.mjs && node test/shot-retention-smoke.mjs && node test/chpay-smoke.mjs && node test/pet-reaction-smoke.mjs && node test/work-report-smoke.mjs && node test/sensitive-smoke.mjs && node test/attention-smoke.mjs && node test/subscription-smoke.mjs",
+    "pack:mac": "electron-vite build && electron-builder --mac",
+    "pack:dir": "electron-vite build && electron-builder --mac --dir"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.66.1",
@@ -58,6 +60,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^38.2.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.0",
     "puppeteer-core": "^25.1.0",
     "tailwindcss": "^4.1.0",

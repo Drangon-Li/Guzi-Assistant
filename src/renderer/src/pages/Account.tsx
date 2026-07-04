@@ -58,7 +58,7 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
 
   const saveProfileForm = async (): Promise<void> => {
     if (!profile.name.trim()) {
-      flash('真实姓名不能为空')
+      flash('称呼不能为空')
       return
     }
     const next: Profile = {
@@ -88,7 +88,7 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
       <Section title="用户档案">
         <div className="grid grid-cols-2 gap-3 text-sm">
           <label className="flex flex-col gap-1">
-            <span className="text-slate-500">真实姓名 *</span>
+            <span className="text-slate-500">怎么称呼你 *</span>
             <input
               className={input}
               value={profile.name}

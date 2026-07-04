@@ -9,3 +9,4 @@ test/agent-tmp/
 test/agent-shots/
 worspace/
 supabase/.temp/
+release/

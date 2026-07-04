@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CandidateContext, ParsedItem } from '@shared/parsing'
+import type { TaskStatus } from '@shared/types'
 import { api } from '../api'
 import { fmtTime } from '../labels'
 import Markdown from '../components/Markdown'
 import brandMark from '../assets/agent-avatar.png'
+
+interface OpRow {
+  id: string
+  title: string
+  action: 'done' | 'ignored'
+  prevStatus: TaskStatus
+  undone?: boolean
+}
 
 interface Msg {
   id: number
@@ -11,21 +20,20 @@ interface Msg {
   content: string
   /** 模型直接执行的添加结果（「✓ 已加入…」/「…已存在」小字） */
   addedNotes?: string[]
+  /** 口头指令已执行的任务操作：可一键撤销（恢复原状态） */
+  ops?: OpRow[]
   /** 待确认候选：行内「加入」按钮，也可下一轮用嘴确认（ctx 会随对话传回） */
   candidates?: { ctx: CandidateContext; added: Record<number, 'added' | 'duplicate'> }
 }
 
 /** 快捷提问框（#/quickbar）：全局快捷键唤起的独立气泡对话模式。
  *  窗口本体是 vibrancy 磨砂卡（Spotlight 式），对话区在上、输入条在下、一张卡到底。
- *  Enter 发送，回答以气泡在输入条上方展开（不跳桌宠对话框），支持口头指令
- *  （「XX 做完了标记完成」）；⌘Enter 快捷建日程；Esc/失焦收起。
- *  每次唤起都是全新对话（用户明确要求：⌥Space 即新会话）。 */
+ *  Enter 单入口：问答/记日程/口头指令（「XX 做完了标记完成」，带一键撤销）都走助手；
+ *  Esc/失焦收起。每次唤起都是全新对话（用户明确要求：⌥Space 即新会话）。 */
 export default function QuickBar(): React.JSX.Element {
   const [text, setText] = useState('')
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [busy, setBusy] = useState(false)
-  const [adding, setAdding] = useState(false)
-  const [result, setResult] = useState('')
   // 每次唤起 +1：重放内容的入场动画（配合主进程的窗口透明度渐变）
   const [showNonce, setShowNonce] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -38,7 +46,6 @@ export default function QuickBar(): React.JSX.Element {
     return api.on('eshell:quickbar-show', () => {
       setMsgs([])
       setText('')
-      setResult('')
       setBusy(false)
       setShowNonce((n) => n + 1)
       inputRef.current?.focus()
@@ -66,7 +73,6 @@ export default function QuickBar(): React.JSX.Element {
     const q = text.trim()
     if (!q || busy) return
     setText('')
-    setResult('')
     const mine: Msg = { id: ++idRef.current, role: 'user', content: q }
     const nextMsgs = [...msgs, mine]
     setMsgs(nextMsgs)
@@ -82,11 +88,11 @@ export default function QuickBar(): React.JSX.Element {
         content: res.error ? `出错了：${res.error}` : res.reply || '（无回复）'
       }
       if (!res.error) {
-        const notes = res.added.map((a) =>
-          a.duplicate ? `「${a.title}」已存在，未重复添加` : `✓ 已加入「${a.title}」`
-        )
-        notes.push(...res.ops.map((o) => (o.action === 'done' ? `✓ 已完成：${o.title}` : `已忽略：${o.title}`)))
-        if (notes.length) reply.addedNotes = notes
+        if (res.added.length)
+          reply.addedNotes = res.added.map((a) =>
+            a.duplicate ? `「${a.title}」已存在，未重复添加` : `✓ 已加入「${a.title}」`
+          )
+        if (res.ops.length) reply.ops = res.ops
         if (res.candidates?.length)
           reply.candidates = { ctx: { sourceText: q, items: res.candidates }, added: {} }
       }
@@ -119,19 +125,14 @@ export default function QuickBar(): React.JSX.Element {
     )
   }
 
-  const quickAdd = async (): Promise<void> => {
-    const t = text.trim()
-    if (!t || adding) return
-    setAdding(true)
-    try {
-      const r = await api.quickAddTask(t)
-      setResult(r.added > 0 ? `已记下：${r.titles.join('、')}` : '没有识别出可添加的日程')
-      if (r.added > 0) setText('')
-    } catch (e) {
-      setResult(e instanceof Error ? e.message : String(e))
-    } finally {
-      setAdding(false)
-    }
+  // 撤销口头指令的任务操作：恢复原状态（tasks:update 会广播刷新各处列表）
+  const undoOp = async (msgId: number, idx: number, op: OpRow): Promise<void> => {
+    await api.updateTask(op.id, { status: op.prevStatus })
+    setMsgs((ms) =>
+      ms.map((m) =>
+        m.id === msgId && m.ops ? { ...m, ops: m.ops.map((o, i) => (i === idx ? { ...o, undone: true } : o)) } : m
+      )
+    )
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -139,8 +140,8 @@ export default function QuickBar(): React.JSX.Element {
     if (e.key === 'Escape') void api.quickbarHide()
     if (e.key !== 'Enter') return
     e.preventDefault()
-    if (e.metaKey || e.ctrlKey) void quickAdd()
-    else void ask()
+    // 记日程与问答同走助手（明确的添加请求模型会当轮直接加入），不再单设 ⌘Enter 通道
+    void ask()
   }
 
   return (
@@ -168,6 +169,23 @@ export default function QuickBar(): React.JSX.Element {
                   {m.addedNotes?.map((n, i) => (
                     <div key={i} className="pl-1 text-xs text-emerald-600">
                       {n}
+                    </div>
+                  ))}
+                  {m.ops?.map((o, i) => (
+                    <div key={`op-${i}`} className="flex items-center gap-2 pl-1 text-xs">
+                      <span className={o.undone ? 'text-slate-400 line-through' : 'text-emerald-600'}>
+                        {o.action === 'done' ? `✓ 已完成：${o.title}` : `已忽略：${o.title}`}
+                      </span>
+                      {o.undone ? (
+                        <span className="text-slate-400">已撤销</span>
+                      ) : (
+                        <button
+                          className="text-slate-400 underline-offset-2 hover:text-brand hover:underline"
+                          onClick={() => void undoOp(m.id, i, o)}
+                        >
+                          撤销
+                        </button>
+                      )}
                     </div>
                   ))}
                   {m.candidates?.ctx.items.map((item, idx) => {
@@ -227,21 +245,9 @@ export default function QuickBar(): React.JSX.Element {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
-            disabled={adding}
           />
           <div className="shrink-0 text-[11px] text-slate-400">
-            {adding ? (
-              <span className="flex items-center gap-1.5">
-                <span className="size-3 animate-spin rounded-full border-[1.5px] border-slate-400 border-t-transparent" />
-                正在记…
-              </span>
-            ) : result ? (
-              <span className="text-brand">{result}</span>
-            ) : msgs.length ? (
-              '⏎ 发送 · ⌘⏎ 记日程 · Esc 退出'
-            ) : (
-              '⏎ 问助手 · ⌘⏎ 记日程 · Esc 关闭'
-            )}
+            {msgs.length ? '⏎ 发送 · Esc 退出' : '⏎ 问助手或记日程 · Esc 关闭'}
           </div>
         </div>
         </div>

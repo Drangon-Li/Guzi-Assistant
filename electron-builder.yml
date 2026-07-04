@@ -1,0 +1,39 @@
+# 打包配置（macOS）。v1 目标：本地可分发的未签名 dmg/zip。
+# productName 保持 Gooz —— userData 目录随应用名走（~/Library/Application Support/Gooz），
+# 与现有 dev 数据同目录；Finder/Dock/菜单栏的显示名用 extendInfo 设为「谷子助手」。
+appId: cn.shilong.gooz
+productName: Gooz
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**
+  - package.json
+  # electron-vite 的 ?asset 导入在产物里解析为 join(__dirname,'../../resources/...')，
+  # 即 app.asar/resources/**——源资源目录必须原样进包
+  - resources/**
+# 桌宠 preload（原始 .cjs，不进构建产物）：拷到 Contents/Resources/pet，petPreloadPath() 按 resourcesPath 解析
+extraResources:
+  - from: resources/pet
+    to: pet
+    filter: ['pet-preload.cjs']
+asarUnpack:
+  - '**/*.node' # better-sqlite3 原生模块不能从 asar 里加载
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  category: public.app-category.productivity
+  icon: build/icon.png
+  # 暂无开发者证书：明确跳过签名（用户首次打开需右键 → 打开）
+  identity: null
+  extendInfo:
+    # 只覆盖 DisplayName（Finder/Dock 显示「谷子助手」）；CFBundleName 必须保持 Gooz——
+    # Electron 按它定位「<name> Helper.app」子进程，改了会 FATAL: Unable to find helper app
+    CFBundleDisplayName: 谷子助手
+    NSScreenCaptureUsageDescription: 谷子助手需要屏幕录制权限来识别屏幕上的日程与工作内容（截图仅在本机 OCR，默认只上传文字）。
+dmg:
+  artifactName: '谷子助手-${version}-${arch}.${ext}'
+npmRebuild: true

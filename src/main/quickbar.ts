@@ -1,7 +1,7 @@
 // 快捷提问框 —— 全局快捷键唤起的聚焦搜索式悬浮输入条（仿 macOS Spotlight / ChatGPT 桌面版）。
 // Spotlight 式半透明：原生 vibrancy 磨砂 + 原生圆角与窗口阴影（transparent 窗两样都拿不到，
 // CSS 阴影在深浅背景上会显得突兀）；进出用窗口透明度渐变，贴近聚焦搜索的观感。
-// 独立气泡对话模式：Enter 直接在条上方以气泡展开助手回答（不跳桌宠对话框），⌘Enter 快捷建日程。
+// 独立气泡对话模式：Enter 单入口（问答/记日程/口头任务指令都走助手），回答在条上方气泡展开。
 // 对话展开时渲染层汇报内容高度，窗口底边固定向上生长（水平居中贴近屏幕下方，错开系统聚焦搜索）。
 import { app, BrowserWindow, screen } from 'electron'
 import { debugEvent, load, preload } from './windows'
