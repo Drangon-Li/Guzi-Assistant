@@ -51,7 +51,37 @@ const PRODUCTIVE_PATTERNS = [
   'vim',
   'emacs',
   '语雀',
-  'wps'
+  'wps',
+  // 设计/创作
+  'photoshop',
+  'illustrator',
+  'indesign',
+  'affinity',
+  'procreate',
+  'blender',
+  'canva',
+  '即时设计',
+  // 视频/音频创作
+  'final cut',
+  'premiere',
+  'after effects',
+  'davinci',
+  '剪映',
+  'logic pro',
+  // 写作/笔记/学术
+  'scrivener',
+  'ulysses',
+  'bear',
+  'craft',
+  'goodnotes',
+  'notability',
+  'marginnote',
+  'endnote',
+  'mendeley',
+  'texshop',
+  'texstudio',
+  'texifier',
+  'flomo'
 ]
 const DISTRACTING_PATTERNS = [
   'bilibili',

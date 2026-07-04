@@ -65,8 +65,8 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
             <>
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-slate-600">
-                  真实姓名 <span className="text-red-500">*</span>
-                  <span className="ml-2 text-xs text-slate-400">用于识别通知中点名你的任务</span>
+                  怎么称呼你 <span className="text-red-500">*</span>
+                  <span className="ml-2 text-xs text-slate-400">群通知里怎么点名你就填什么（真名/花名都行），用于识别属于你的任务</span>
                 </span>
                 <input className={input} value={name} onChange={(e) => setName(e.target.value)} />
               </label>
