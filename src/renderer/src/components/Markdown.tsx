@@ -88,10 +88,11 @@ const H_CLASS: Record<number, string> = {
   4: 'text-sm font-medium'
 }
 
-/** 轻量 Markdown 展示（日报等模型输出）：标题/列表/引用/代码块/分隔线/加粗/行内代码。 */
+/** 轻量 Markdown 展示（日报等模型输出）：标题/列表/引用/代码块/分隔线/加粗/行内代码。
+ *  正文类内容——整块可选中复制（全局 body 已禁选，这里是白名单）。 */
 export default function Markdown({ text }: { text: string }): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-2.5 text-sm leading-6 text-slate-700">
+    <div className="flex select-text flex-col gap-2.5 text-sm leading-6 text-slate-700">
       {parse(text).map((b, i) => {
         if (b.kind === 'h')
           return (

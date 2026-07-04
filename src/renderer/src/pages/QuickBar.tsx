@@ -160,7 +160,7 @@ export default function QuickBar(): React.JSX.Element {
               m.role === 'user' ? (
                 <div
                   key={m.id}
-                  className="max-w-[85%] self-end rounded-2xl rounded-br-md bg-brand px-3 py-1.5 text-sm leading-6 text-white"
+                  className="max-w-[85%] select-text self-end rounded-2xl rounded-br-md bg-brand px-3 py-1.5 text-sm leading-6 text-white"
                 >
                   {m.content}
                 </div>

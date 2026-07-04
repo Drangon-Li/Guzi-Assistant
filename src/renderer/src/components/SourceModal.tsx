@@ -59,7 +59,7 @@ export default function SourceModal({ sourceId, onClose }: Props): React.JSX.Ele
               ) : source.content?.startsWith('data:image') ? (
                 <img src={source.content} alt="来源截图" className="max-w-full rounded" />
               ) : (
-                <pre className="text-xs leading-5 whitespace-pre-wrap text-slate-700">
+                <pre className="select-text text-xs leading-5 whitespace-pre-wrap text-slate-700">
                   {source.content ?? source.excerpt}
                 </pre>
               )}
