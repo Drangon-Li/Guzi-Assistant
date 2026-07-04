@@ -4,6 +4,7 @@
 import { app, Menu, type MenuItemConstructorOptions } from 'electron'
 import { focusMain } from './windows'
 import { triggerClipboardCapture, triggerScreenshotCapture } from './ipc'
+import { checkForUpdates } from './updater'
 
 export function installAppMenu(): void {
   const viewItems: MenuItemConstructorOptions[] = app.isPackaged
@@ -20,6 +21,7 @@ export function installAppMenu(): void {
       label: '谷子助手', // macOS 忽略首个菜单的 label，实际显示应用名
       submenu: [
         { role: 'about', label: '关于 谷子助手' },
+        { label: '检查更新…', click: () => void checkForUpdates(true) },
         { type: 'separator' },
         { label: '设置…', accelerator: 'CmdOrCtrl+,', click: () => focusMain('settings') },
         { type: 'separator' },

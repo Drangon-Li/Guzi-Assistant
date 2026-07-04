@@ -1,4 +1,4 @@
-import { dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
+import { app, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
 import { writeFileSync } from 'fs'
 import {
   addFocusTask,
@@ -79,6 +79,7 @@ import { getPetPrefs } from './pet/state'
 import { hidePetChat } from './pet/pet-chat-window'
 import { hideQuickBar, resizeQuickBar } from './quickbar'
 import { applyMcpSettings } from './mcp-server'
+import { checkForUpdates } from './updater'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
 
 const STATUSES: TaskStatus[] = [
@@ -222,6 +223,8 @@ export function registerIpc(): void {
   ipcMain.handle('pet:set-paused', (_e, paused: boolean) => setPetPausedState(paused))
   ipcMain.handle('pet:reset-position', () => resetPetPosition())
   ipcMain.handle('pet:chat-hide', () => hidePetChat())
+  ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('app:check-update', () => checkForUpdates(true))
   ipcMain.handle('quickbar:hide', () => hideQuickBar())
   ipcMain.handle('quickbar:resize', (_e, height: number) => {
     if (typeof height === 'number' && Number.isFinite(height)) resizeQuickBar(height)
