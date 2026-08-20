@@ -70,7 +70,7 @@ function addCandidates(
     return { candidate, title: item.title, time, duplicate: false }
   })
   if (!created) deleteSourceRow(source.id)
-  broadcast('eshell:tasks-updated')
+  broadcast('guzi-assistant:tasks-updated')
   return added
 }
 
@@ -150,7 +150,7 @@ export async function assistantChat(payload: {
     }
     if (ops.length) {
       if (ops.some((o) => o.action === 'done')) applyExternalPetReaction('success')
-      broadcast('eshell:tasks-updated')
+      broadcast('guzi-assistant:tasks-updated')
     }
 
     return {

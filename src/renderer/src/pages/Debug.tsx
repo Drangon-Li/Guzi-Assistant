@@ -34,7 +34,7 @@ export default function Debug(): React.JSX.Element {
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    return api.on('eshell:debug', (p) => {
+    return api.on('guzi-assistant:debug', (p) => {
       const e = p as Ev
       if (e.image) setShot({ url: e.image, ts: e.ts })
       setEvents((prev) => [...prev.slice(-299), e])

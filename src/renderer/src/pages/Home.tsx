@@ -55,7 +55,7 @@ export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.
       void api.getSettings().then((s) => setSenseOn(s.screenSenseEnabled))
     }
     loadSettings()
-    return api.on('eshell:settings-updated', loadSettings)
+    return api.on('guzi-assistant:settings-updated', loadSettings)
   }, [])
 
   const scanNow = async (): Promise<void> => {

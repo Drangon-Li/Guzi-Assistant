@@ -427,7 +427,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                 <pre className="select-text overflow-x-auto rounded-lg bg-slate-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-600">
                   {`{
   "mcpServers": {
-    "gooz": {
+    "guzi-assistant": {
       "url": "http://127.0.0.1:${settings.mcpPort}/mcp",
       "headers": { "Authorization": "Bearer ${settings.mcpToken || '<token>'}" }
     }

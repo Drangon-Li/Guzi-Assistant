@@ -25,6 +25,6 @@ const api = {
   pathForFile: (file: File): string => webUtils.getPathForFile(file)
 }
 
-contextBridge.exposeInMainWorld('eshell', api)
+contextBridge.exposeInMainWorld('guziAssistant', api)
 
-export type EShellApi = typeof api
+export type GuziAssistantApi = typeof api

@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.."
 
 VERSION=$(node -p "require('./package.json').version")
 NOTES=${1:-"版本 $VERSION"}
-DMG_LOCAL="release/谷子助手-$VERSION-arm64.dmg"
-DMG_KEY="Gooz-$VERSION-arm64.dmg" # 存储键用 ASCII，避免公共 URL 中文编码问题
+DMG_LOCAL="release/Guzi-Assistant-$VERSION-arm64.dmg"
+DMG_KEY="Guzi-Assistant-$VERSION-arm64.dmg"
 BASE="https://rtgypddrknuylecqejmp.supabase.co/storage/v1/object/public/releases"
 
 [ -f "$DMG_LOCAL" ] || { echo "未找到 $DMG_LOCAL，先跑 npm run pack:mac"; exit 1; }

@@ -47,7 +47,7 @@ export function focusMain(route?: string): void {
   const win = createMainWindow()
   win.show()
   win.focus()
-  if (route) win.webContents.send('eshell:navigate', route)
+  if (route) win.webContents.send('guzi-assistant:navigate', route)
 }
 
 /** 切换主窗口显隐：已显示 → 隐藏；隐藏/最小化 → 显示并获焦。供双击桌宠调用。 */
@@ -91,7 +91,7 @@ export function showPreview(payload: unknown): void {
   const enriched =
     payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>), petMode } : payload
   const send = (): void => {
-    win.webContents.send('eshell:preview', enriched)
+    win.webContents.send('guzi-assistant:preview', enriched)
     win.showInactive()
   }
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
@@ -125,7 +125,7 @@ export function anchorWindowNearPet(win: BrowserWindow, w: number, h: number, ga
 export function broadcastTheme(): void {
   const dark = nativeTheme.shouldUseDarkColors
   if (mainWin && !mainWin.isDestroyed()) mainWin.setBackgroundColor(dark ? '#161719' : '#ffffff')
-  broadcast('eshell:theme', { dark })
+  broadcast('guzi-assistant:theme', { dark })
 }
 
 /** 桌宠移动/变大小时，把贴在旁边的通知卡重新对齐（卡不可见时零开销）。 */
@@ -172,7 +172,7 @@ export function debugIsOpen(): boolean {
 /** 向调试窗推一条事件（窗没开则忽略，零开销）。 */
 export function debugEvent(stage: string, message: string, extra?: Record<string, unknown>): void {
   if (debugWin && !debugWin.isDestroyed())
-    debugWin.webContents.send('eshell:debug', { ts: Date.now(), stage, message, ...extra })
+    debugWin.webContents.send('guzi-assistant:debug', { ts: Date.now(), stage, message, ...extra })
   // 诊断：同时落盘到 userData/screen-sense-debug.log（排除带大图的 screenshot），便于离线排查
   try {
     if (stage !== 'screenshot')

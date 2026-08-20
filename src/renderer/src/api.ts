@@ -32,7 +32,7 @@ interface PersonalMemoryDto {
 }
 
 function inv<T>(channel: string, ...args: unknown[]): Promise<T> {
-  return window.eshell.invoke(channel, ...args) as Promise<T>
+  return window.guziAssistant.invoke(channel, ...args) as Promise<T>
 }
 
 export const api = {
@@ -139,7 +139,7 @@ export const api = {
   quickbarResize: (height: number) => inv<void>('quickbar:resize', height),
   themeGet: () => inv<boolean>('theme:get'),
 
-  on: (channel: string, cb: (payload: unknown) => void) => window.eshell.on(channel, cb)
+  on: (channel: string, cb: (payload: unknown) => void) => window.guziAssistant.on(channel, cb)
 }
 
 export type { PendingCapture }

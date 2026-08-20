@@ -21,7 +21,7 @@ export function applyReportSchedule(): void {
 async function fire(): Promise<void> {
   try {
     const report = await generateDailyReport(dayKey(new Date()))
-    broadcast('eshell:reports-updated')
+    broadcast('guzi-assistant:reports-updated')
     if (Notification.isSupported()) {
       const n = new Notification({ title: '谷子助手 · 日报已生成', body: report.title })
       n.on('click', () => focusMain('reports'))

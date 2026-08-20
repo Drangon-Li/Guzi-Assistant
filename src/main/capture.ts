@@ -112,7 +112,7 @@ export function clearPendings(): void {
 // ---------- 截图（macOS screencapture 框选） ----------
 
 export async function takeScreenshot(): Promise<string | null> {
-  const file = join(app.getPath('temp'), `eshell-shot-${Date.now()}.png`)
+  const file = join(app.getPath('temp'), `guzi-assistant-shot-${Date.now()}.png`)
   await new Promise<void>((resolve, reject) => {
     execFile('screencapture', ['-i', '-x', file], (err) => (err ? reject(err) : resolve()))
   })
@@ -127,7 +127,7 @@ export async function takeScreenshot(): Promise<string | null> {
 
 /** 静默全屏截图（无交互、无快门声），返回临时 png 路径；失败返回 null。调用方 OCR 后须自行删除 */
 export async function captureScreenSilently(): Promise<string | null> {
-  const file = join(app.getPath('temp'), `eshell-screen-${Date.now()}.png`)
+  const file = join(app.getPath('temp'), `guzi-assistant-screen-${Date.now()}.png`)
   // 只截「活动屏」（光标所在显示器）：多显示器下 `screencapture -x <file>` 只会截主屏，
   // 用 -R<x,y,w,h> 截活动屏的矩形区域，既覆盖外接屏，又省一半开销。
   const args = ['-x']
@@ -271,7 +271,7 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
     const { related, autoAdded, duplicates } = createTasksFromItems(source.id, items)
     // 没有任何任务引用的来源在 UI 上不可见也删不掉，不留库
     if (related === 0) deleteSourceRow(source.id)
-    broadcast('eshell:tasks-updated')
+    broadcast('guzi-assistant:tasks-updated')
     return { sourceId: related ? source.id : '', total: items.length, related, autoAdded, duplicates, error: null }
   } catch (e) {
     // 解析失败的来源没有任何任务引用，UI 上不可见也删不掉，必须当场清理

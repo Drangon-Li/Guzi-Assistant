@@ -108,8 +108,8 @@ function injectPetChat(payload: { display: string; content: string }): void {
   showPetChat()
   const win = ensureWindow()
   if (win.webContents.isLoading()) {
-    win.webContents.once('did-finish-load', () => win.webContents.send('eshell:pet-chat-drop', payload))
+    win.webContents.once('did-finish-load', () => win.webContents.send('guzi-assistant:pet-chat-drop', payload))
   } else {
-    win.webContents.send('eshell:pet-chat-drop', payload)
+    win.webContents.send('guzi-assistant:pet-chat-drop', payload)
   }
 }

@@ -1,4 +1,4 @@
-export interface EShellApi {
+export interface GuziAssistantApi {
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, cb: (payload: unknown) => void) => () => void
   pathForFile: (file: File) => string
@@ -6,7 +6,7 @@ export interface EShellApi {
 
 declare global {
   interface Window {
-    eshell: EShellApi
+    guziAssistant: GuziAssistantApi
   }
 }
 

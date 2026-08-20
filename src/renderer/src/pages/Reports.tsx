@@ -47,7 +47,7 @@ export default function Reports(): React.JSX.Element {
 
   useEffect(() => {
     loadReports()
-    return api.on('eshell:reports-updated', loadReports)
+    return api.on('guzi-assistant:reports-updated', loadReports)
   }, [loadReports])
 
   const generate = async (): Promise<void> => {

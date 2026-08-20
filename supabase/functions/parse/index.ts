@@ -17,19 +17,21 @@
  * 部署：supabase functions deploy parse
  * 所需密钥（supabase secrets set）：
  *   主用（A100，#85）：
- *     ESHELL_LLM_BASE         = http://<A100 公网地址>        // 不含 /v1，本函数自动补
- *     ESHELL_LLM_KEY          = <团队共享 key>
- *     ESHELL_LLM_MODEL        = Qwen3.5-122B-A10B-GPTQ-Int4   // 文本/对话（思考型，自动关思考）
- *     ESHELL_LLM_MODEL_VISION = Qwen3-Omni-30B-A3B-Instruct   // 含图（parse_vision）
+ *     GUZI_ASSISTANT_LLM_BASE         = http://<A100 公网地址>        // 不含 /v1，本函数自动补
+ *     GUZI_ASSISTANT_LLM_KEY          = <团队共享 key>
+ *     GUZI_ASSISTANT_LLM_MODEL        = Qwen3.5-122B-A10B-GPTQ-Int4   // 文本/对话（思考型，自动关思考）
+ *     GUZI_ASSISTANT_LLM_MODEL_VISION = Qwen3-Omni-30B-A3B-Instruct   // 含图（parse_vision）
  *   兜底（yunwu，可选；不配 base/key 则无兜底）：
- *     ESHELL_LLM_FALLBACK_BASE         = https://yunwu.ai
- *     ESHELL_LLM_FALLBACK_KEY          = <yunwu relay key>
- *     ESHELL_LLM_FALLBACK_MODEL        = deepseek-v4-flash
- *     ESHELL_LLM_FALLBACK_MODEL_VISION = qwen3.5-plus
+ *     GUZI_ASSISTANT_LLM_FALLBACK_BASE         = https://yunwu.ai
+ *     GUZI_ASSISTANT_LLM_FALLBACK_KEY          = <yunwu relay key>
+ *     GUZI_ASSISTANT_LLM_FALLBACK_MODEL        = deepseek-v4-flash
+ *     GUZI_ASSISTANT_LLM_FALLBACK_MODEL_VISION = qwen3.5-plus
+ *   旧 ESHELL_LLM_* secrets 仍作为升级兼容回退读取。
  *   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 由平台注入
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { creditCost, type BillableAction } from '../../../server/billing/credits.ts'
+import { firstNonBlank } from '../../../src/shared/env-value.ts'
 
 /** 一个上游 relay 配置（OpenAI Chat Completions 兼容）。base/key 走 secrets，未配置即视为不可用。 */
 interface Upstream {
@@ -40,21 +42,32 @@ interface Upstream {
   noThinkText: boolean // 文本模型是思考型时，传 enable_thinking:false 拿干净输出
 }
 
+const envValue = (name: string, legacy: string): string =>
+  firstNonBlank(Deno.env.get(name), Deno.env.get(legacy))
+
 // 主用：#85 自部署 A100 站（OpenAI 兼容 newapi）。旗舰文本模型是思考型 → 默认关思考。
 const PRIMARY: Upstream = {
-  base: Deno.env.get('ESHELL_LLM_BASE') ?? '',
-  key: Deno.env.get('ESHELL_LLM_KEY') ?? '',
-  model: Deno.env.get('ESHELL_LLM_MODEL') ?? 'Qwen3.5-122B-A10B-GPTQ-Int4',
-  modelVision: Deno.env.get('ESHELL_LLM_MODEL_VISION') ?? 'Qwen3-Omni-30B-A3B-Instruct',
-  noThinkText: Deno.env.get('ESHELL_LLM_NO_THINK') !== 'false'
+  base: envValue('GUZI_ASSISTANT_LLM_BASE', 'ESHELL_LLM_BASE'),
+  key: envValue('GUZI_ASSISTANT_LLM_KEY', 'ESHELL_LLM_KEY'),
+  model:
+    envValue('GUZI_ASSISTANT_LLM_MODEL', 'ESHELL_LLM_MODEL') || 'Qwen3.5-122B-A10B-GPTQ-Int4',
+  modelVision:
+    envValue('GUZI_ASSISTANT_LLM_MODEL_VISION', 'ESHELL_LLM_MODEL_VISION') ||
+    'Qwen3-Omni-30B-A3B-Instruct',
+  noThinkText: envValue('GUZI_ASSISTANT_LLM_NO_THINK', 'ESHELL_LLM_NO_THINK') !== 'false'
 }
 // 兜底：yunwu 聚合（A100 单点掉线时自动切；未配 base/key 则跳过兜底）。yunwu 模型非思考型 → 默认不关思考。
 const FALLBACK: Upstream = {
-  base: Deno.env.get('ESHELL_LLM_FALLBACK_BASE') ?? '',
-  key: Deno.env.get('ESHELL_LLM_FALLBACK_KEY') ?? '',
-  model: Deno.env.get('ESHELL_LLM_FALLBACK_MODEL') ?? 'deepseek-v4-flash',
-  modelVision: Deno.env.get('ESHELL_LLM_FALLBACK_MODEL_VISION') ?? 'qwen3.5-plus',
-  noThinkText: Deno.env.get('ESHELL_LLM_FALLBACK_NO_THINK') === 'true'
+  base: envValue('GUZI_ASSISTANT_LLM_FALLBACK_BASE', 'ESHELL_LLM_FALLBACK_BASE'),
+  key: envValue('GUZI_ASSISTANT_LLM_FALLBACK_KEY', 'ESHELL_LLM_FALLBACK_KEY'),
+  model:
+    envValue('GUZI_ASSISTANT_LLM_FALLBACK_MODEL', 'ESHELL_LLM_FALLBACK_MODEL') ||
+    'deepseek-v4-flash',
+  modelVision:
+    envValue('GUZI_ASSISTANT_LLM_FALLBACK_MODEL_VISION', 'ESHELL_LLM_FALLBACK_MODEL_VISION') ||
+    'qwen3.5-plus',
+  noThinkText:
+    envValue('GUZI_ASSISTANT_LLM_FALLBACK_NO_THINK', 'ESHELL_LLM_FALLBACK_NO_THINK') === 'true'
 }
 
 const PRIMARY_TIMEOUT_MS = 45_000 // A100 没响应就快速切兜底（客户端总超时 120s）

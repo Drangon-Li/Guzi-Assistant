@@ -163,7 +163,7 @@ export function registerIpc(): void {
       applyScreenSenseSettings()
     if (patch.mcpEnabled !== undefined || patch.mcpPort !== undefined || patch.mcpToken !== undefined)
       applyMcpSettings()
-    broadcast('eshell:settings-updated')
+    broadcast('guzi-assistant:settings-updated')
     return ok
   })
 
@@ -201,12 +201,12 @@ export function registerIpc(): void {
         if (next !== profile) saveProfile(next)
       }
     }
-    broadcast('eshell:tasks-updated')
+    broadcast('guzi-assistant:tasks-updated')
   })
   ipcMain.handle('tasks:bulk', (_e, ids: string[], status: TaskStatus) => {
     if (!STATUSES.includes(status)) return
     bulkUpdateStatus(ids, status)
-    broadcast('eshell:tasks-updated')
+    broadcast('guzi-assistant:tasks-updated')
   })
 
   ipcMain.handle('source:get', (_e, id: string) => getSource(id))
@@ -232,20 +232,20 @@ export function registerIpc(): void {
   ipcMain.handle('source:delete', (_e, id: string) => {
     deleteSourceContent(id)
     deleteShot(id) // 删来源原文时一并删其加密截图
-    broadcast('eshell:tasks-updated')
+    broadcast('guzi-assistant:tasks-updated')
   })
 
   ipcMain.handle('data:wipe', () => {
     wipeAll()
     clearAllShots() // 一键清除覆盖加密截图（#53）
-    broadcast('eshell:tasks-updated')
+    broadcast('guzi-assistant:tasks-updated')
   })
 
   // 记忆页「清空所有记忆」：清来源历史 + 屏幕识别历史 + 加密截图；保留任务/校正记忆/档案
   ipcMain.handle('memory:wipe', () => {
     wipeMemory()
     clearAllShots()
-    broadcast('eshell:tasks-updated')
+    broadcast('guzi-assistant:tasks-updated')
   })
 
   ipcMain.handle('permissions:get', (): PermissionStatus => {
@@ -294,7 +294,7 @@ export function registerIpc(): void {
         item: { ...item, belongs_to_user: 'yes' },
         force: true
       })
-    broadcast('eshell:tasks-updated')
+    broadcast('guzi-assistant:tasks-updated')
     return { added: items.length, titles: items.map((i) => i.title) }
   })
 
@@ -357,7 +357,7 @@ export function registerIpc(): void {
   ipcMain.handle('data:export-range', async (_e, fromDay: string, toDay: string) => {
     const res = await dialog.showSaveDialog({
       title: '导出数据',
-      defaultPath: `eshell-export-${fromDay}_${toDay}.json`,
+      defaultPath: `guzi-assistant-export-${fromDay}_${toDay}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
     if (res.canceled || !res.filePath) return false
@@ -367,7 +367,7 @@ export function registerIpc(): void {
   ipcMain.handle('app-usage:summary', (_e, day: string) => appUsageSummary(day))
   ipcMain.handle('reports:generate', async (_e, day: string) => {
     const r = await generateDailyReport(day)
-    broadcast('eshell:reports-updated')
+    broadcast('guzi-assistant:reports-updated')
     return r
   })
   ipcMain.handle('reports:list', () => listReports())
