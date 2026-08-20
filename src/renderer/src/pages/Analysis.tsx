@@ -330,7 +330,7 @@ function ReportBrowser(): React.JSX.Element {
 
   useEffect(() => {
     load()
-    return api.on('eshell:reports-updated', load)
+    return api.on('guzi-assistant:reports-updated', load)
   }, [load])
 
   const cutoff =

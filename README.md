@@ -1,4 +1,4 @@
-# 谷子助手（Gooz，原 EShell/纸壳助手）
+# 谷子助手（Guzi Assistant，原 Gooz/EShell/纸壳助手）
 
 个人事项捕获助手 —— 从聊天、通知、邮件、截图和屏幕里自动拎出待办，判断「哪些事是你的事」，用**确认式**交互帮你收进日程。macOS 桌面应用，基于 Electron + React。
 
@@ -47,7 +47,7 @@ Electron · electron-vite · React 19 · TypeScript · Tailwind CSS v4 · better
 ```
 
 - **IPC 通道集中在 `src/shared/ipc-channels.ts`**：主进程 `ipcMain.handle` 注册、preload 白名单校验、渲染层 `api.ts` 调用都以此为准。新增通道必须登记，否则 preload 运行时拒绝（`test/ipc-channels-smoke.mjs` 校验三者一致）。
-- 渲染层只通过 `src/renderer/src/api.ts`（`window.eshell.invoke/on` 的薄封装）和主进程通信，不直接碰 Node。
+- 渲染层只通过 `src/renderer/src/api.ts`（`window.guziAssistant.invoke/on` 的薄封装）和主进程通信，不直接碰 Node。
 
 ### 数据库即后端（托管侧）
 
@@ -64,7 +64,7 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 ```
 
 - Supabase = Postgres（库表/积分）+ Auth（登录）+ Edge Functions（前台逻辑）+ Storage。
-- 客户端默认内置我方 Supabase（`src/renderer/src/supabase.ts` 里 URL + publishable key，可公开，数据由 RLS 保护），**注册登录即用、零配置**；自建后端用 `VITE_ESHELL_SUPABASE_*` 覆盖。
+- 客户端默认内置我方 Supabase（`src/renderer/src/supabase.ts` 里 URL + publishable key，可公开，数据由 RLS 保护），**注册登录即用、零配置**；自建后端用 `VITE_GUZI_ASSISTANT_SUPABASE_*` 覆盖。
 
 ---
 
@@ -90,13 +90,13 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 1. 取用户档案 → `buildInstructions(profile, 已有任务, 归属先验)` 拼系统提示词（含"你是谁、常用名、哪些不是你的事"+ 已有任务用于查重）。
 2. 调 `callModel(instructions, input, action)`：
    - **登录了** → 走托管网关 `viaGateway`：`POST {functionsBase}/parse`，带 `Authorization: Bearer <token>`，由 Edge Function 扣分 + 转发。
-   - **没登录** → BYOK 回退 `viaDirect`：直连 `.env` 里的 `ESHELL_API_*`（OpenAI `/v1/responses`）。
+   - **没登录** → BYOK 回退 `viaDirect`：直连 `.env` 里的 `GUZI_ASSISTANT_API_*`（OpenAI `/v1/responses`；兼容旧 `ESHELL_API_*`）。
 3. `action`：含图 → `parse_vision`，纯文本 → `parse_text`；助手对话 → `chat`。
 
 **模型分配（在 Edge Function `parse` 里按 action 选）**：
 - `parse_vision`（含图）→ **qwen3.5-plus**（多模态读图）
 - `parse_text` / `chat`（文本/对话）→ **deepseek-v4-flash**
-- 由 secrets `ESHELL_LLM_MODEL` / `ESHELL_LLM_MODEL_VISION` 配置，上游 `ESHELL_LLM_BASE=https://yunwu.ai`。
+- 新部署使用 `GUZI_ASSISTANT_LLM_*` secrets；旧 `ESHELL_LLM_*` 仍作为升级兼容回退。
 
 **计费（`server/billing/credits.ts` + Postgres RPC）**：`parse_vision`=2 分、`parse_text`/`chat`=1 分、失败/跳过=0；先扣当月赠送（到期清零）再扣购买积分；`deduct_credits` 行锁防并发超扣。
 
@@ -158,7 +158,7 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 
 ## 五、数据模型
 
-### 本地 SQLite（`<userData>/eshell.db`，`db.ts`）
+### 本地 SQLite（`<userData>/eshell.db`，兼容保留的历史文件名，`db.ts`）
 
 | 表 | 作用 |
 |---|---|
@@ -209,7 +209,7 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 
 ## 七、隐私
 
-- 本地数据只在本机：`<userData>/eshell.db`，不自动上传。
+- 本地数据只在本机：`<userData>/eshell.db`（兼容保留的历史文件名），不自动上传。
 - 屏幕原图**用完即弃**（OCR 后立即删）；屏幕静止/内容未变/冷却期内/人不在电脑前连云都不上；默认只上传 OCR **文字**（且已脱敏），仅「日程深度确认」开启时上传当帧前景裁剪图。
 - 上云前脱敏（`shared/sensitive.ts`）：API key/私钥/JWT/身份证/银行卡/密码值替换为 `[已隐去·类型]` 占位符（模式参考 gitleaks / detect-secrets / Presidio；手机号不打码——常是任务必要联系信息）。
 - 设置 → 数据 可按时间范围导出工作记录/日报/应用时长/检测历史为 JSON。
@@ -276,15 +276,15 @@ npm run dev          # 开发模式（electron-vite）
 
 ```
 # 托管后端（可选，自建才填；publishable key 可公开）
-VITE_ESHELL_SUPABASE_URL=
-VITE_ESHELL_SUPABASE_ANON_KEY=
+VITE_GUZI_ASSISTANT_SUPABASE_URL=
+VITE_GUZI_ASSISTANT_SUPABASE_ANON_KEY=
 # BYOK 直连回退（留空禁用；填了未登录时用，OpenAI /v1/responses 形状）
-ESHELL_API_BASE=
-ESHELL_API_KEY=
-ESHELL_MODEL=
+GUZI_ASSISTANT_API_BASE=
+GUZI_ASSISTANT_API_KEY=
+GUZI_ASSISTANT_MODEL=
 # 飞书自建应用（可选，也可在设置页填）
-ESHELL_FEISHU_APP_ID=
-ESHELL_FEISHU_APP_SECRET=
+GUZI_ASSISTANT_FEISHU_APP_ID=
+GUZI_ASSISTANT_FEISHU_APP_SECRET=
 ```
 
 环境要求：macOS · Node ≥ 22.18（测试用原生 strip-types 直跑 `.ts`） · 屏幕感知需「屏幕录制」权限 · 首次本地 OCR 编译需 Xcode 命令行工具（`xcode-select --install`）。
@@ -297,10 +297,10 @@ ESHELL_FEISHU_APP_SECRET=
 # 1. 数据库（一次性）：在 Supabase SQL Editor 跑 server/db/schema.sql
 # 2. Edge Function 密钥：
 supabase secrets set \
-  ESHELL_LLM_BASE=https://yunwu.ai \
-  ESHELL_LLM_KEY=<云雾 relay key> \
-  ESHELL_LLM_MODEL=deepseek-v4-flash \
-  ESHELL_LLM_MODEL_VISION=qwen3.5-plus \
+  GUZI_ASSISTANT_LLM_BASE=https://yunwu.ai \
+  GUZI_ASSISTANT_LLM_KEY=<云雾 relay key> \
+  GUZI_ASSISTANT_LLM_MODEL=deepseek-v4-flash \
+  GUZI_ASSISTANT_LLM_MODEL_VISION=qwen3.5-plus \
   --project-ref <ref>
 # 3. 部署：
 supabase functions deploy parse --project-ref <ref>

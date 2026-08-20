@@ -5,9 +5,10 @@
 import { app, dialog, shell } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { firstNonBlank } from '@shared/env-value'
 
 const FEED_URL =
-  process.env.ESHELL_UPDATE_FEED ??
+  firstNonBlank(process.env.GUZI_ASSISTANT_UPDATE_FEED, process.env.ESHELL_UPDATE_FEED) ||
   'https://rtgypddrknuylecqejmp.supabase.co/storage/v1/object/public/releases/latest-mac.json'
 const CHECK_INTERVAL_MS = 24 * 3600 * 1000
 

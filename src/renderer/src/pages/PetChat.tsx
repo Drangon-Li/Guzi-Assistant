@@ -18,7 +18,7 @@ export default function PetChat(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    return api.on('eshell:pet-chat-drop', (p) => {
+    return api.on('guzi-assistant:pet-chat-drop', (p) => {
       const d = p as { display?: string; content?: string }
       if (!d || typeof d.content !== 'string' || typeof d.display !== 'string') return
       setInjected({ content: d.content, display: d.display, nonce: ++dropNonce.current })
@@ -29,7 +29,7 @@ export default function PetChat(): React.JSX.Element {
     void api.getProfile().then(setProfile)
     refresh()
     void api.getSettings().then((s) => setHotkeyLabel(formatHotkey(s.hotkey)))
-    const off = api.on('eshell:tasks-updated', refresh)
+    const off = api.on('guzi-assistant:tasks-updated', refresh)
     return off
   }, [refresh])
 

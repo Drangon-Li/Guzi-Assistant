@@ -91,7 +91,7 @@ export function showQuickBar(): void {
   const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
   const h = win.getBounds().height
   win.setPosition(Math.round(wa.x + (wa.width - QB_W) / 2), Math.round(wa.y + wa.height - h - 60), false)
-  const notify = (): void => win.webContents.send('eshell:quickbar-show')
+  const notify = (): void => win.webContents.send('guzi-assistant:quickbar-show')
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', notify)
   else notify()
   win.setOpacity(0)

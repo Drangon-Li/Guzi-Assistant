@@ -390,7 +390,7 @@ function PendingDetections(): React.JSX.Element | null {
   useEffect(() => {
     load()
     // 检测无专属广播：蹭任务更新事件刷新（同意检测会触发它），展开时也会重新拉
-    return api.on('eshell:tasks-updated', load)
+    return api.on('guzi-assistant:tasks-updated', load)
   }, [load])
 
   const fresh = dets.filter((d) => d.status === 'new')

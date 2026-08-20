@@ -7,6 +7,7 @@ import { deleteShot } from './shotvault'
 import { localNow, localNowSec } from '@shared/parsing'
 import { dayKey } from '@shared/work-report'
 import { buildFtsQuery } from '@shared/fts-query'
+import { firstNonBlank } from '@shared/env-value'
 import type {
   AppSettings,
   AppCategoryOverride,
@@ -130,7 +131,9 @@ export function initDb(): void {
   if (!pmCols.includes('base_content'))
     db.exec("ALTER TABLE personal_memory ADD COLUMN base_content TEXT NOT NULL DEFAULT ''")
   // 老数据清理：应用时长早期把自己（dev 下前台名是 Electron）也计了进去，启动时清掉（新数据已不再产生）
-  db.exec("DELETE FROM app_usage WHERE app IN ('Electron', 'EShell', 'Gooz', '谷子助手', '纸壳助手')")
+  db.exec(
+    "DELETE FROM app_usage WHERE app IN ('Electron', 'GuziAssistant', 'Guzi Assistant', 'EShell', 'Gooz', '谷子助手', '纸壳助手')"
+  )
   // 切换事件只服务注意力分析，90 天后没有回看价值，启动时滚动清理
   const switchCutoff = dayKey(new Date(Date.now() - 90 * 86_400_000))
   db.prepare('DELETE FROM app_switches WHERE ts < ?').run(switchCutoff)
@@ -218,11 +221,15 @@ export function getSettings(): AppSettings {
     petVoiceHotkey: map.petVoiceHotkey || 'Alt+V',
     quickAskHotkey: map.quickAskHotkey || 'Alt+Space',
     // ?? 而不是 ||：用户显式清空后不能从 .env 静默复活
-    apiBase: map.apiBase ?? env.ESHELL_API_BASE ?? '',
-    apiKey: map.apiKey ?? env.ESHELL_API_KEY ?? '',
-    model: map.model || env.ESHELL_MODEL || 'gpt-5.5',
-    feishuAppId: map.feishuAppId ?? env.ESHELL_FEISHU_APP_ID ?? '',
-    feishuAppSecret: map.feishuAppSecret ?? env.ESHELL_FEISHU_APP_SECRET ?? '',
+    apiBase: map.apiBase ?? firstNonBlank(env.GUZI_ASSISTANT_API_BASE, env.ESHELL_API_BASE),
+    apiKey: map.apiKey ?? firstNonBlank(env.GUZI_ASSISTANT_API_KEY, env.ESHELL_API_KEY),
+    model: map.model || firstNonBlank(env.GUZI_ASSISTANT_MODEL, env.ESHELL_MODEL) || 'gpt-5.5',
+    feishuAppId:
+      map.feishuAppId ??
+      firstNonBlank(env.GUZI_ASSISTANT_FEISHU_APP_ID, env.ESHELL_FEISHU_APP_ID),
+    feishuAppSecret:
+      map.feishuAppSecret ??
+      firstNonBlank(env.GUZI_ASSISTANT_FEISHU_APP_SECRET, env.ESHELL_FEISHU_APP_SECRET),
     // 核心被动采集：默认关（opt-in，检测走云端解析、消耗 credits）
     screenSenseEnabled: map.screenSenseEnabled === 'true',
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',

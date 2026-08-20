@@ -3,6 +3,7 @@ import { initDb, getSettings } from './db'
 import { registerIpc, triggerClipboardCapture, triggerScreenshotCapture } from './ipc'
 import { initHotkey, initNamedHotkey, initScreenshotHotkey, stopHotkey } from './hotkey'
 import { initDropbox } from './dropbox'
+import { upgradeQuickActionIfNeeded } from './quickaction'
 import { ensureFeishu } from './feishu'
 import {
   applyScreenSenseSettings,
@@ -42,16 +43,22 @@ import { dirname, join } from 'path'
 import trayIcon from '../../resources/trayTemplate.png?asset'
 import trayIcon2x from '../../resources/trayTemplate@2x.png?asset'
 
-// 改名 Gooz 后 userData 目录随 productName 变更；把旧 EShell 目录的数据一次性搬过来（只复制不删，保底可回滚）
+const userDataOverride = process.env.GUZI_ASSISTANT_USER_DATA_DIR
+if (userDataOverride) app.setPath('userData', userDataOverride)
+
+// productName 改名会切换 userData；按新到旧顺序迁移历史目录，只复制不删以保留回滚路径。
 function migrateLegacyUserData(): void {
   const dir = app.getPath('userData')
   if (existsSync(join(dir, 'eshell.db'))) return
-  const legacy = join(dirname(dir), 'EShell')
-  if (!existsSync(join(legacy, 'eshell.db'))) return
-  try {
-    cpSync(legacy, dir, { recursive: true, force: false })
-  } catch (e) {
-    console.error('[migrate] 旧数据目录迁移失败：', e)
+  for (const name of ['Gooz', 'EShell']) {
+    const legacy = join(dirname(dir), name)
+    if (!existsSync(join(legacy, 'eshell.db'))) continue
+    try {
+      cpSync(legacy, dir, { recursive: true, force: false })
+    } catch (e) {
+      console.error(`[migrate] 旧数据目录 ${name} 迁移失败：`, e)
+    }
+    return
   }
 }
 
@@ -157,6 +164,7 @@ if (!app.requestSingleInstanceLock()) {
     initNamedHotkey('petVoice', getSettings().petVoiceHotkey, togglePetListening)
     initNamedHotkey('quickAsk', getSettings().quickAskHotkey, toggleQuickBar)
     initDropbox()
+    upgradeQuickActionIfNeeded()
     ensureFeishu()
     applyScreenSenseSettings()
     applyMcpSettings() // 对外 MCP 服务（默认关，设置页开启）

@@ -43,7 +43,7 @@ export default function QuickBar(): React.JSX.Element {
 
   // 每次唤起：全新对话（清空气泡与输入）、聚焦
   useEffect(() => {
-    return api.on('eshell:quickbar-show', () => {
+    return api.on('guzi-assistant:quickbar-show', () => {
       setMsgs([])
       setText('')
       setBusy(false)

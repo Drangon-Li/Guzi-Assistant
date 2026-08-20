@@ -1,4 +1,4 @@
-// 桌宠控制器：Gooz 事件层驱动桌宠的唯一调用面。
+// 桌宠控制器：Guzi Assistant 事件层驱动桌宠的唯一调用面。
 // 移植/精简自 openpets default-pet-controller.ts（MIT，见 ./THIRD_PARTY_NOTICES.md）。
 import {
   hidePet,

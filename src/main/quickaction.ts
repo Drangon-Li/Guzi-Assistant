@@ -1,14 +1,16 @@
 import { execFile } from 'child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
+import { firstNonBlank } from '@shared/env-value'
+import { shouldUpgradeQuickAction } from '@shared/quickaction-migration'
 
 const WORKFLOW_NAME = '发送到 谷子助手.workflow'
 const LEGACY_WORKFLOW_NAME = '发送到 纸壳助手.workflow'
 
 // 快速操作的 shell：把选中文件的路径写进 谷子助手 监听的 dropbox 目录
-// 注意：内容会嵌进 XML，不能出现 & 和 <；目录名跟随 productName（Gooz）
-const SCRIPT = `DROP_DIR="$HOME/Library/Application Support/Gooz/dropbox"
+// 注意：内容会嵌进 XML，不能出现 & 和 <；目录名跟随 productName（GuziAssistant）
+const SCRIPT = `DROP_DIR="$HOME/Library/Application Support/GuziAssistant/dropbox"
 mkdir -p "$DROP_DIR"
 MANIFEST="$DROP_DIR/send-$(date +%s)-$$.txt"
 for f in "$@"
@@ -254,19 +256,39 @@ const DOCUMENT_WFLOW = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
+function servicesDir(): string {
+  const home = firstNonBlank(process.env.GUZI_ASSISTANT_HOME_DIR, app.getPath('home'))
+  return join(home, 'Library', 'Services')
+}
+
 function bundlePath(): string {
-  return join(app.getPath('home'), 'Library', 'Services', WORKFLOW_NAME)
+  return join(servicesDir(), WORKFLOW_NAME)
 }
 
 export function quickActionInstalled(): boolean {
-  return existsSync(join(bundlePath(), 'Contents', 'document.wflow'))
+  const document = join(bundlePath(), 'Contents', 'document.wflow')
+  if (!existsSync(document)) return false
+  try {
+    return readFileSync(document, 'utf8').includes('Application Support/GuziAssistant/dropbox')
+  } catch {
+    return false
+  }
+}
+
+/** 已安装但仍指向旧 Gooz dropbox 时原位升级；从未安装过则不主动新增。 */
+export function upgradeQuickActionIfNeeded(): void {
+  const document = join(bundlePath(), 'Contents', 'document.wflow')
+  const legacyDocument = join(servicesDir(), LEGACY_WORKFLOW_NAME, 'Contents', 'document.wflow')
+  if (shouldUpgradeQuickAction(existsSync(document), quickActionInstalled(), existsSync(legacyDocument))) {
+    installQuickAction()
+  }
 }
 
 /** 直接生成 .workflow bundle 写入 ~/Library/Services，免打包免签名 */
 export function installQuickAction(): boolean {
   try {
     // 改名遗留：旧「发送到 纸壳助手」workflow 指向已迁移的旧 dropbox 目录，装新版时顺手清掉
-    const legacy = join(app.getPath('home'), 'Library', 'Services', LEGACY_WORKFLOW_NAME)
+    const legacy = join(servicesDir(), LEGACY_WORKFLOW_NAME)
     if (existsSync(legacy)) rmSync(legacy, { recursive: true, force: true })
     const contents = join(bundlePath(), 'Contents')
     mkdirSync(contents, { recursive: true })

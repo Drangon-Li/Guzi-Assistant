@@ -46,7 +46,7 @@ async function viaGateway(
   return payload.data ?? ({} as ResponsesOutput)
 }
 
-/** 直连模型（开发/自托管兜底，BYOK 经 env ESHELL_API_*）。 */
+/** 直连模型（开发/自托管兜底，BYOK 经 GUZI_ASSISTANT_API_*，兼容旧 ESHELL_API_*）。 */
 async function viaDirect(
   instructions: string,
   input: unknown[],

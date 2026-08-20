@@ -330,7 +330,7 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
     feedback: null
   })
   finalizeShot(textHash(sourceText), source.id) // 把捕获时存的临时加密缩略图落实到本来源（无则 no-op）
-  broadcast('eshell:tasks-updated')
+  broadcast('guzi-assistant:tasks-updated')
   return { candidate: 0, title: item.title, time, duplicate: false, taskId: task.id }
 }
 
@@ -449,8 +449,17 @@ function debugShot(png: string): void {
 function isOwnApp(frontApp: string | null): boolean {
   if (!frontApp) return false
   const f = frontApp.trim().toLowerCase()
-  // 保留旧名（纸壳助手/eshell）：改名前打包的旧进程名仍需排除
-  return [app.getName(), 'electron', '谷子助手', 'gooz', '纸壳助手', 'eshell'].some(
+  // 保留历史进程名：升级后仍要排除旧版本窗口，避免把自己的日程重新识别为新任务。
+  return [
+    app.getName(),
+    'electron',
+    'GuziAssistant',
+    'Guzi Assistant',
+    '谷子助手',
+    'gooz',
+    '纸壳助手',
+    'eshell'
+  ].some(
     (n) => n && f.includes(n.toLowerCase())
   )
 }

@@ -139,7 +139,7 @@ function callTool(name: string, args: Record<string, unknown>): unknown {
     const task = getTask(id)
     if (!task) throw new Error(`找不到 id 为 ${id} 的任务，请先用 list_tasks 查询`)
     updateTask(id, { status })
-    broadcast('eshell:tasks-updated')
+    broadcast('guzi-assistant:tasks-updated')
     return { title: task.title, status }
   }
   if (name === 'list_work_records') {
@@ -175,7 +175,7 @@ function handleRpc(req: RpcRequest): { status: number; body: string | null } {
         protocolVersion:
           typeof req.params?.protocolVersion === 'string' ? req.params.protocolVersion : '2025-03-26',
         capabilities: { tools: {} },
-        serverInfo: { name: 'gooz', title: '谷子助手', version: app.getVersion() }
+        serverInfo: { name: 'guzi-assistant', title: 'Guzi Assistant', version: app.getVersion() }
       })
     }
   }

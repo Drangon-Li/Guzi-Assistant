@@ -11,7 +11,7 @@ const applyDark = (dark: boolean): void => {
   document.documentElement.classList.toggle('dark', dark)
 }
 void api.themeGet().then((d) => applyDark(!!d))
-api.on('eshell:theme', (p) => applyDark(!!(p as { dark?: boolean })?.dark))
+api.on('guzi-assistant:theme', (p) => applyDark(!!(p as { dark?: boolean })?.dark))
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

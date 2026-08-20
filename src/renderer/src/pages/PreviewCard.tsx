@@ -134,7 +134,7 @@ export default function PreviewCard(): React.JSX.Element | null {
   }
 
   useEffect(() => {
-    return api.on('eshell:preview', (payload) => {
+    return api.on('guzi-assistant:preview', (payload) => {
       const p = payload as
         | (PendingCapture & { error?: undefined; busy?: undefined; summary?: undefined; suggestion?: undefined })
         | { error: string; busy?: undefined; summary?: undefined; suggestion?: undefined }
@@ -192,7 +192,7 @@ export default function PreviewCard(): React.JSX.Element | null {
     const load = (): void =>
       void api.getSettings().then((s) => setAutoHideSec(s.screenSenseCardHideSec))
     load()
-    return api.on('eshell:settings-updated', load)
+    return api.on('guzi-assistant:settings-updated', load)
   }, [])
 
   useEffect(() => {

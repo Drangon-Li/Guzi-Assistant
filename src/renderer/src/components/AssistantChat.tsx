@@ -83,7 +83,7 @@ export default function AssistantChat({
       void api.getSettings().then((s) => setScreenSense(s.screenSenseEnabled))
     }
     load()
-    return api.on('eshell:settings-updated', load)
+    return api.on('guzi-assistant:settings-updated', load)
   }, [])
 
   /** 最近一条仍有未处理候选的消息，作为下一轮对话的上下文 */

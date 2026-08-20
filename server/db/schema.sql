@@ -1,4 +1,4 @@
--- Eshell 托管后端数据模型（#41 账号+计费+收付款 / #56 积分模型）
+-- Guzi Assistant 托管后端数据模型（#41 账号+计费+收付款 / #56 积分模型）
 -- 目标库：Supabase（Postgres）。落 server/billing/credits.ts(#63) 的 CreditState + chpay 参考数据模型。
 -- 金额一律存「分」(integer)，对 chpay 平台才换「元」。积分账本与 credits.ts 字段一一对应。
 -- RLS：用户只读自己；写入/扣费一律走 service-role 后端（绕 RLS），客户端不直接改余额。

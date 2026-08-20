@@ -77,15 +77,15 @@ export const INVOKE_CHANNELS = [
 
 /** 主进程 → 渲染层的事件通道（对应 broadcast / webContents.send 与渲染层 on） */
 export const EVENT_CHANNELS = [
-  'eshell:navigate',
-  'eshell:preview',
-  'eshell:settings-updated',
-  'eshell:tasks-updated',
-  'eshell:debug',
-  'eshell:pet-chat-drop',
-  'eshell:reports-updated',
-  'eshell:quickbar-show',
-  'eshell:theme'
+  'guzi-assistant:navigate',
+  'guzi-assistant:preview',
+  'guzi-assistant:settings-updated',
+  'guzi-assistant:tasks-updated',
+  'guzi-assistant:debug',
+  'guzi-assistant:pet-chat-drop',
+  'guzi-assistant:reports-updated',
+  'guzi-assistant:quickbar-show',
+  'guzi-assistant:theme'
 ] as const
 
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]

@@ -30,6 +30,9 @@ import {
 
 type Page = 'home' | 'schedule' | 'reports' | 'analysis' | 'account' | 'settings'
 
+const WELCOME_KEY = 'guzi-assistant:welcomed'
+const LEGACY_WELCOME_KEY = 'eshell:welcomed'
+
 // 设置不在主导航里，固定在侧边栏底部
 const NAV: { key: Page; label: string; icon: () => React.JSX.Element }[] = [
   { key: 'home', label: '今日', icon: IconToday },
@@ -54,7 +57,11 @@ function MainApp(): React.JSX.Element | null {
   const [page, setPage] = useState<Page>('home')
   const [chatOpen, setChatOpen] = useState(false)
   const [shownPage, setShownPage] = useState<Page>('home')
-  const [welcomed, setWelcomed] = useState(() => window.localStorage.getItem('eshell:welcomed') === '1')
+  const [welcomed, setWelcomed] = useState(
+    () =>
+      window.localStorage.getItem(WELCOME_KEY) === '1' ||
+      window.localStorage.getItem(LEGACY_WELCOME_KEY) === '1'
+  )
   const [pageVisible, setPageVisible] = useState(true)
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [toast, setToast] = useState<string | null>(null)
@@ -115,9 +122,9 @@ function MainApp(): React.JSX.Element | null {
       void api.getSettings().then((s) => setHotkeyLabel(formatHotkey(s.hotkey)))
     }
     loadHotkey()
-    const offTasks = api.on('eshell:tasks-updated', refresh)
-    const offSettings = api.on('eshell:settings-updated', loadHotkey)
-    const offNav = api.on('eshell:navigate', (route) => {
+    const offTasks = api.on('guzi-assistant:tasks-updated', refresh)
+    const offSettings = api.on('guzi-assistant:settings-updated', loadHotkey)
+    const offNav = api.on('guzi-assistant:navigate', (route) => {
       if (route === 'inbox' || route === 'assistant') setChatOpen(true)
       else if (route === 'timeline')
         setPage('schedule') // 旧路由兼容：时间轴已并入日程页
@@ -155,7 +162,7 @@ function MainApp(): React.JSX.Element | null {
     e.preventDefault()
     dragDepth.current = 0
     setDragging(false)
-    const paths = Array.from(e.dataTransfer.files).map((f) => window.eshell.pathForFile(f))
+    const paths = Array.from(e.dataTransfer.files).map((f) => window.guziAssistant.pathForFile(f))
     if (!paths.length) return
     showToast(`正在解析 ${paths.length} 个文件…`)
     const results = await api.captureFiles(paths)
@@ -174,7 +181,7 @@ function MainApp(): React.JSX.Element | null {
       return (
         <Welcome
           onDone={() => {
-            window.localStorage.setItem('eshell:welcomed', '1')
+            window.localStorage.setItem(WELCOME_KEY, '1')
             setWelcomed(true)
           }}
         />
@@ -212,7 +219,7 @@ function MainApp(): React.JSX.Element | null {
         <div className="px-5 pt-10 pb-4 titlebar-pad">
           <div className="flex items-center gap-2">
             <img src={brandMark} alt="" className="size-7 shrink-0" />
-            {/* 改名 Gooz：旧字标图是「纸壳助手」字样，先用文字渲染顶替，新字标出图后再换回 */}
+            {/* 品牌字标暂用文字渲染，避免旧「纸壳助手」图片继续出现在界面中。 */}
             <span className="text-[17px] font-semibold tracking-wide">谷子助手</span>
           </div>
           <div className="mt-1.5 text-xs text-slate-400">个人事项捕获助手</div>

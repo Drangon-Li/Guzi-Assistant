@@ -39,7 +39,7 @@ export default function FloatingAssistant({
   useEffect(() => {
     const load = (): void => void api.getSettings().then((s) => setAutoCloseSec(s.assistantAutoCloseSec))
     load()
-    return api.on('eshell:settings-updated', load)
+    return api.on('guzi-assistant:settings-updated', load)
   }, [])
   const idleTimer = useRef<number | undefined>(undefined)
   const bumpIdle = useCallback(() => {

@@ -1,8 +1,9 @@
 # 打包配置（macOS）。v1 目标：本地可分发的未签名 dmg/zip。
-# productName 保持 Gooz —— userData 目录随应用名走（~/Library/Application Support/Gooz），
-# 与现有 dev 数据同目录；Finder/Dock/菜单栏的显示名用 extendInfo 设为「谷子助手」。
+# productName 使用无空格标识 GuziAssistant，Finder/Dock/菜单栏继续显示「谷子助手」。
+# appId 暂保留旧值，维持 macOS 权限与升级身份连续性。
 appId: cn.shilong.gooz
-productName: Gooz
+productName: GuziAssistant
+artifactName: 'Guzi-Assistant-${version}-${arch}.${ext}'
 directories:
   buildResources: build
   output: release
@@ -30,10 +31,8 @@ mac:
   # 暂无开发者证书：明确跳过签名（用户首次打开需右键 → 打开）
   identity: null
   extendInfo:
-    # 只覆盖 DisplayName（Finder/Dock 显示「谷子助手」）；CFBundleName 必须保持 Gooz——
+    # 只覆盖 DisplayName（Finder/Dock 显示「谷子助手」）；CFBundleName 必须跟 productName 保持一致——
     # Electron 按它定位「<name> Helper.app」子进程，改了会 FATAL: Unable to find helper app
     CFBundleDisplayName: 谷子助手
     NSScreenCaptureUsageDescription: 谷子助手需要屏幕录制权限来识别屏幕上的日程与工作内容（截图仅在本机 OCR，默认只上传文字）。
-dmg:
-  artifactName: '谷子助手-${version}-${arch}.${ext}'
 npmRebuild: true
