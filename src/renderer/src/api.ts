@@ -12,6 +12,7 @@ import type {
   Profile,
   ReportRecord,
   ScanResult,
+  ScreenActivityStatus,
   SourceRecord,
   TaskRecord,
   TaskStatus,
@@ -72,6 +73,7 @@ export const api = {
   feishuStatus: () => inv<FeishuStatus>('feishu:status'),
 
   screenScan: () => inv<ScanResult>('screen:scan'),
+  screenActivityStatus: () => inv<ScreenActivityStatus>('screen:activity-status'),
   suggestionAccept: (payload: { item: ParsedItem; sourceText: string }) =>
     inv<AddedInfo>('suggestion:accept', payload),
   acceptLocal: (payload: { item: ParsedItem; sourceText: string; detectionId?: string }) =>

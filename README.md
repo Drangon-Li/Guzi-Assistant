@@ -1,4 +1,4 @@
-# 谷子助手（Guzi Assistant，原 Gooz/EShell/纸壳助手）
+# 谷子助手（原 Gooz/EShell/纸壳助手）
 
 个人事项捕获助手 —— 从聊天、通知、邮件、截图和屏幕里自动拎出待办，判断「哪些事是你的事」，用**确认式**交互帮你收进日程。macOS 桌面应用，基于 Electron + React。
 

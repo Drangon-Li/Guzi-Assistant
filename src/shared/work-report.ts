@@ -1,5 +1,5 @@
 // 工作日报纯函数：日键/时长格式化/任务切分/日报生成提示词。纯函数 + 注入数据，便于单测与主进程复用。
-import type { AppUsageEntry, TaskRecord, WorkRecord } from './types'
+import type { AppUsageEntry, TaskRecord, WorkRecord, WorkRecordSource } from './types'
 
 /** 本地时区的 YYYY-MM-DD（work_records/app_usage/reports 的日键） */
 export function dayKey(d: Date): string {
@@ -38,6 +38,7 @@ export interface WorkPeriod {
   activities: string[]
   /** 组内所有记录 id（供整段删除） */
   ids: string[]
+  source: WorkRecordSource
 }
 
 /**
@@ -53,6 +54,8 @@ export function groupWorkPeriods(records: WorkRecord[], gapMinutes = 10): WorkPe
     if (!cur.length) return
     const counts = new Map<string, number>()
     for (const r of cur) counts.set(r.content, (counts.get(r.content) ?? 0) + 1)
+    const sourceCounts = new Map<WorkRecordSource, number>()
+    for (const r of cur) sourceCounts.set(r.source, (sourceCounts.get(r.source) ?? 0) + 1)
     let summary = cur[0].content
     let best = -1
     for (const [content, n] of counts) {
@@ -68,7 +71,8 @@ export function groupWorkPeriods(records: WorkRecord[], gapMinutes = 10): WorkPe
       summary,
       count: cur.length,
       activities: [...new Set(cur.map((r) => r.content))],
-      ids: cur.map((r) => r.id)
+      ids: cur.map((r) => r.id),
+      source: [...sourceCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'ocr'
     })
     cur = []
   }
@@ -205,8 +209,20 @@ ${taskTitles.join('\n') || '（无）'}`
 }
 
 /**
+ * 任务归一键：折叠模型对同一任务偶发的空格/全半角/大小写差异
+ * （「评审EMNLP论文」「评审 EMNLP 论文」「评审ＥＭＮＬＰ论文」视为同一任务）。
+ * NFKC 折全角→半角，去掉全部空白（中英混排时模型加不加空格不稳定），小写化英文。
+ * 仅作分组/匹配用，展示仍取原始写法（见 focusDurations 的 displayOf）。
+ */
+export function normalizeTaskKey(name: string): string {
+  return name.normalize('NFKC').replace(/\s+/g, '').toLowerCase()
+}
+
+/**
  * 任务专注时长：按 task 标签把记录切成连续段（同任务、相邻间隔 ≤gapMinutes），
  * 每段时长 = 末条-首条 + 1 分钟（单条记录也算 1 分钟专注）。返回按累计时长降序。
+ * 分组按归一键（见 normalizeTaskKey），仅空格/大小写不同的写法合并成一个任务，
+ * 展示名取该键下出现最多的原始写法（并列取更长的，空格版更易读）。
  */
 export function focusDurations(
   records: WorkRecord[],
@@ -215,33 +231,43 @@ export function focusDurations(
   const sorted = records
     .filter((r) => r.task)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const variants = new Map<string, Map<string, number>>()
+  for (const r of sorted) {
+    const key = normalizeTaskKey(r.task!)
+    const m = variants.get(key) ?? new Map<string, number>()
+    m.set(r.task!, (m.get(r.task!) ?? 0) + 1)
+    variants.set(key, m)
+  }
+  const displayOf = (key: string): string =>
+    [...variants.get(key)!.entries()].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)[0][0]
+
   const total = new Map<string, number>()
-  let runTask: string | null = null
+  let runKey: string | null = null
   let runStart = ''
   let runEnd = ''
   const flush = (): void => {
-    if (!runTask) return
+    if (!runKey) return
     const span = (new Date(runEnd).getTime() - new Date(runStart).getTime()) / 1000 + 60
-    total.set(runTask, (total.get(runTask) ?? 0) + span)
-    runTask = null
+    total.set(runKey, (total.get(runKey) ?? 0) + span)
+    runKey = null
   }
   for (const r of sorted) {
-    const task = r.task!
+    const key = normalizeTaskKey(r.task!)
     if (
-      runTask === task &&
+      runKey === key &&
       new Date(r.createdAt).getTime() - new Date(runEnd).getTime() <= gapMinutes * 60_000
     ) {
       runEnd = r.createdAt
       continue
     }
     flush()
-    runTask = task
+    runKey = key
     runStart = r.createdAt
     runEnd = r.createdAt
   }
   flush()
   return [...total.entries()]
-    .map(([task, seconds]) => ({ task, seconds: Math.round(seconds) }))
+    .map(([key, seconds]) => ({ task: displayOf(key), seconds: Math.round(seconds) }))
     .sort((a, b) => b.seconds - a.seconds)
 }
 

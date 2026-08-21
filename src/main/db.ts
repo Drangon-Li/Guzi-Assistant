@@ -5,23 +5,27 @@ import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
 import { deleteShot } from './shotvault'
 import { localNow, localNowSec } from '@shared/parsing'
-import { dayKey } from '@shared/work-report'
+import { dayKey, normalizeTaskKey } from '@shared/work-report'
 import { buildFtsQuery } from '@shared/fts-query'
 import { firstNonBlank } from '@shared/env-value'
+import { resolveDirectModelSettings } from '@shared/model-configuration'
 import type {
   AppSettings,
   AppCategoryOverride,
   AppSwitchRecord,
   AppUsageEntry,
+  ActivityHistorySegmentRecord,
   DetectionRecord,
   MemoryHit,
   ReportRecord,
   WorkRecord,
+  OcrEvidenceRecord,
   Profile,
   SourceRecord,
   SourceType,
   TaskRecord,
-  TaskStatus
+  TaskStatus,
+  WorkRecordSource
 } from '@shared/types'
 
 let db: Database.Database
@@ -79,6 +83,8 @@ export function initDb(): void {
       id TEXT PRIMARY KEY,
       content TEXT NOT NULL,
       app TEXT,
+      task TEXT,
+      evidence_source TEXT NOT NULL DEFAULT 'ocr',
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS app_usage (
@@ -123,10 +129,47 @@ export function initDb(): void {
       app TEXT PRIMARY KEY,
       category TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS activity_segments (
+      id TEXT PRIMARY KEY,
+      bucket_kind TEXT NOT NULL,
+      bucket_start TEXT NOT NULL,
+      bucket_end TEXT NOT NULL,
+      first_event_at TEXT NOT NULL,
+      last_event_at TEXT NOT NULL,
+      event_count INTEGER NOT NULL,
+      meaningful_event_count INTEGER NOT NULL,
+      semantic_complete_count INTEGER NOT NULL DEFAULT 0,
+      semantic_partial_count INTEGER NOT NULL DEFAULT 0,
+      semantic_empty_count INTEGER NOT NULL DEFAULT 0,
+      ocr_evidence_count INTEGER NOT NULL DEFAULT 0,
+      trigger_reasons TEXT NOT NULL DEFAULT '[]',
+      summary TEXT NOT NULL,
+      closed INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_segments_bucket ON activity_segments(bucket_kind, bucket_start);
+    CREATE TABLE IF NOT EXISTS ocr_evidence (
+      id TEXT PRIMARY KEY,
+      event_id TEXT,
+      segment_id TEXT,
+      occurred_at TEXT NOT NULL,
+      app_name TEXT,
+      bundle_id TEXT,
+      window_title TEXT,
+      semantic_score INTEGER NOT NULL,
+      trigger_reason TEXT NOT NULL,
+      redaction_hits TEXT NOT NULL DEFAULT '[]',
+      redacted_text TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ocr_evidence_occurred ON ocr_evidence(occurred_at);
   `)
-  // 老库迁移：work_records 后加 task 列（专注归并）、personal_memory 后加 base_content（基本画像）
+  // 老库迁移：work_records 后加 task/source 列（专注归并与证据来源）、personal_memory 后加 base_content（基本画像）
   const wrCols = (db.prepare('PRAGMA table_info(work_records)').all() as { name: string }[]).map((c) => c.name)
   if (!wrCols.includes('task')) db.exec('ALTER TABLE work_records ADD COLUMN task TEXT')
+  if (!wrCols.includes('evidence_source'))
+    db.exec("ALTER TABLE work_records ADD COLUMN evidence_source TEXT NOT NULL DEFAULT 'ocr'")
   const pmCols = (db.prepare('PRAGMA table_info(personal_memory)').all() as { name: string }[]).map((c) => c.name)
   if (!pmCols.includes('base_content'))
     db.exec("ALTER TABLE personal_memory ADD COLUMN base_content TEXT NOT NULL DEFAULT ''")
@@ -137,6 +180,9 @@ export function initDb(): void {
   // 切换事件只服务注意力分析，90 天后没有回看价值，启动时滚动清理
   const switchCutoff = dayKey(new Date(Date.now() - 90 * 86_400_000))
   db.prepare('DELETE FROM app_switches WHERE ts < ?').run(switchCutoff)
+  db.prepare('DELETE FROM ocr_evidence WHERE occurred_at < ?').run(
+    new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  )
   cleanupStaleDetections()
 
   // 老库迁移：早期版本没有 notes 列
@@ -189,6 +235,12 @@ function unindexSourceFts(id: string): void {
 
 export { localNow }
 
+export function localDateTimeAt(timestampMs: number): string {
+  const d = new Date(timestampMs)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 // ---------- profile ----------
 
 export function getProfile(): Profile | null {
@@ -208,6 +260,7 @@ export function getSettings(): AppSettings {
   const env = loadEnv()
   const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
+  const directModel = resolveDirectModelSettings(map, env)
   // 兼容旧版本存的 hotkeyMode 枚举
   const legacy: Record<string, string> = {
     alt_c: 'Alt+C',
@@ -221,9 +274,9 @@ export function getSettings(): AppSettings {
     petVoiceHotkey: map.petVoiceHotkey || 'Alt+V',
     quickAskHotkey: map.quickAskHotkey || 'Alt+Space',
     // ?? 而不是 ||：用户显式清空后不能从 .env 静默复活
-    apiBase: map.apiBase ?? firstNonBlank(env.GUZI_ASSISTANT_API_BASE, env.ESHELL_API_BASE),
-    apiKey: map.apiKey ?? firstNonBlank(env.GUZI_ASSISTANT_API_KEY, env.ESHELL_API_KEY),
-    model: map.model || firstNonBlank(env.GUZI_ASSISTANT_MODEL, env.ESHELL_MODEL) || 'gpt-5.5',
+    apiBase: directModel.apiBase,
+    apiKey: directModel.apiKey,
+    model: directModel.model,
     feishuAppId:
       map.feishuAppId ??
       firstNonBlank(env.GUZI_ASSISTANT_FEISHU_APP_ID, env.ESHELL_FEISHU_APP_ID),
@@ -235,9 +288,15 @@ export function getSettings(): AppSettings {
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',
     screenSenseContinuous: map.screenSenseContinuous !== 'false',
     screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,
+    screenSenseEventDriven: map.screenSenseEventDriven !== 'false',
+    screenSenseFallbackIntervalSec:
+      map.screenSenseFallbackIntervalSec != null
+        ? Math.min(60, Math.max(30, Number(map.screenSenseFallbackIntervalSec) || 45))
+        : 45,
+    screenSenseHybridV2: map.screenSenseHybridV2 !== 'false',
     // 排除名单空 = 不排除（不能像关键词那样回退默认词表）
     screenSenseExcludedApps: parseList(map.screenSenseExcludedApps),
-    screenSenseKeepShots: map.screenSenseKeepShots !== 'false',
+    screenSenseKeepShots: map.screenSenseKeepShots === 'true',
     screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
     screenSensePopup: map.screenSensePopup !== 'false',
     screenSenseWorkLog: map.screenSenseWorkLog !== 'false',
@@ -655,6 +714,7 @@ interface WorkRecordRow {
   content: string
   app: string | null
   task: string | null
+  evidence_source?: string | null
   created_at: string
 }
 const rowToWorkRecord = (r: WorkRecordRow): WorkRecord => ({
@@ -662,22 +722,33 @@ const rowToWorkRecord = (r: WorkRecordRow): WorkRecord => ({
   content: r.content,
   app: r.app,
   task: r.task,
+  source: r.evidence_source === 'accessibility' ? 'accessibility' : 'ocr',
   createdAt: r.created_at
 })
 
-export function addWorkRecord(w: { content: string; app: string | null; task?: string | null }): WorkRecord {
+export function addWorkRecord(w: {
+  content: string
+  app: string | null
+  task?: string | null
+  source?: WorkRecordSource
+  createdAt?: string
+}): WorkRecord {
   const rec = {
     id: randomUUID(),
     content: w.content.slice(0, 200),
     app: w.app,
     task: w.task ?? null,
-    createdAt: localNow()
+    source: w.source ?? 'ocr',
+    createdAt: w.createdAt?.slice(0, 16) || localNow()
   }
-  db.prepare('INSERT INTO work_records (id, content, app, task, created_at) VALUES (?, ?, ?, ?, ?)').run(
+  db.prepare(
+    'INSERT INTO work_records (id, content, app, task, evidence_source, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(
     rec.id,
     rec.content,
     rec.app,
     rec.task,
+    rec.source,
     rec.createdAt
   )
   db.prepare(
@@ -752,6 +823,117 @@ export function setAppCategoryOverride(app: string, category: string | null): vo
     db.prepare(
       'INSERT INTO app_categories (app, category) VALUES (?, ?) ON CONFLICT(app) DO UPDATE SET category = excluded.category'
     ).run(app, category)
+}
+
+// ---------- Hybrid History v2（只持久化聚合片段和脱敏 OCR 证据，不落盘原始事件） ----------
+
+export function upsertActivitySegment(segment: ActivityHistorySegmentRecord): void {
+  db.prepare(
+    `INSERT INTO activity_segments (
+      id, bucket_kind, bucket_start, bucket_end, first_event_at, last_event_at,
+      event_count, meaningful_event_count, semantic_complete_count, semantic_partial_count,
+      semantic_empty_count, ocr_evidence_count, trigger_reasons, summary, closed, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      bucket_end = excluded.bucket_end,
+      first_event_at = excluded.first_event_at,
+      last_event_at = excluded.last_event_at,
+      event_count = excluded.event_count,
+      meaningful_event_count = excluded.meaningful_event_count,
+      semantic_complete_count = excluded.semantic_complete_count,
+      semantic_partial_count = excluded.semantic_partial_count,
+      semantic_empty_count = excluded.semantic_empty_count,
+      ocr_evidence_count = excluded.ocr_evidence_count,
+      trigger_reasons = excluded.trigger_reasons,
+      summary = excluded.summary,
+      closed = excluded.closed,
+      updated_at = excluded.updated_at`
+  ).run(
+    segment.id,
+    segment.bucketKind,
+    segment.bucketStart,
+    segment.bucketEnd,
+    segment.firstEventAt,
+    segment.lastEventAt,
+    segment.eventCount,
+    segment.meaningfulEventCount,
+    segment.semanticCompleteCount,
+    segment.semanticPartialCount,
+    segment.semanticEmptyCount,
+    segment.ocrEvidenceCount,
+    JSON.stringify(segment.triggerReasons),
+    segment.summary.slice(0, 1000),
+    segment.closed ? 1 : 0,
+    segment.createdAt,
+    segment.updatedAt
+  )
+}
+
+export function addOcrEvidence(evidence: OcrEvidenceRecord): void {
+  db.prepare(
+    `INSERT INTO ocr_evidence (
+      id, event_id, segment_id, occurred_at, app_name, bundle_id, window_title,
+      semantic_score, trigger_reason, redaction_hits, redacted_text, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    evidence.id,
+    evidence.eventId,
+    evidence.segmentId,
+    evidence.occurredAt,
+    evidence.appName,
+    evidence.bundleId,
+    evidence.windowTitle,
+    Math.max(0, Math.min(100, Math.round(evidence.semanticScore))),
+    evidence.triggerReason,
+    JSON.stringify(evidence.redactionHits),
+    evidence.redactedText.slice(0, 20_000),
+    evidence.createdAt
+  )
+}
+
+export function listActivitySegments(limit = 40): ActivityHistorySegmentRecord[] {
+  const rows = db
+    .prepare('SELECT * FROM activity_segments ORDER BY bucket_start DESC LIMIT ?')
+    .all(limit) as Array<Record<string, unknown>>
+  return rows.map((row) => ({
+    id: String(row.id),
+    bucketKind: String(row.bucket_kind) as '10m' | '6h',
+    bucketStart: String(row.bucket_start),
+    bucketEnd: String(row.bucket_end),
+    firstEventAt: String(row.first_event_at),
+    lastEventAt: String(row.last_event_at),
+    eventCount: Number(row.event_count),
+    meaningfulEventCount: Number(row.meaningful_event_count),
+    semanticCompleteCount: Number(row.semantic_complete_count),
+    semanticPartialCount: Number(row.semantic_partial_count),
+    semanticEmptyCount: Number(row.semantic_empty_count),
+    ocrEvidenceCount: Number(row.ocr_evidence_count),
+    triggerReasons: JSON.parse(String(row.trigger_reasons || '[]')) as string[],
+    summary: String(row.summary),
+    closed: Number(row.closed) === 1,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  }))
+}
+
+export function listOcrEvidence(limit = 40): OcrEvidenceRecord[] {
+  const rows = db
+    .prepare('SELECT * FROM ocr_evidence ORDER BY occurred_at DESC LIMIT ?')
+    .all(limit) as Array<Record<string, unknown>>
+  return rows.map((row) => ({
+    id: String(row.id),
+    eventId: row.event_id == null ? null : String(row.event_id),
+    segmentId: row.segment_id == null ? null : String(row.segment_id),
+    occurredAt: String(row.occurred_at),
+    appName: row.app_name == null ? null : String(row.app_name),
+    bundleId: row.bundle_id == null ? null : String(row.bundle_id),
+    windowTitle: row.window_title == null ? null : String(row.window_title),
+    semanticScore: Number(row.semantic_score),
+    triggerReason: String(row.trigger_reason),
+    redactionHits: JSON.parse(String(row.redaction_hits || '[]')) as string[],
+    redactedText: String(row.redacted_text),
+    createdAt: String(row.created_at)
+  }))
 }
 
 // ---------- reports（AI 生成的工作日报）----------
@@ -862,6 +1044,10 @@ export function cleanupStaleDetections(): void {
   db.prepare(
     "UPDATE detections SET status='dismissed' WHERE status='new' AND ((time_iso IS NOT NULL AND deadline=0 AND time_iso < ?) OR created_at < ?)"
   ).run(at(Date.now() - 86_400_000), at(Date.now() - 7 * 86_400_000))
+  // 屏幕 OCR 原文是高敏临时证据；48 小时后只保留标题、时间、应用和处理状态。
+  db.prepare("UPDATE detections SET source_text='' WHERE source_text != '' AND created_at < ?").run(
+    at(Date.now() - 48 * 60 * 60 * 1000)
+  )
 }
 
 // ---------- detection_notes（检测卡「备注」：用户对检测结果的人工反馈，个性化学习素材）----------
@@ -931,9 +1117,20 @@ export function listFocusTaskCandidates(): string[] {
       .all(sinceKey) as { task: string }[]
   ).map((r) => r.task)
   const prefs = listFocusTaskPrefs()
-  const hidden = new Set(prefs.filter((p) => p.hidden).map((p) => p.name))
+  const hidden = new Set(prefs.filter((p) => p.hidden).map((p) => normalizeTaskKey(p.name)))
   const custom = prefs.filter((p) => p.custom && !p.hidden).map((p) => p.name)
-  return [...new Set([...custom, ...derived])].filter((n) => !hidden.has(n)).slice(0, 12)
+  // 按归一键去重：同一任务的空格/大小写变体只给模型一个候选，否则列表被近重复挤满、
+  // 模型也更容易在变体间摇摆（任务专注拆条的源头）
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const n of [...custom, ...derived]) {
+    const key = normalizeTaskKey(n)
+    if (hidden.has(key) || seen.has(key)) continue
+    seen.add(key)
+    out.push(n)
+    if (out.length >= 12) break
+  }
+  return out
 }
 
 /** 近 N 天工作记录（供个人记忆归纳/活动时间线）。 */
@@ -971,7 +1168,7 @@ export function exportRange(fromDay: string, toDay: string): Record<string, unkn
 
 export function wipeAll(): void {
   db.exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories; DELETE FROM detection_notes;'
+    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories; DELETE FROM detection_notes; DELETE FROM activity_segments; DELETE FROM ocr_evidence;'
   )
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
@@ -981,7 +1178,7 @@ export function wipeAll(): void {
 /** 清空「记忆」：来源历史(sources+FTS)、屏幕识别历史(detections)、工作记录与个人画像。保留任务/档案/日报。 */
 export function wipeMemory(): void {
   db.exec(
-    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM detection_notes;'
+    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM detection_notes; DELETE FROM activity_segments; DELETE FROM ocr_evidence;'
   )
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')

@@ -43,8 +43,8 @@ export default function ScreenPermissionGate({ onDone }: Props): React.JSX.Eleme
           为此需要 macOS 的「屏幕录制」权限。
         </p>
         <p className="mt-2 text-xs leading-5 text-slate-400">
-          所有识别在本机完成，只把文字送解析，
-          <span className="text-slate-500">不保存、不上传截图</span>；敏感应用可在设置里排除。
+          前台 App 与窗口变化只在本机做事件门控，不记录键盘正文；截图先在本机 OCR，默认只上传脱敏文字。
+          <span className="text-slate-500">开启日程深度确认时才会上传裁剪截图</span>；敏感应用和私密浏览会跳过。
         </p>
 
         <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-600">

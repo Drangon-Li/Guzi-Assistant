@@ -1,4 +1,5 @@
 // 纯函数单测：敏感信息检测与脱敏。运行：npm run test:sensitive
+import { sanitizeWindowTitle } from '../src/shared/activity-events.ts'
 import { detectSensitive, redactSensitive } from '../src/shared/sensitive.ts'
 
 let failed = 0
@@ -53,6 +54,35 @@ check('低熵长串不打', redactSensitive('编号 aaaaaaaaaaaaaaaaaaaaaaaaaaaa
 check('手机号不打码（任务联系信息）', redactSensitive('联系张三 13800138000').text.includes('13800138000'))
 check('普通中文不变', redactSensitive('明天下午 3 点开会讨论项目进展').text === '明天下午 3 点开会讨论项目进展')
 check('普通 URL 不变', redactSensitive('文档在 https://github.com/openai/openai-cookbook').text.includes('openai-cookbook'))
+check(
+  '活动标题移除 HTTPS URL 但保留普通标题',
+  sanitizeWindowTitle('API docs - https://example.com/oauth/callback?state=secret&code=grant - Safari') ===
+    'API docs - [已隐去·网址] - Safari'
+)
+check(
+  '活动标题移除无 scheme 的本地 OAuth 回调',
+  sanitizeWindowTitle('Sign in - 127.0.0.1:4312/callback?state=secret&code=grant') ===
+    'Sign in - [已隐去·本地回调]'
+)
+check(
+  '活动标题移除无路径的 localhost 回调地址',
+  sanitizeWindowTitle('Sign in - localhost:4312?state=secret&token=access') ===
+    'Sign in - [已隐去·本地回调]'
+)
+check(
+  '活动标题移除 IPv6 loopback 回调地址',
+  sanitizeWindowTitle('Sign in - [::1]:4312/callback?state=secret&code=grant') ===
+    'Sign in - [已隐去·本地回调]'
+)
+check(
+  '活动标题移除裸查询参数',
+  sanitizeWindowTitle('Authorize?state=secret&code=grant - Browser') ===
+    'Authorize[已隐去·查询参数] - Browser'
+)
+check(
+  '活动标题保留普通文档名',
+  sanitizeWindowTitle('Q3 Roadmap draft.md - Visual Studio Code') === 'Q3 Roadmap draft.md - Visual Studio Code'
+)
 
 // ---- detectSensitive 提示面 ----
 const d = detectSensitive('密码是 abc123，验证码 5566，联系 13800138000')

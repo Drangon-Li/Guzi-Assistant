@@ -175,7 +175,7 @@ function handleRpc(req: RpcRequest): { status: number; body: string | null } {
         protocolVersion:
           typeof req.params?.protocolVersion === 'string' ? req.params.protocolVersion : '2025-03-26',
         capabilities: { tools: {} },
-        serverInfo: { name: 'guzi-assistant', title: 'Guzi Assistant', version: app.getVersion() }
+        serverInfo: { name: 'guzi-assistant', title: '谷子助手', version: app.getVersion() }
       })
     }
   }

@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import type { AppSettings, FeishuStatus, PermissionStatus, Profile } from '@shared/types'
+import type {
+  AppSettings,
+  FeishuStatus,
+  PermissionStatus,
+  Profile,
+  ScreenActivityStatus
+} from '@shared/types'
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
 import PetSettings from '../components/PetSettings'
@@ -99,6 +105,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [cat, setCat] = useState<(typeof CATS)[number]>('通用')
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
+  const [activityStatus, setActivityStatus] = useState<ScreenActivityStatus | null>(null)
   const todayStr = new Date().toISOString().slice(0, 10)
   const weekAgoStr = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)
   const [exportFrom, setExportFrom] = useState(weekAgoStr)
@@ -108,6 +115,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     void api.permissions().then(setPerms)
   }
 
+  const loadActivityStatus = (): void => {
+    void api.screenActivityStatus().then(setActivityStatus)
+  }
+
   useEffect(() => {
     void api.getProfile().then(setProfile)
     void api.appVersion().then(setAppVersion)
@@ -115,6 +126,9 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     void api.quickActionStatus().then(setQaInstalled)
     void api.feishuStatus().then(setFeishu)
     loadPerms()
+    loadActivityStatus()
+    const timer = window.setInterval(loadActivityStatus, 5000)
+    return () => window.clearInterval(timer)
   }, [])
 
   const flash = (msg: string): void => {
@@ -513,10 +527,8 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           <>
       <Section title="屏幕感知（持续被动采集）">
         <p className="mb-3 text-xs leading-5 text-slate-400">
-          谷子助手在本机持续感知屏幕上的文字，命中关键词时把文字（非截图）送解析，自动沉淀为记忆与待办建议——
-          被动采集是产品核心，默认开启。截图用完即弃、不保存、不上传，可在下方排除敏感应用。注意：macOS
-          会在采集时显示系统录制指示器，这是系统强制行为、无法关闭。首次使用会自动编译本地 OCR 组件（需 Xcode
-          命令行工具）。
+          屏幕感知默认关闭。开启后，谷子助手先在本机观察前台 App 与窗口变化，不记录键盘正文；Hybrid v2 会先评估语义完整度，只有语义不足时才截图并在本地 OCR。
+          默认只把脱敏后的 OCR 文字送解析，截图仅在你开启「日程深度确认」时上传。私密浏览始终跳过；原图用完即弃，证据缩略图也默认不保存。
         </p>
         <label className="flex items-center justify-between gap-4 text-sm">
           <span>屏幕感知</span>
@@ -534,6 +546,150 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
 
         {settings.screenSenseEnabled && (
           <div className="mt-4 flex flex-col gap-4">
+            <div className="border-y border-slate-100 py-3">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
+                  事件驱动模式
+                  <span className="ml-2 text-xs text-slate-400">
+                    App/窗口变化触发扫描，静止时低频兜底；不可用时自动停止截图
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSenseEventDriven}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    const interval = next
+                      ? Math.max(5, settings.screenSenseIntervalSec)
+                      : settings.screenSenseIntervalSec
+                    setSettings({
+                      ...settings,
+                      screenSenseEventDriven: next,
+                      screenSenseIntervalSec: interval
+                    })
+                    await api.saveSettings({
+                      screenSenseEventDriven: next,
+                      screenSenseIntervalSec: interval
+                    })
+                    loadActivityStatus()
+                    flash(next ? '已开启事件驱动模式' : '已恢复固定间隔扫描')
+                  }}
+                />
+              </label>
+              {settings.screenSenseEventDriven && (
+                <label className="mt-3 flex items-center gap-3 text-sm">
+                  <span className="text-slate-500">静止兜底间隔</span>
+                  <input
+                    type="number"
+                    min={30}
+                    max={60}
+                    className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                    value={settings.screenSenseFallbackIntervalSec}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        screenSenseFallbackIntervalSec: Number(e.target.value)
+                      })
+                    }
+                    onBlur={async (e) => {
+                      const v = Math.min(60, Math.max(30, Number(e.target.value) || 45))
+                      setSettings({ ...settings, screenSenseFallbackIntervalSec: v })
+                      await api.saveSettings({ screenSenseFallbackIntervalSec: v })
+                      flash(`静止时最多每 ${v} 秒检查一次`)
+                    }}
+                  />
+                  <span className="text-xs text-slate-400">秒</span>
+                </label>
+              )}
+              <label className="mt-3 flex items-center justify-between gap-4 text-sm">
+                <span>
+                  Hybrid History v2
+                  <span className="ml-2 text-xs text-slate-400">
+                    语义充分直接进入片段；语义不足才按需 OCR。关闭后回到 legacy 事件/兜底扫描
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.screenSenseHybridV2}
+                  onChange={async (e) => {
+                    const next = e.target.checked
+                    setSettings({ ...settings, screenSenseHybridV2: next })
+                    await api.saveSettings({ screenSenseHybridV2: next })
+                    loadActivityStatus()
+                    flash(next ? '已开启 Hybrid History v2' : '已回到 legacy 扫描模式')
+                  }}
+                />
+              </label>
+              {activityStatus && (
+                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400">
+                  <span>
+                    观察器：
+                    {activityStatus.observer === 'healthy'
+                      ? '正常'
+                      : activityStatus.observer === 'unavailable'
+                        ? '已降级停止截图'
+                        : '等待前台上下文'}
+                  </span>
+                  <span>内存事件：{activityStatus.rawEventCount}</span>
+                  <span>
+                    最后事件：
+                    {activityStatus.lastEventAt
+                      ? new Date(activityStatus.lastEventAt).toLocaleTimeString()
+                      : '暂无'}
+                  </span>
+                  <span>
+                    最后扫描：
+                    {activityStatus.lastScanAt
+                      ? `${new Date(activityStatus.lastScanAt).toLocaleTimeString()} · ${activityStatus.lastScanReason ?? '未知'}`
+                      : '暂无'}
+                  </span>
+                  <span>10 分钟片段：{activityStatus.tenMinuteSegmentCount}</span>
+                  <span>6 小时汇总：{activityStatus.sixHourSegmentCount}</span>
+                  <span>
+                    Collector：{activityStatus.collector === 'healthy' ? '正常' : activityStatus.collector === 'degraded' ? '降级' : activityStatus.collector === 'starting' ? '启动中' : '已停止'}
+                  </span>
+                  <span>
+                    Accessibility：{activityStatus.accessibility === 'available' ? '可用' : activityStatus.accessibility === 'unavailable' ? '未授权（不影响基础事件）' : '未知'}
+                  </span>
+                  <span>语义覆盖率：{activityStatus.semanticCoverage}%</span>
+                  <span>OCR fallback：{activityStatus.ocrFallbackCount} 次</span>
+                  <span>
+                    工作归类：{activityStatus.workClassificationStatus === 'pending'
+                      ? '进行中'
+                      : activityStatus.workClassificationStatus === 'ok'
+                        ? activityStatus.workClassificationSource === 'accessibility'
+                          ? 'Accessibility 语义'
+                          : 'OCR 补证'
+                        : activityStatus.workClassificationStatus === 'unavailable'
+                          ? '服务未就绪'
+                          : activityStatus.workClassificationStatus === 'error'
+                            ? '失败'
+                            : '暂无'}
+                  </span>
+                  <span>
+                    最近归类：{activityStatus.workClassificationAt
+                      ? new Date(activityStatus.workClassificationAt).toLocaleTimeString()
+                      : '暂无'}
+                  </span>
+                  <span className="col-span-2">
+                    最近 10 分钟构成：事件 {activityStatus.latestEventCount}（有效 {activityStatus.latestMeaningfulEventCount}） · 完整 {activityStatus.latestSemanticCompleteCount} · 部分 {activityStatus.latestSemanticPartialCount} · 空 {activityStatus.latestSemanticEmptyCount} · OCR {activityStatus.latestOcrEvidenceCount}
+                  </span>
+                  <span className="col-span-2">
+                    触发原因：{activityStatus.recentTriggerReasons.length ? activityStatus.recentTriggerReasons.join('、') : '暂无'}
+                  </span>
+                  <span className="col-span-2">最近摘要：{activityStatus.recentSummary ?? '暂无'}</span>
+                  {activityStatus.workClassificationDetail && (
+                    <span className="col-span-2">归类详情：{activityStatus.workClassificationDetail}</span>
+                  )}
+                  {activityStatus.observerDetail && (
+                    <span className="col-span-2 text-amber-600">{activityStatus.observerDetail}</span>
+                  )}
+                  {activityStatus.collectorDetail && (
+                    <span className="col-span-2 text-amber-600">Collector：{activityStatus.collectorDetail}</span>
+                  )}
+                </div>
+              )}
+            </div>
             <div>
               <label className="flex items-center justify-between gap-4 text-sm">
                 <span>
@@ -657,10 +813,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               {settings.screenSenseContinuous && (
                 <div className="mt-3 flex flex-col gap-2">
                   <label className="flex items-center gap-3 text-sm">
-                    <span className="text-slate-500">检查间隔</span>
+                    <span className="text-slate-500">门控检查间隔</span>
                     <input
                       type="number"
-                      min={1}
+                      min={settings.screenSenseEventDriven ? 5 : 1}
                       max={60}
                       className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
                       value={settings.screenSenseIntervalSec}
@@ -668,7 +824,8 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                         setSettings({ ...settings, screenSenseIntervalSec: Number(e.target.value) })
                       }
                       onBlur={async (e) => {
-                        const v = Math.min(60, Math.max(1, Number(e.target.value) || 5))
+                        const min = settings.screenSenseEventDriven ? 5 : 1
+                        const v = Math.min(60, Math.max(min, Number(e.target.value) || 5))
                         setSettings({ ...settings, screenSenseIntervalSec: v })
                         await api.saveSettings({ screenSenseIntervalSec: v })
                         flash('已保存监控间隔')
@@ -677,8 +834,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     <span className="text-xs text-slate-400">秒</span>
                   </label>
                   <p className="text-xs leading-5 text-slate-400">
-                    屏幕静止时不触发识别与上云；可在菜单栏 谷子助手 图标随时「暂停屏幕监控」。macOS
-                    会持续显示系统录制指示器（无法关闭）。
+                    事件驱动开启时，此间隔只检查是否需要扫描，不会每轮都截图。连续 60 秒无键鼠输入、锁屏或睡眠时不计应用时长。可在菜单栏随时暂停，暂停会取消尚未完成的云端解析。
                   </p>
                   <label className="mt-1 flex flex-col gap-1 text-sm">
                     <span className="text-slate-500">不监控的应用（逗号或顿号分隔）</span>
@@ -694,7 +850,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                       }}
                     />
                     <span className="text-xs text-slate-400">
-                      这些应用在前台时连截图都不做。中英文名称可都填（如 微信 / WeChat）。
+                      这些应用在前台时不截图、不保存窗口标题；应用使用时长仍按名称统计。中英文名称可都填（如 微信 / WeChat）。
                     </span>
                   </label>
 

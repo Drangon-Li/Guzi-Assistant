@@ -1,9 +1,10 @@
 # 打包配置（macOS）。v1 目标：本地可分发的未签名 dmg/zip。
-# productName 使用无空格标识 GuziAssistant，Finder/Dock/菜单栏继续显示「谷子助手」。
+# 外部品牌统一使用中文；afterPack 会把 Electron helper 的内部路径恢复为 GuziAssistant。
 # appId 暂保留旧值，维持 macOS 权限与升级身份连续性。
 appId: cn.shilong.gooz
-productName: GuziAssistant
-artifactName: 'Guzi-Assistant-${version}-${arch}.${ext}'
+productName: 谷子助手
+artifactName: '谷子助手-${version}-${arch}.${ext}'
+afterPack: scripts/after-pack.cjs
 directories:
   buildResources: build
   output: release
@@ -17,7 +18,7 @@ files:
 extraResources:
   - from: resources/pet
     to: pet
-    filter: ['pet-preload.cjs']
+    filter: ['pet-preload.cjs', 'pet-mark.png']
 asarUnpack:
   - '**/*.node' # better-sqlite3 原生模块不能从 asar 里加载
 mac:
@@ -31,8 +32,8 @@ mac:
   # 暂无开发者证书：明确跳过签名（用户首次打开需右键 → 打开）
   identity: null
   extendInfo:
-    # 只覆盖 DisplayName（Finder/Dock 显示「谷子助手」）；CFBundleName 必须跟 productName 保持一致——
-    # Electron 按它定位「<name> Helper.app」子进程，改了会 FATAL: Unable to find helper app
+    # 主进程内部 Bundle/可执行文件保持 GuziAssistant，桌面和菜单显示中文品牌。
     CFBundleDisplayName: 谷子助手
+    CFBundleName: GuziAssistant
     NSScreenCaptureUsageDescription: 谷子助手需要屏幕录制权限来识别屏幕上的日程与工作内容（截图仅在本机 OCR，默认只上传文字）。
 npmRebuild: true

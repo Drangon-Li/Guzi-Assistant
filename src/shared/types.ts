@@ -143,11 +143,17 @@ export interface AppSettings {
   screenSenseHotkey: string
   /** 持续屏幕监控（#40）：screenSenseEnabled 之下的二级开关，默认 true（被动持续感知） */
   screenSenseContinuous: boolean
-  /** 持续监控轮询间隔（秒），默认 5 */
+  /** 持续监控门控轮询间隔（秒），默认 5 */
   screenSenseIntervalSec: number
+  /** 事件驱动截图门：前台 App/窗口变化时扫描，静止时仅按兜底间隔扫描。默认 true */
+  screenSenseEventDriven: boolean
+  /** 事件驱动模式的硬兜底截图间隔（秒），限制 30-60，默认 45 */
+  screenSenseFallbackIntervalSec: number
+  /** Hybrid History v2：语义完整时不截图，语义不足才按矩阵补 OCR；关闭即回 legacy。 */
+  screenSenseHybridV2: boolean
   /** 应用排除名单（#40 隐私门）：这些 App 在前台时连截图都不做，默认空（不排除） */
   screenSenseExcludedApps: string[]
-  /** 持久化任务证据缩略图（#52/#53/#3）：默认 true（裁「依据行」横条、加密落盘、任务完成即清）。设 'false' 关 */
+  /** 持久化任务证据缩略图（#52/#53/#3）：默认 false；开启后加密落盘、任务完成即清 */
   screenSenseKeepShots: boolean
   /** 截图保留天数（#53），到期自动清；<=0 永久保留。默认 14 */
   screenSenseRetentionDays: number
@@ -183,6 +189,80 @@ export interface ScanResult {
   message: string
 }
 
+export interface ScreenActivityStatus {
+  eventDriven: boolean
+  running: boolean
+  paused: boolean
+  observer: 'waiting' | 'healthy' | 'unavailable'
+  observerDetail: string | null
+  hybridV2: boolean
+  collector: 'starting' | 'healthy' | 'degraded' | 'stopped'
+  collectorDetail: string | null
+  collectorRestartCount: number
+  accessibility: 'available' | 'unavailable' | 'unknown'
+  semanticCoverage: number
+  ocrFallbackCount: number
+  ocrFallbackReasons: Record<string, number>
+  recentTriggerReasons: string[]
+  recentSummary: string | null
+  latestEventCount: number
+  latestMeaningfulEventCount: number
+  latestSemanticCompleteCount: number
+  latestSemanticPartialCount: number
+  latestSemanticEmptyCount: number
+  latestOcrEvidenceCount: number
+  lastEventAt: string | null
+  lastScanAt: string | null
+  lastScanReason: 'event' | 'hard_fallback' | 'interval' | 'manual' | 'semantic_only' | null
+  pendingEvent: boolean
+  rawEventCount: number
+  tenMinuteSegmentCount: number
+  sixHourSegmentCount: number
+  latestSummary: string | null
+  workClassificationStatus: 'idle' | 'pending' | 'ok' | 'error' | 'unavailable'
+  workClassificationSource: 'accessibility' | 'ocr' | null
+  workClassificationAt: string | null
+  workClassificationDetail: string | null
+  workClassificationCount: number
+}
+
+export interface ActivityHistorySegmentRecord {
+  id: string
+  bucketKind: '10m' | '6h'
+  bucketStart: string
+  bucketEnd: string
+  firstEventAt: string
+  lastEventAt: string
+  eventCount: number
+  meaningfulEventCount: number
+  semanticCompleteCount: number
+  semanticPartialCount: number
+  semanticEmptyCount: number
+  ocrEvidenceCount: number
+  triggerReasons: string[]
+  summary: string
+  closed: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OcrEvidenceRecord {
+  id: string
+  eventId: string | null
+  segmentId: string | null
+  occurredAt: string
+  appName: string | null
+  bundleId: string | null
+  windowTitle: string | null
+  semanticScore: number
+  triggerReason: string
+  redactionHits: string[]
+  redactedText: string
+  createdAt: string
+}
+
+export type WorkRecordSource = 'accessibility' | 'ocr'
+
 /** 工作记录：屏幕识别顺带的「在做什么」一句话时间线（供日报生成）。 */
 export interface WorkRecord {
   id: string
@@ -191,6 +271,8 @@ export interface WorkRecord {
   app: string | null
   /** 任务级标签（模型归并，如「开发谷子助手」）；无法归属为 null */
   task: string | null
+  /** 归类证据来源：Accessibility 浅层语义或 OCR 补证。 */
+  source: WorkRecordSource
   createdAt: string
 }
 

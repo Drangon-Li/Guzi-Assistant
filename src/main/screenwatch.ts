@@ -1,5 +1,5 @@
 import { unlink } from 'fs/promises'
-import { app, nativeImage, powerMonitor } from 'electron'
+import { app, nativeImage, powerMonitor, systemPreferences } from 'electron'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImageDetailed } from './ocr'
 import { parseToItemsRaw } from './parser'
@@ -16,15 +16,18 @@ import {
   getSettings,
   getSource,
   listFocusTaskCandidates,
+  localDateTimeAt,
   setDetectionStatus,
-  findDuplicateTitle
+  findDuplicateTitle,
+  addOcrEvidence,
+  upsertActivitySegment
 } from './db'
 import { applyReportSchedule } from './report-scheduler'
 import { dayKey } from '@shared/work-report'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
-import { getFrontmostApp } from './frontapp'
+import { getFrontmostContext } from './frontapp'
 import { saveShotTempFromPng, finalizeShot, deleteShot, listShotIds, sweepTempShots } from './shotvault'
 import { getSession } from './session'
 import { isAppExcluded } from '@shared/app-exclude'
@@ -33,7 +36,37 @@ import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox 
 import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
 import { parseFocusTask, parseWorkSummary, type AddedInfo, type ParsedItem } from '@shared/parsing'
+import {
+  ACTIVITY_SUMMARY_RULES,
+  buildSemanticWorkHint,
+  normalizeActivitySummary,
+  parseSemanticWorkResults,
+  semanticEvidenceKey,
+  type SemanticWorkEvidence
+} from '@shared/semantic-work'
 import type { LocalExtraction, ParseSummary, ScanResult, TaskStatus } from '@shared/types'
+import {
+  activityScanDecision,
+  getScreenActivityStatus as getActivityRuntimeStatus,
+  isPrivateBrowsingContext,
+  markActivityObserverFailure,
+  markActivityObserverHealthy,
+  markActivityScan,
+  configureActivityHistoryPersistence,
+  configureSemanticWorkClassifier,
+  getHybridSemanticState,
+  markOcrFallback,
+  recordFrontmostContext,
+  recordOcrEvidence,
+  recordScreenChange,
+  resetActivityGate,
+  setWorkClassificationStatus,
+  startActivityCollector,
+  stopActivityCollector,
+  type ActivityScanReason,
+  type AccessibilityWorkContext
+} from './activity-tracker'
+import { decideOcrTrigger, type OcrTriggerReason } from '@shared/hybrid-history'
 
 function emptySummary(error: string | null): ParseSummary {
   return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
@@ -54,7 +87,9 @@ function workSummaryHint(prevSummary: string, taskCandidates: string[]): string 
     : ''
   const base =
     '另外，在返回的 JSON 中额外加两个顶层字段：' +
-    '① "work_summary"：一句不超过 40 字的中文，客观描述屏幕上正在进行的**工作/学习活动**（如「在 VS Code 中编辑项目代码」）。只依据屏幕可见内容描述，不要凭任务列表或历史记录猜测屏幕上看不到的项目名/用途；看不出具体属于哪个项目就写通用描述（如「在 WPS 中编辑演示文稿」）。与工作学习无关或信息量极低的画面（随意浏览文件夹、刷聊天/社交消息、系统设置页、视频娱乐等）填 null，不要硬凑。' +
+    '① "work_summary"：一句不超过 40 字的中文，客观描述屏幕上正在进行的**工作/学习活动**。' +
+    ACTIVITY_SUMMARY_RULES +
+    '只依据屏幕可见内容描述，不要凭任务列表或历史记录猜测屏幕上看不到的项目名/用途；看不出具体属于哪个项目就写通用描述（如「编辑演示文稿」「整理文献」）。与工作学习无关或信息量极低的画面（随意浏览文件夹、刷聊天/社交消息、系统设置页、视频娱乐等）填 null，不要硬凑。' +
     `② "focus_task"：该活动归属的任务名——任务级、粗粒度、名称稳定。${cand}work_summary 为 null 时它也为 null。`
   // 传入上一条描述：同一活动持续中 → 原样返回同一句，让相邻记录能聚合成时段（避免措辞漂移拆成多段）
   return prevSummary
@@ -105,12 +140,13 @@ async function detectAll(
   text: string,
   wantWorkLog: boolean,
   png: string | null,
-  wantVlmConfirm: boolean
+  wantVlmConfirm: boolean,
+  signal?: AbortSignal
 ): Promise<DetectResult> {
   const hint = wantWorkLog
     ? `${HINTS.screen_scan}\n${workSummaryHint(lastWorkRecordContent, listFocusTaskCandidates())}`
     : HINTS.screen_scan
-  const { items, raw } = await parseToItemsRaw({ text, hint })
+  const { items, raw } = await parseToItemsRaw({ text, hint, signal })
   const workSummary = wantWorkLog ? parseWorkSummary(raw) : null
   const focusTask = wantWorkLog ? parseFocusTask(raw) : null
   let hits = items.map((it) => ({ extraction: parsedToExtraction(it), item: it }))
@@ -120,7 +156,11 @@ async function detectAll(
     if (imageDataUrl) {
       try {
         const t0 = Date.now()
-        const { items: refined } = await parseToItemsRaw({ imageDataUrl, hint: HINTS.screen_scan_confirm })
+        const { items: refined } = await parseToItemsRaw({
+          imageDataUrl,
+          hint: HINTS.screen_scan_confirm,
+          signal
+        })
         debugEvent('cloud', `视觉确认耗时 ${Date.now() - t0}ms：${refined.length} 项`)
         return {
           hits: refined.map((it) => ({ extraction: parsedToExtraction(it), item: it })),
@@ -140,15 +180,164 @@ async function detectAll(
 const WORK_RECORD_MIN_GAP_MS = 60 * 1000
 let lastWorkRecordAt = 0
 let lastWorkRecordContent = ''
-function maybeAddWorkRecord(summary: string | null, task: string | null, frontApp: string | null): void {
-  if (!summary) return
+function maybeAddWorkRecord(
+  summary: string | null,
+  task: string | null,
+  frontApp: string | null,
+  source: 'accessibility' | 'ocr',
+  occurredAtMs?: number
+): void {
+  const normalizedSummary = normalizeActivitySummary(summary, { appName: frontApp })
+  if (!normalizedSummary) return
   const now = Date.now()
-  if (summary === lastWorkRecordContent) return
-  if (now - lastWorkRecordAt < WORK_RECORD_MIN_GAP_MS) return
+  if (normalizedSummary === lastWorkRecordContent) return
+  // Accessibility 已经按片段聚合并限制最多 8 个上下文；不同语义活动不能再被
+  // OCR 路径遗留的全局 60 秒节流合并。OCR 仍保留旧节流，避免旧路径高频写入。
+  if (source === 'ocr' && now - lastWorkRecordAt < WORK_RECORD_MIN_GAP_MS) return
   lastWorkRecordAt = now
-  lastWorkRecordContent = summary
-  addWorkRecord({ content: summary, app: frontApp, task })
-  debugEvent('record', `工作记录：${summary}${task ? `（任务：${task}）` : ''}`)
+  lastWorkRecordContent = normalizedSummary
+  addWorkRecord({
+    content: normalizedSummary,
+    app: frontApp,
+    task,
+    source,
+    createdAt: occurredAtMs == null ? undefined : localDateTimeAt(occurredAtMs)
+  })
+  debugEvent('record', `工作记录：${normalizedSummary}${task ? `（任务：${task}）` : ''}`)
+}
+
+const SEMANTIC_WORK_MAX_CONTEXTS = 8
+const semanticWorkContexts = new Map<string, Map<string, AccessibilityWorkContext>>()
+const semanticWorkAttempted = new Set<string>()
+const semanticWorkTimers = new Map<string, ReturnType<typeof setTimeout>>()
+let semanticWorkAbort: AbortController | null = null
+let semanticWorkQueue = Promise.resolve()
+
+function semanticWorkKey(context: AccessibilityWorkContext): string {
+  return `${context.segmentId}|${semanticEvidenceKey(context)}`
+}
+
+function semanticWorkSegmentEndMs(segmentId: string): number {
+  const start = Date.parse(segmentId.replace('activity-10m-', ''))
+  return Number.isFinite(start) ? start + 10 * 60 * 1000 : Date.now() + 60_000
+}
+
+function enqueueSemanticWork(contexts: AccessibilityWorkContext[]): void {
+  const unique = contexts.filter((context, index, all) => {
+    const key = semanticWorkKey(context)
+    return !semanticWorkAttempted.has(key) && all.findIndex((item) => semanticWorkKey(item) === key) === index
+  })
+  if (!unique.length) return
+  unique.forEach((context) => semanticWorkAttempted.add(semanticWorkKey(context)))
+  setWorkClassificationStatus({ status: 'pending', source: 'accessibility', detail: null })
+  semanticWorkQueue = semanticWorkQueue
+    .then(() => classifySemanticWork(unique))
+    .catch((error) => {
+      if (semanticWorkAbort?.signal.aborted) return
+      setWorkClassificationStatus({
+        status: 'error',
+        source: 'accessibility',
+        detail: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
+        atMs: Date.now()
+      })
+      debugEvent('semantic-work', 'Accessibility 归类失败')
+    })
+}
+
+function scheduleSemanticWork(context: AccessibilityWorkContext): void {
+  const segment = semanticWorkContexts.get(context.segmentId) ?? new Map<string, AccessibilityWorkContext>()
+  const key = semanticEvidenceKey(context)
+  if (!segment.has(key) && segment.size < SEMANTIC_WORK_MAX_CONTEXTS) segment.set(key, context)
+  semanticWorkContexts.set(context.segmentId, segment)
+  if (context.highValueEvent) {
+    enqueueSemanticWork([context])
+    return
+  }
+  if (semanticWorkTimers.has(context.segmentId)) return
+  const delay = Math.max(250, semanticWorkSegmentEndMs(context.segmentId) - Date.now() + 250)
+  semanticWorkTimers.set(
+    context.segmentId,
+    setTimeout(() => {
+      semanticWorkTimers.delete(context.segmentId)
+      const pending = [...(semanticWorkContexts.get(context.segmentId)?.values() ?? [])]
+      enqueueSemanticWork(pending)
+    }, delay)
+  )
+}
+
+async function classifySemanticWork(contexts: AccessibilityWorkContext[]): Promise<void> {
+  if (!contexts.length) return
+  if (!getSettings().screenSenseWorkLog) return
+  if (!cloudReady()) {
+    setWorkClassificationStatus({
+      status: 'unavailable',
+      source: 'accessibility',
+      detail: '解析服务未就绪',
+      atMs: Date.now()
+    })
+    return
+  }
+  const controller = new AbortController()
+  semanticWorkAbort = controller
+  try {
+    const evidence = contexts.map((context) => ({
+      app: context.appName,
+      bundle_id: context.bundleId,
+      window_title: context.windowTitle,
+      focused_role: context.focusedRole,
+      safe_label: context.safeLabel,
+      event_type: context.eventKind,
+      semantic_score: context.semanticScore,
+      evidence_source: 'Accessibility'
+    }))
+    const { raw } = await parseToItemsRaw({
+      text: JSON.stringify({ evidence }),
+      hint: buildSemanticWorkHint(lastWorkRecordContent || null, listFocusTaskCandidates()),
+      signal: controller.signal
+    })
+    const results = parseSemanticWorkResults(raw, contexts.length)
+    let saved = 0
+    results.forEach((result, index) => {
+      const context = contexts[index]
+      if (!context) return
+      const workSummary = normalizeActivitySummary(result.workSummary, {
+        appName: context.appName,
+        windowTitle: context.windowTitle,
+        safeLabel: context.safeLabel
+      })
+      if (workSummary) {
+        maybeAddWorkRecord(
+          workSummary,
+          result.focusTask,
+          context.appName,
+          'accessibility',
+          context.occurredAtMs
+        )
+        saved += 1
+      }
+    })
+    setWorkClassificationStatus({
+      status: 'ok',
+      source: 'accessibility',
+      detail: saved ? `已归类 ${saved} 条活动` : '模型未给出明确工作活动',
+      atMs: Date.now(),
+      increment: true
+    })
+    debugEvent('semantic-work', `Accessibility 归类完成：${saved}/${contexts.length}`)
+  } finally {
+    if (semanticWorkAbort === controller) semanticWorkAbort = null
+  }
+}
+
+function stopSemanticWorkClassifier(): void {
+  for (const timer of semanticWorkTimers.values()) clearTimeout(timer)
+  semanticWorkTimers.clear()
+  semanticWorkContexts.clear()
+  semanticWorkAttempted.clear()
+  semanticWorkAbort?.abort()
+  semanticWorkAbort = null
+  semanticWorkQueue = Promise.resolve()
+  setWorkClassificationStatus({ status: 'idle', source: null, detail: null })
 }
 
 /** 云端 ParsedItem → LocalExtraction（供 addDetection / 卡片显示）。 */
@@ -223,6 +412,16 @@ export async function scanOnce(): Promise<ScanResult> {
   else showPreview({ busy: '正在扫描屏幕…' })
   debugEvent('tick', '手动扫描屏幕')
   try {
+    const context = await getFrontmostContext()
+    const privacy = context ? privacyForContext(context) : { suppressed: false, privacyState: 'normal' as const }
+    if (privacy.suppressed) {
+      const message = '当前窗口处于隐私抑制状态，未执行扫描'
+      debugEvent('skip', message)
+      showPreview({ error: message })
+      return { status: 'empty', message }
+    }
+    markActivityScan('manual')
+    markOcrFallback('manual')
     const png = await captureScreenSilently()
     if (!png) {
       const message = '截图失败，请检查屏幕录制权限'
@@ -239,18 +438,30 @@ export async function scanOnce(): Promise<ScanResult> {
       // 上云前脱敏：证件/卡号/密钥类的值打码（后续存历史/查重/上云统一用打码后文本）
       const red = redactSensitive(buildOcrText(boxes))
       const text = red.text
+      recordOcrEvidence({
+        eventId: null,
+        occurredAtMs: Date.now(),
+        appName: null,
+        bundleId: null,
+        windowTitle: null,
+        semanticScore: 0,
+        triggerReason: 'manual',
+        redactionHits: red.hits,
+        redactedText: text,
+        privacyState: privacy.privacyState
+      })
       debugEvent('ocr', text ? `OCR 完成：${text.length} 字` : 'OCR 未识别到文字')
       if (red.hits.length) debugEvent('ocr', `已脱敏：${red.hits.join('、')}`)
       if (!text) {
         showPreview({ error: '屏幕上没有识别到文字' }) // 灰色提示卡，3s 自动消失
         return { status: 'empty', message: '屏幕上没有识别到文字' }
       }
-      debugEvent('ocr-text', `\n---OCR 原文---\n${text.slice(0, 4000)}\n---END---`) // 诊断：落盘当次 OCR 全文
+      debugEvent('ocr-text', `OCR 原文已处理：${text.length} 字（内容不写诊断日志）`)
 
       const t0 = Date.now()
       const { hits, workSummary, focusTask } = await detectAll(text, screenSenseWorkLog, png, screenSenseVlmConfirm)
       debugEvent('timing', `云端解析耗时 ${Date.now() - t0}ms`)
-      maybeAddWorkRecord(workSummary, focusTask, null)
+      maybeAddWorkRecord(workSummary, focusTask, null, 'ocr')
       if (!hits.length) {
         debugEvent('detect', '云端未发现明确待办')
         showPreview({ error: '未发现可添加的日程' }) // 灰色提示卡，3s 自动消失
@@ -390,22 +601,23 @@ export function dismissDetection(id: string): void {
   setDetectionStatus(id, 'dismissed')
 }
 
-// ---------- 持续屏幕监控（#40 Phase 2）----------
-// 流水线：pHash 变化门 → OCR → 文本去重/冷却 → 云端解析 → 建议卡。截图用完即弃、只文字上云。
+// ---------- 持续屏幕监控（事件门控 + 截图 fallback）----------
+// 流水线：前台 App/窗口变化或硬兜底 → pHash → OCR → 文本冷却 → 云端解析 → 建议卡。
 // pHash 算法与参数沿用 volcengine/MineContext（imagehash.dhash hash_size=8 + 异或 popcount 汉明距离；
 // capture_interval 默认 5s、similarity_hash_threshold 默认 2），其为 Python+imagehash，此处用 TS 等价落地（见 @shared/phash）。
 
 const PHASH_THRESHOLD = 2 // 汉明距离 ≤ 此值视为"屏幕没变" → 跳过 OCR/解析（MineContext 实测默认）
 const COOLDOWN_MS = 10 * 60 * 1000 // 同一内容命中后冷却，避免反复弹卡
-const IDLE_SKIP_SEC = 120 // 键鼠闲置超此秒数视为人不在电脑前，整轮跳过（不截图/不统计/不上云）
+const IDLE_SKIP_SEC = 60 // 键鼠闲置超此秒数视为人不在电脑前，整轮跳过（不截图/不统计/不上云）
 
 let watchTimer: ReturnType<typeof setInterval> | null = null
 let watchPaused = false
 let ticking = false
+let watchAbort: AbortController | null = null
 let lastHash: bigint | null = null
 let lastTextHash = ''
 let lastDebugApp: string | null | undefined = undefined // 调试日志：仅前台 App 变化时记一次，避免刷屏
-let lastSwitchApp: string | null = null // 切换事件：上一轮的前台应用（own-app/idle 轮不更新）
+let lastSwitchApp: string | null = null // 切换事件：上一次采样的前台应用（own-app/idle 轮不更新）
 // 订阅到期/额度用尽的云端退避：期间保留本地采样（时长/切换不花钱），跳过截图/OCR/上云；
 // 通知只发一次，解析恢复成功后复位。曾因每 1-2s 白打一次 402 刷爆日志。
 const CLOUD_PAUSE_MS = 10 * 60_000
@@ -464,6 +676,25 @@ function isOwnApp(frontApp: string | null): boolean {
   )
 }
 
+function privacyForContext(context: {
+  name: string
+  bundleId: string
+  windowTitle: string
+  focusedRole?: string
+}): {
+  suppressed: boolean
+  privacyState: 'normal' | 'private' | 'excluded' | 'own' | 'secure'
+} {
+  const { screenSenseExcludedApps } = getSettings()
+  if (isOwnApp(context.name)) return { suppressed: true, privacyState: 'own' }
+  if (screenSenseExcludedApps.length > 0 && isAppExcluded(context.name, screenSenseExcludedApps))
+    return { suppressed: true, privacyState: 'excluded' }
+  if (isPrivateBrowsingContext(context)) return { suppressed: true, privacyState: 'private' }
+  if (/secure|password|secret/i.test(context.focusedRole ?? ''))
+    return { suppressed: true, privacyState: 'secure' }
+  return { suppressed: false, privacyState: 'normal' }
+}
+
 /** 云端解析可用性：已登录（网关）或已配直连 API，且完成档案设置。未就绪时监控静默跳过，不白跑截图/OCR。 */
 function cloudReady(): boolean {
   const { functionsBase, token } = getSession()
@@ -485,6 +716,9 @@ async function watchTick(): Promise<void> {
   }
   previewBlockLogged = false
   ticking = true
+  const controller = new AbortController()
+  watchAbort = controller
+  const signal = controller.signal
   let png: string | null = null
   try {
     // 解析服务未就绪（未登录且未配直连 API/无档案）→ 静默跳过，不白跑截图/OCR/云调用
@@ -496,54 +730,128 @@ async function watchTick(): Promise<void> {
       return
     }
     cloudBlockLogged = false
+    if (signal.aborted) return
     if (powerMonitor.getSystemIdleTime() >= IDLE_SKIP_SEC) return // 人不在电脑前，静默跳过
     const {
-      screenSenseExcludedApps,
       screenSenseKeepShots,
       screenSensePopup,
       screenSenseWorkLog,
       screenSenseVlmConfirm,
-      screenSenseIntervalSec
+      screenSenseEventDriven,
+      screenSenseFallbackIntervalSec,
+      screenSenseHybridV2
     } = getSettings()
-    // 截图前定前台 App：① 排除名单(硬隐私门) ② 不监控谷子助手自己。全屏感知，不再按进程名单过滤。
-    const frontApp = await getFrontmostApp()
+    // 自动采集必须先拿到前台上下文；失败时 fail-closed，不执行截图。
+    const context = await getFrontmostContext()
+    if (watchPaused) return
+    if (signal.aborted) return
+    if (!context?.name) {
+      markActivityObserverFailure('无法读取前台应用上下文，已停止自动截图')
+      debugEvent('skip', '前台上下文不可用，自动采集 fail-closed')
+      return
+    }
+    const frontApp = context.name
     const appChanged = frontApp !== lastDebugApp
     lastDebugApp = frontApp
     if (appChanged) debugEvent('frontapp', `前台应用：${frontApp ?? '(未知)'}`)
-    // 应用使用时长：每轮给前台 App 记一个间隔（只存应用名+秒数；排除名单 App 也计时，但不截图；
-    // 自己在前台不计——dev 下进程名是 Electron，正式包是谷子助手，统计自己只会污染榜单）
-    if (frontApp && !isOwnApp(frontApp)) {
-      addAppUsage(dayKey(new Date()), frontApp, Math.max(1, screenSenseIntervalSec))
-      // 切换事件：注意力分析素材（平均专注时长/切换率/碎片化都靠它，周期采样会漏快速切换）
-      if (lastSwitchApp && lastSwitchApp !== frontApp) addAppSwitch(lastSwitchApp, frontApp)
-      lastSwitchApp = frontApp
-    }
-    if (screenSenseExcludedApps.length && isAppExcluded(frontApp, screenSenseExcludedApps)) {
+    const privacy = privacyForContext(context)
+    const { suppressed, privacyState } = privacy
+    const excluded = privacyState === 'excluded'
+    const ownApp = privacyState === 'own'
+    const privateWindow = privacyState === 'private'
+    recordFrontmostContext(context, {
+      suppressed,
+      observerHealthy: false,
+      privacyState
+    })
+    if (excluded) {
       if (appChanged) debugEvent('skip', '在排除名单，跳过')
       return
     }
-    if (isOwnApp(frontApp)) {
+    if (ownApp) {
       if (appChanged) debugEvent('skip', '谷子助手自己在前台，跳过')
+      return
+    }
+    if (privateWindow || privacyState === 'secure') {
+      if (appChanged) debugEvent('skip', '浏览器私密窗口，跳过')
       return
     }
     if (Date.now() < cloudPauseUntil) return // 退避窗口内：采样已记完，不截图不上云
 
+    const decision = activityScanDecision(
+      screenSenseEventDriven,
+      screenSenseFallbackIntervalSec
+    )
+    const gateEligible =
+      decision.run || (screenSenseHybridV2 && decision.reason === 'observer_unavailable')
+    if (!gateEligible) return
+    const semanticState = getHybridSemanticState()
+    const screenAllowed =
+      process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('screen') === 'granted'
+    const trigger = decideOcrTrigger({
+      hybridEnabled: screenSenseHybridV2,
+      semantic: semanticState.assessment,
+      nowMs: Date.now(),
+      active: powerMonitor.getSystemIdleTime() < IDLE_SKIP_SEC,
+      screenAllowed,
+      highValueEvent: semanticState.highValueEvent,
+      consecutivePartialCount: semanticState.consecutivePartialCount,
+      observerHealthy: semanticState.observerHealthy,
+      observerFailureCount: semanticState.observerFailureCount,
+      lastOcrAtMs: semanticState.lastOcrAtMs,
+      lastOcrContextKey: semanticState.lastOcrContextKey,
+      contextKey: semanticState.contextKey,
+      hardFallback: decision.reason === 'hard_fallback'
+    })
+    if (!trigger.run) {
+      markActivityScan('semantic_only')
+      debugEvent(
+        'semantic',
+        screenSenseHybridV2
+          ? `语义${semanticState.assessment.semanticLevel}（${semanticState.assessment.score}），不触发 OCR：${trigger.reason}`
+          : `legacy 门控未触发 OCR：${trigger.reason}`
+      )
+      if (decision.reason === 'observer_unavailable')
+        debugEvent('skip', '事件观察器不可用，已完成一次受限语义检查')
+      return
+    }
+    markActivityScan(decision.reason === 'observer_unavailable' ? 'event' : (decision.reason as ActivityScanReason))
+    const triggerReason = trigger.reason as OcrTriggerReason
+    markOcrFallback(triggerReason)
+    debugEvent('ocr-trigger', `按需 OCR：${trigger.reason}（semantic=${semanticState.assessment.score}）`)
+
     png = await captureScreenSilently()
+    if (signal.aborted) return
     if (!png) {
       debugEvent('error', '截图失败（检查屏幕录制权限）')
       return
     }
     const hash = await pHashOfPng(png)
-    if (lastHash !== null && hamming(hash, lastHash) <= PHASH_THRESHOLD) return // 屏幕没变 → 静默跳过
+    const distance = lastHash === null ? PHASH_THRESHOLD + 1 : hamming(hash, lastHash)
+    if (lastHash !== null && distance <= PHASH_THRESHOLD) return // 屏幕没变 → 静默跳过
     lastHash = hash
+    recordScreenChange(context)
     debugEvent('screenshot', '屏幕有变化，已截图')
     debugShot(png)
 
     debugEvent('ocr', '本地 OCR 识别中…')
     const boxes = await ocrImageDetailed(png)
+    if (signal.aborted) return
     // 上云前脱敏：证件/卡号/密钥类的值打码（后续存历史/查重/上云统一用打码后文本）
     const red = redactSensitive(buildOcrText(boxes))
     const text = red.text
+    recordOcrEvidence({
+      eventId: null,
+      occurredAtMs: Date.now(),
+      appName: frontApp,
+      bundleId: context.bundleId,
+      windowTitle: context.windowTitle,
+      semanticScore: semanticState.assessment.score,
+      triggerReason,
+      redactionHits: red.hits,
+      redactedText: text,
+      privacyState
+    })
     if (!text) {
       debugEvent('ocr', 'OCR 未识别到文字')
       return
@@ -565,9 +873,16 @@ async function watchTick(): Promise<void> {
     cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
 
     // 云端解析 → 全部候选（多任务）+ 顺带的工作记录
-    const { hits, workSummary, focusTask } = await detectAll(text, screenSenseWorkLog, png, screenSenseVlmConfirm)
+    const { hits, workSummary, focusTask } = await detectAll(
+      text,
+      screenSenseWorkLog,
+      png,
+      screenSenseVlmConfirm,
+      signal
+    )
+    if (signal.aborted) return
     cloudPauseNotified = false // 解析成功 → 下次再断流时重新提醒
-    maybeAddWorkRecord(workSummary, focusTask, frontApp)
+    maybeAddWorkRecord(workSummary, focusTask, frontApp, 'ocr')
     if (!hits.length) {
       debugEvent('detect', '云端未发现明确待办')
       return
@@ -611,7 +926,9 @@ async function watchTick(): Promise<void> {
     }
     if (!cards.length) return
     // 新鲜度门：仍在同一 App 才弹（切走了就只留历史）
-    if (frontApp && (await getFrontmostApp()) !== frontApp) {
+    const freshContext = await getFrontmostContext()
+    if (signal.aborted) return
+    if (!freshContext || freshContext.name !== frontApp) {
       debugEvent('popup', '已切走 App，不弹')
       return
     }
@@ -619,6 +936,7 @@ async function watchTick(): Promise<void> {
     enqueueCards(cards)
     applyExternalPetSay(cards.length > 1 ? `发现 ${cards.length} 个日程~` : '发现一个日程~', 'waiting')
   } catch (e) {
+    if (signal.aborted) return
     // 持续监控全程静默不打扰用户，但必须留诊断痕迹——
     // 曾因此完全静默：云端解析连续失败 7 小时（工作记录/检测全断）而日志无任何线索
     const msg = e instanceof Error ? e.message : String(e)
@@ -637,28 +955,155 @@ async function watchTick(): Promise<void> {
     }
   } finally {
     if (png) void unlink(png).catch(() => {})
+    if (watchAbort === controller) watchAbort = null
     ticking = false
   }
 }
 
+// ---------- 前台应用采样（app_usage 时长 + app_switches 切换事件）----------
+// 与监控轮解耦：只读前台 App 名（NSWorkspace，无需权限、不看屏幕内容、不花钱），
+// 所以不受 ticking 守卫/检测卡/未登录/云端退避影响；托盘暂停仍生效——用户暂停即全部暂停。
+
+const SAMPLE_SEC = 5
+let sampleTimer: ReturnType<typeof setInterval> | null = null
+let sampling = false
+let lastSampleAtMs = 0
+let systemInactive = false
+
+const markSystemInactive = (): void => {
+  systemInactive = true
+  lastSampleAtMs = Date.now()
+  lastSwitchApp = null
+}
+
+const markSystemActive = (): void => {
+  systemInactive = false
+  lastSampleAtMs = Date.now()
+  lastSwitchApp = null
+}
+
+async function sampleTick(): Promise<void> {
+  if (sampling) return
+  sampling = true
+  try {
+    const now = Date.now()
+    if (systemInactive) {
+      // 锁屏/睡眠期间不补记；解锁后从新的采样窗口开始。
+      lastSampleAtMs = now
+      if (powerMonitor.getSystemIdleTime() >= IDLE_SKIP_SEC) return
+      systemInactive = false
+    }
+    // 按真实流逝时间记账，而非名义周期：触发被丢/延迟也不少记；
+    // 上限 2 个周期，防睡眠唤醒把整段睡眠补记进来
+    const credit = Math.min(Math.round((now - lastSampleAtMs) / 1000), SAMPLE_SEC * 2)
+    lastSampleAtMs = now
+    if (credit <= 0 || watchPaused) return
+    const context = await getFrontmostContext()
+    if (systemInactive) return
+    if (!context?.name) {
+      markActivityObserverFailure('无法读取前台应用上下文')
+      return
+    }
+    markActivityObserverHealthy()
+    if (powerMonitor.getSystemIdleTime() >= IDLE_SKIP_SEC) return // 人不在电脑前
+    if (systemInactive) return
+    const frontApp = context.name
+    const ownApp = isOwnApp(frontApp)
+    const privacy = privacyForContext(context)
+    const { privacyState } = privacy
+    recordFrontmostContext(context, {
+      suppressed: privacy.suppressed,
+      observerHealthy: false,
+      privacyState,
+      nowMs: now
+    })
+    // 自己在前台不计（dev 是 Electron、正式包是谷子助手，统计自己只会污染榜单）；
+    // 排除名单 App 照常计时——名单挡的是截图，不是「用了多久」
+    if (ownApp) return
+    addAppUsage(dayKey(new Date()), frontApp, credit)
+    // 切换事件：注意力分析素材（平均专注时长/切换率/碎片化都靠它）
+    if (lastSwitchApp && lastSwitchApp !== frontApp) addAppSwitch(lastSwitchApp, frontApp)
+    lastSwitchApp = frontApp
+  } finally {
+    sampling = false
+  }
+}
+
+function startSampler(): void {
+  stopSampler()
+  systemInactive = false
+  lastSampleAtMs = Date.now()
+  powerMonitor.on('suspend', markSystemInactive)
+  powerMonitor.on('lock-screen', markSystemInactive)
+  powerMonitor.on('shutdown', markSystemInactive)
+  powerMonitor.on('resume', markSystemActive)
+  powerMonitor.on('unlock-screen', markSystemActive)
+  configureActivityHistoryPersistence({ upsertSegment: upsertActivitySegment, addOcrEvidence })
+  configureSemanticWorkClassifier(scheduleSemanticWork)
+  startActivityCollector(privacyForContext)
+  void sampleTick().catch(() => {})
+  sampleTimer = setInterval(() => void sampleTick().catch(() => {}), SAMPLE_SEC * 1000)
+}
+function stopSampler(): void {
+  if (sampleTimer) {
+    clearInterval(sampleTimer)
+    sampleTimer = null
+  }
+  powerMonitor.removeListener('suspend', markSystemInactive)
+  powerMonitor.removeListener('lock-screen', markSystemInactive)
+  powerMonitor.removeListener('shutdown', markSystemInactive)
+  powerMonitor.removeListener('resume', markSystemActive)
+  powerMonitor.removeListener('unlock-screen', markSystemActive)
+  systemInactive = false
+  stopActivityCollector()
+  configureSemanticWorkClassifier(null)
+  stopSemanticWorkClassifier()
+  lastSwitchApp = null // 停启之间的间隔不算一次「切换」
+}
+
 export function startWatch(intervalSec: number): void {
   stopWatch()
-  watchTimer = setInterval(() => void watchTick(), Math.max(1, intervalSec) * 1000)
+  resetActivityGate()
+  startSampler()
+  const minInterval = getSettings().screenSenseEventDriven ? 5 : 1
+  watchTimer = setInterval(() => void watchTick(), Math.max(minInterval, intervalSec) * 1000)
   trayRefresh?.()
 }
 export function stopWatch(): void {
+  watchAbort?.abort()
+  watchAbort = null
   if (watchTimer) {
     clearInterval(watchTimer)
     watchTimer = null
   }
+  stopSampler()
   lastHash = null
   lastTextHash = ''
+  resetActivityGate()
   trayRefresh?.()
 }
 /** 托盘「暂停/恢复屏幕监控」：暂停时 watcher 仍在转但每轮直接 return */
 export function setWatchPaused(paused: boolean): void {
   watchPaused = paused
+  if (paused) {
+    watchAbort?.abort()
+    watchAbort = null
+    stopSampler()
+  } else {
+    resetActivityGate()
+    startSampler()
+  }
   trayRefresh?.()
+}
+
+export function screenActivityStatus(): ReturnType<typeof getActivityRuntimeStatus> {
+  const { screenSenseEventDriven, screenSenseHybridV2 } = getSettings()
+  return getActivityRuntimeStatus({
+    eventDriven: screenSenseEventDriven,
+    hybridV2: screenSenseHybridV2,
+    running: isWatchActive(),
+    paused: watchPaused
+  })
 }
 
 /** 跟随设置开关注册/注销扫描快捷键 + 启停持续监控（启动时 + settings:save 时调用） */

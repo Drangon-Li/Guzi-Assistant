@@ -74,7 +74,7 @@ export function buildIcs(task: TaskRecord, opts: IcsOptions = {}): string | null
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Guzi Assistant//Task Export//CN',
+    'PRODID:-//谷子助手//Task Export//CN',
     'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
     // 兼容旧导出：UID 域保持不变，避免日历把同一任务重复导入为新事件。
