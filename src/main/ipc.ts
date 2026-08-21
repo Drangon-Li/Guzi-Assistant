@@ -60,7 +60,8 @@ import {
   applyScreenSenseSettings,
   dismissDetection,
   onPreviewHidden,
-  scanOnce
+  scanOnce,
+  screenActivityStatus
 } from './screenwatch'
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
@@ -124,6 +125,23 @@ export function registerIpc(): void {
   nativeTheme.on('updated', () => broadcastTheme())
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {
     let ok = true
+    if (
+      patch.screenSenseEventDriven !== undefined &&
+      typeof patch.screenSenseEventDriven !== 'boolean'
+    )
+      delete patch.screenSenseEventDriven
+    if (patch.screenSenseFallbackIntervalSec !== undefined) {
+      const value = Number(patch.screenSenseFallbackIntervalSec)
+      patch.screenSenseFallbackIntervalSec = Number.isFinite(value)
+        ? Math.min(60, Math.max(30, Math.round(value)))
+        : 45
+    }
+    if (patch.screenSenseIntervalSec !== undefined) {
+      const value = Number(patch.screenSenseIntervalSec)
+      patch.screenSenseIntervalSec = Number.isFinite(value)
+        ? Math.min(60, Math.max(1, Math.round(value)))
+        : 5
+    }
     // 快捷键先注册成功再落库，避免把无效组合持久化导致下次启动无快捷键
     if (patch.hotkey !== undefined) {
       ok = setHotkey(patch.hotkey)
@@ -158,6 +176,7 @@ export function registerIpc(): void {
       patch.screenSenseHotkey !== undefined ||
       patch.screenSenseContinuous !== undefined ||
       patch.screenSenseIntervalSec !== undefined ||
+      patch.screenSenseEventDriven !== undefined ||
       patch.dailyReportTime !== undefined
     )
       applyScreenSenseSettings()
@@ -269,6 +288,7 @@ export function registerIpc(): void {
   ipcMain.handle('quickaction:install', () => installQuickAction())
   ipcMain.handle('feishu:status', () => feishuStatus())
   ipcMain.handle('screen:scan', () => scanOnce())
+  ipcMain.handle('screen:activity-status', () => screenActivityStatus())
   ipcMain.handle('suggestion:accept', (_e, payload: { item: ParsedItem; sourceText: string }) =>
     acceptSuggestion(payload)
   )

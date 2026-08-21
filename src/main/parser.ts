@@ -8,6 +8,7 @@ import {
   type ResponsesOutput
 } from '@shared/parsing'
 import { belongingPriorFromProfile } from '@shared/belonging-hints'
+import { responsesEndpoint } from '@shared/model-configuration'
 import { getSession } from './session'
 
 export type { ParsedItem }
@@ -46,7 +47,7 @@ async function viaGateway(
   return payload.data ?? ({} as ResponsesOutput)
 }
 
-/** 直连模型（开发/自托管兜底，BYOK 经 GUZI_ASSISTANT_API_*，兼容旧 ESHELL_API_*）。 */
+/** 直连模型（开发/自托管兜底，兼容 GUZI_ASSISTANT_API_*、OPENAI_* 和旧 ESHELL_API_*）。 */
 async function viaDirect(
   instructions: string,
   input: unknown[],
@@ -56,7 +57,7 @@ async function viaDirect(
   if (!apiBase || !apiKey) throw new Error('请先登录以使用解析服务')
   let res: Response
   try {
-    res = await fetch(`${apiBase.replace(/\/$/, '')}/v1/responses`, {
+    res = await fetch(responsesEndpoint(apiBase), {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, instructions, input, reasoning: { effort: 'low' } }),
@@ -74,9 +75,13 @@ async function viaDirect(
 export async function callModel(
   instructions: string,
   input: unknown[],
-  action: ParseAction = 'parse_text'
+  action: ParseAction = 'parse_text',
+  externalSignal?: AbortSignal
 ): Promise<string> {
   const controller = new AbortController()
+  const onExternalAbort = (): void => controller.abort()
+  if (externalSignal?.aborted) controller.abort()
+  else externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
   const timer = setTimeout(() => controller.abort(), 120_000)
   try {
     const { functionsBase, token } = getSession()
@@ -86,8 +91,12 @@ export async function callModel(
         : await viaDirect(instructions, input, controller.signal)
     if (data.error?.message) throw new Error(`解析服务错误：${data.error.message}`)
     return extractText(data).trim()
+  } catch (e) {
+    if (externalSignal?.aborted) throw new Error('解析已取消')
+    throw e
   } finally {
     clearTimeout(timer)
+    externalSignal?.removeEventListener('abort', onExternalAbort)
   }
 }
 
@@ -96,6 +105,7 @@ export async function parseToItemsRaw(input: {
   text?: string
   imageDataUrl?: string
   hint: string
+  signal?: AbortSignal
 }): Promise<{ items: ParsedItem[]; raw: string }> {
   const profile = getProfile()
   if (!profile) throw new Error('尚未完成用户档案设置')
@@ -116,7 +126,8 @@ export async function parseToItemsRaw(input: {
   const output = await callModel(
     buildInstructions(profile, existing, belongingPriorFromProfile(profile), personalMemoryText()),
     [{ role: 'user', content }],
-    input.imageDataUrl ? 'parse_vision' : 'parse_text'
+    input.imageDataUrl ? 'parse_vision' : 'parse_text',
+    input.signal
   )
   return { items: parseModelOutput(output), raw: output }
 }
@@ -125,6 +136,7 @@ export async function parseToItems(input: {
   text?: string
   imageDataUrl?: string
   hint: string
+  signal?: AbortSignal
 }): Promise<ParsedItem[]> {
   return (await parseToItemsRaw(input)).items
 }

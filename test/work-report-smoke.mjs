@@ -8,6 +8,7 @@ import {
   groupWorkPeriods,
   periodLabel,
   focusDurations,
+  normalizeTaskKey,
   daySegmentOf,
   memoryToPlain,
   plainToMemory
@@ -129,6 +130,21 @@ const fd = focusDurations([
 check('专注按任务累计且降序', fd[0].task === '开发纸壳助手' && fd[0].seconds === 720)
 check('单条记录算 1 分钟', fd[1].task === '写论文' && fd[1].seconds === 60)
 check('无 task 的记录不参与', focusDurations([{ ...fr('09:00', null) }]).length === 0)
+
+// ---- normalizeTaskKey：折叠空格/全半角/大小写 ----
+check('去空格', normalizeTaskKey('评审 EMNLP 论文') === normalizeTaskKey('评审EMNLP论文'))
+check('全角折半角', normalizeTaskKey('评审ＥＭＮＬＰ论文') === normalizeTaskKey('评审EMNLP论文'))
+check('大小写归一', normalizeTaskKey('emnlp') === normalizeTaskKey('EMNLP'))
+check('不同任务不误合', normalizeTaskKey('写论文') !== normalizeTaskKey('读论文'))
+
+// ---- focusDurations：仅空格差异的变体合并、桥接成一段、展示取更长写法 ----
+const fdMerge = focusDurations([
+  fr('09:00', '评审EMNLP论文'), // 无空格
+  fr('09:05', '评审 EMNLP 论文') // 带空格，间隔 ≤15min → 合并成一段 5min+1min=360s
+])
+check('空格变体合并为一个任务', fdMerge.length === 1)
+check('合并后按跨度桥接而非各算 1 分钟', fdMerge[0].seconds === 360)
+check('展示取更易读的空格写法', fdMerge[0].task === '评审 EMNLP 论文')
 
 // ---- daySegmentOf ----
 check('5 点=清晨', daySegmentOf('2026-07-02T05:00').label === '清晨')

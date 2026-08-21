@@ -19,6 +19,10 @@ function throws(fn) {
 check('提取 items 并规整', parseModelOutput('{"items":[{"title":"开会"}]}').length === 1)
 check('```json 围栏可解析', parseModelOutput('```json\n{"items":[{"title":"a"}]}\n```')[0].title === 'a')
 check('前后有解释文字也能提取', parseModelOutput('好的，结果如下：{"items":[{"title":"x"}]} 完毕').length === 1)
+check(
+  '多个 JSON 示例时提取平衡对象',
+  parseModelOutput('示例：{"format":"json"} 实际：{"items":[{"title":"x"}]}').length === 1
+)
 check('items 缺失返回空数组', parseModelOutput('{"foo":1}').length === 0)
 check('items 内非对象/无标题被丢弃', parseModelOutput('{"items":[1,"a",{},{"title":"ok"}]}').length === 1)
 check('完全无 JSON 抛错', throws(() => parseModelOutput('抱歉我无法解析')))

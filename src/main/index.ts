@@ -10,7 +10,8 @@ import {
   setTrayRefresh,
   setWatchPaused,
   isWatchActive,
-  isWatchPaused
+  isWatchPaused,
+  stopWatch
 } from './screenwatch'
 import { submitExternalFiles } from './capture'
 import {
@@ -44,13 +45,18 @@ import trayIcon from '../../resources/trayTemplate.png?asset'
 import trayIcon2x from '../../resources/trayTemplate@2x.png?asset'
 
 const userDataOverride = process.env.GUZI_ASSISTANT_USER_DATA_DIR
-if (userDataOverride) app.setPath('userData', userDataOverride)
+if (userDataOverride) {
+  app.setPath('userData', userDataOverride)
+} else {
+  // productName 对外改为中文，但沿用旧目录，避免丢失数据库、权限关联的本地状态和快捷操作 dropbox。
+  app.setPath('userData', join(app.getPath('appData'), 'GuziAssistant'))
+}
 
 // productName 改名会切换 userData；按新到旧顺序迁移历史目录，只复制不删以保留回滚路径。
 function migrateLegacyUserData(): void {
   const dir = app.getPath('userData')
   if (existsSync(join(dir, 'eshell.db'))) return
-  for (const name of ['Gooz', 'EShell']) {
+  for (const name of ['Gooz', 'EShell', '谷子助手']) {
     const legacy = join(dirname(dir), name)
     if (!existsSync(join(legacy, 'eshell.db'))) continue
     try {
@@ -183,6 +189,7 @@ if (!app.requestSingleInstanceLock()) {
   })
   app.on('will-quit', () => {
     stopHotkey()
+    stopWatch()
     stopDailyBrief()
     stopWellnessReminder()
     stopMcpServer()

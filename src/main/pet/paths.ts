@@ -7,6 +7,12 @@ export function petPreloadPath(): string {
   return join(app.getAppPath(), 'resources', 'pet', 'pet-preload.cjs')
 }
 
+// 图片必须放在 app.asar 外：桌宠页面通过 file: URL 加载，asar 内的资源路径不是 macOS 文件路径。
+export function petMarkPath(): string {
+  if (app.isPackaged) return join(process.resourcesPath, 'pet', 'pet-mark.png')
+  return join(app.getAppPath(), 'resources', 'pet', 'pet-mark.png')
+}
+
 // 桌宠运行时在 userData 下的工作目录（生成的 HTML、按需安装的宠物等）。spritesheet 走 electron-vite 的 ?asset 导入，不在此解析。
 export function petUserDataDir(): string {
   return join(app.getPath('userData'), 'pet')

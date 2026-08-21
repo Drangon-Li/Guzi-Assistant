@@ -7,6 +7,7 @@ import {
   focusDurations,
   formatDuration,
   groupWorkPeriods,
+  normalizeTaskKey,
   periodLabel
 } from '@shared/work-report'
 import { api } from '../api'
@@ -96,13 +97,14 @@ export default function Reports(): React.JSX.Element {
   const dayReports = reports.filter((r) => r.day === day)
 
   // 任务专注：本地聚合 + 用户偏好（隐藏剔除、自定义补零显示）
-  const hidden = new Set(taskPrefs.filter((p) => p.hidden).map((p) => p.name))
-  const durations = focusDurations(records).filter((d) => !hidden.has(d.task))
-  const shownTasks = new Set(durations.map((d) => d.task))
+  // 匹配按归一键——展示名可能随数据变化取到不同变体，用原始串比会漏掉隐藏/去重
+  const hidden = new Set(taskPrefs.filter((p) => p.hidden).map((p) => normalizeTaskKey(p.name)))
+  const durations = focusDurations(records).filter((d) => !hidden.has(normalizeTaskKey(d.task)))
+  const shownKeys = new Set(durations.map((d) => normalizeTaskKey(d.task)))
   const focusList = [
     ...durations,
     ...taskPrefs
-      .filter((p) => p.custom && !p.hidden && !shownTasks.has(p.name))
+      .filter((p) => p.custom && !p.hidden && !shownKeys.has(normalizeTaskKey(p.name)))
       .map((p) => ({ task: p.name, seconds: 0 }))
   ]
   const maxFocus = Math.max(...focusList.map((f) => f.seconds), 1)
@@ -177,6 +179,9 @@ export default function Reports(): React.JSX.Element {
                         {p.app}
                       </span>
                     )}
+                    <span className="shrink-0 rounded bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-400">
+                      {p.source === 'accessibility' ? 'AX 语义' : 'OCR 补证'}
+                    </span>
                     <span className="min-w-0 flex-1 leading-5">
                       {p.summary}
                       {p.activities.length > 1 && (

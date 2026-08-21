@@ -306,15 +306,48 @@ export function normalizeItem(raw: Record<string, unknown>): ParsedItem | null {
   }
 }
 
-function extractJson(text: string): Record<string, unknown> {
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start < 0 || end <= start) throw new Error('解析结果不是有效 JSON')
-  try {
-    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>
-  } catch {
-    throw new Error('解析结果 JSON 格式损坏')
+/** Extract the first balanced JSON object from model text.
+ * Models sometimes put a short explanation or a second JSON example around the
+ * actual response. Matching balanced braces avoids treating both objects as one
+ * malformed payload while still requiring JSON.parse for the selected object.
+ */
+export function extractJson(text: string): Record<string, unknown> {
+  let best: { value: Record<string, unknown>; length: number } | null = null
+  for (let start = text.indexOf('{'); start >= 0; start = text.indexOf('{', start + 1)) {
+    let depth = 0
+    let inString = false
+    let escaped = false
+    for (let i = start; i < text.length; i += 1) {
+      const ch = text[i]
+      if (inString) {
+        if (escaped) escaped = false
+        else if (ch === '\\') escaped = true
+        else if (ch === '"') inString = false
+        continue
+      }
+      if (ch === '"') {
+        inString = true
+        continue
+      }
+      if (ch === '{') depth += 1
+      else if (ch === '}') {
+        depth -= 1
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(text.slice(start, i + 1)) as unknown
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+              if (!best || i - start > best.length)
+                best = { value: parsed as Record<string, unknown>, length: i - start }
+          } catch {
+            // Try the next opening brace; an earlier example may be malformed.
+          }
+          break
+        }
+      }
+    }
   }
+  if (best) return best.value
+  throw new Error('解析结果 JSON 格式损坏')
 }
 
 /** 从屏幕扫描模型输出中取顶层 work_summary（「在做什么」一句话，工作记录用）；无/非法返回 null */

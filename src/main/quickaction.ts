@@ -9,7 +9,7 @@ const WORKFLOW_NAME = '发送到 谷子助手.workflow'
 const LEGACY_WORKFLOW_NAME = '发送到 纸壳助手.workflow'
 
 // 快速操作的 shell：把选中文件的路径写进 谷子助手 监听的 dropbox 目录
-// 注意：内容会嵌进 XML，不能出现 & 和 <；目录名跟随 productName（GuziAssistant）
+// 注意：内容会嵌进 XML，不能出现 & 和 <；dropbox 目录保留 GuziAssistant 兼容路径
 const SCRIPT = `DROP_DIR="$HOME/Library/Application Support/GuziAssistant/dropbox"
 mkdir -p "$DROP_DIR"
 MANIFEST="$DROP_DIR/send-$(date +%s)-$$.txt"

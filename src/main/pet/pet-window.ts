@@ -5,10 +5,9 @@ import { app, BrowserWindow, ipcMain, nativeTheme, screen } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { mkdirSync, writeFileSync } from 'fs'
-import petMark from '../../../resources/pet/pet-mark.png?asset'
 import { PET_ART_HEIGHT, PET_ART_WIDTH, type PetReaction } from './reaction-mapping'
 import { getPetPrefs, savePetPrefs, type PetScaleValue } from './state'
-import { petPreloadPath, petUserDataDir } from './paths'
+import { petMarkPath, petPreloadPath, petUserDataDir } from './paths'
 
 const PET_WIN_WIDTH = 340
 const PET_WIN_HEIGHT = 420
@@ -352,7 +351,7 @@ function renderInto(win: BrowserWindow): void {
 // ---------- HTML / CSS 生成 ----------
 
 function bodyMarkup(reaction: PetReaction, bubbleText: string | null): string {
-  const markUrl = pathToFileURL(petMark).toString()
+  const markUrl = pathToFileURL(petMarkPath()).toString()
   // 有气泡（新消息）时给图标加一次性弹跳，吸引注意；无气泡则静止。
   const alert = bubbleText ? ' is-alert' : ''
   const mark = `<img class="mark" src="${escapeHtml(markUrl)}" alt="谷子助手" draggable="false" />`

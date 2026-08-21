@@ -29,6 +29,7 @@ export const INVOKE_CHANNELS = [
   'quickaction:install',
   'feishu:status',
   'screen:scan',
+  'screen:activity-status',
   'suggestion:accept',
   'suggestion:accept-local',
   'detections:list',

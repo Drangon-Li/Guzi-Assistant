@@ -1,8 +1,8 @@
 {
   "name": "guzi-assistant",
-  "productName": "GuziAssistant",
+  "productName": "谷子助手",
   "version": "0.1.0",
-  "description": "Guzi Assistant（谷子助手）个人事项捕获助手",
+  "description": "谷子助手个人事项捕获助手",
   "main": "out/main/index.js",
   "private": true,
   "engines": {
@@ -39,8 +39,13 @@
     "test:attention": "node test/attention-smoke.mjs",
     "test:subscription": "node test/subscription-smoke.mjs",
     "test:env": "node test/env-value-smoke.mjs",
+    "test:model-configuration": "node test/model-configuration-smoke.mjs",
     "test:quickaction-migration": "node test/quickaction-migration-smoke.mjs",
-    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs && node test/ics-smoke.mjs && node test/parse-smoke.mjs && node test/labels-smoke.mjs && node test/ipc-channels-smoke.mjs && node test/daily-brief-smoke.mjs && node test/belonging-hints-smoke.mjs && node test/task-filters-smoke.mjs && node test/phash-smoke.mjs && node test/safe-path-smoke.mjs && node test/fts-query-smoke.mjs && node test/chat-layout-smoke.mjs && node test/belonging-learn-smoke.mjs && node test/app-exclude-smoke.mjs && node test/billing-credits-smoke.mjs && node test/shot-retention-smoke.mjs && node test/chpay-smoke.mjs && node test/pet-reaction-smoke.mjs && node test/work-report-smoke.mjs && node test/sensitive-smoke.mjs && node test/attention-smoke.mjs && node test/subscription-smoke.mjs && node test/env-value-smoke.mjs && node test/quickaction-migration-smoke.mjs",
+    "test:activity": "node test/activity-events-smoke.mjs",
+    "test:frontapp": "node test/frontapp-source-smoke.mjs",
+    "test:event-gate": "node test/screenwatch-event-gate-smoke.mjs",
+    "test:activity-tracker": "node test/activity-tracker-smoke.mjs",
+    "test:unit": "node test/logic-smoke.mjs && node test/screen-smoke.mjs && node test/ics-smoke.mjs && node test/parse-smoke.mjs && node test/labels-smoke.mjs && node test/ipc-channels-smoke.mjs && node test/daily-brief-smoke.mjs && node test/belonging-hints-smoke.mjs && node test/task-filters-smoke.mjs && node test/phash-smoke.mjs && node test/safe-path-smoke.mjs && node test/fts-query-smoke.mjs && node test/chat-layout-smoke.mjs && node test/belonging-learn-smoke.mjs && node test/app-exclude-smoke.mjs && node test/billing-credits-smoke.mjs && node test/shot-retention-smoke.mjs && node test/chpay-smoke.mjs && node test/pet-reaction-smoke.mjs && node test/work-report-smoke.mjs && node test/sensitive-smoke.mjs && node test/attention-smoke.mjs && node test/subscription-smoke.mjs && node test/env-value-smoke.mjs && node test/model-configuration-smoke.mjs && node test/quickaction-migration-smoke.mjs && node test/activity-events-smoke.mjs && node test/hybrid-history-smoke.mjs && node test/semantic-work-smoke.mjs && node test/frontapp-source-smoke.mjs && node test/screenwatch-event-gate-smoke.mjs && node test/activity-tracker-smoke.mjs && node test/branding-smoke.mjs",
     "pack:mac": "electron-vite build && electron-builder --mac",
     "pack:dir": "electron-vite build && electron-builder --mac --dir"
   },
