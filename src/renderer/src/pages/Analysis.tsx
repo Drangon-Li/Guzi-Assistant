@@ -7,7 +7,7 @@ import type {
   ReportRecord,
   WorkRecord
 } from '@shared/types'
-import { dayKey, focusDurations, formatDuration } from '@shared/work-report'
+import { dayKey, focusDurations, formatDuration, timeRangeLabel } from '@shared/work-report'
 import {
   ATTENTION_BASELINE_SEC,
   avgAttentionSpanSec,
@@ -99,7 +99,7 @@ export default function Analysis(): React.JSX.Element {
   // ---- 近 7 天趋势（固定为最近 7 天，不随 DayNav 变） ----
   const trendDays = lastNDays(7)
   const trend = trendDays.map((d) => {
-    const dayRecs = trendRecords.filter((r) => r.createdAt.startsWith(d))
+    const dayRecs = trendRecords.filter((r) => r.startAt.startsWith(d))
     const dayUsage = trendUsage.filter((u) => u.day === d)
     return {
       day: d,
@@ -304,6 +304,7 @@ export default function Analysis(): React.JSX.Element {
                 value={f.seconds}
                 max={maxTask}
                 valueLabel={formatDuration(f.seconds)}
+                detail={timeRangeLabel(f.startAt, f.endAt)}
               />
             ))}
           </ul>

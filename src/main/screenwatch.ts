@@ -1,5 +1,6 @@
 import { unlink } from 'fs/promises'
 import { app, nativeImage, powerMonitor, systemPreferences } from 'electron'
+import { join } from 'path'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
 import { ocrImageDetailed } from './ocr'
 import { parseToItemsRaw } from './parser'
@@ -19,18 +20,24 @@ import {
   localDateTimeAt,
   setDetectionStatus,
   findDuplicateTitle,
+  getHistorySegmentIndex,
+  getHistorySummaryIndex,
+  listActivitySegmentsSince,
+  listWorkRecordsSince,
+  upsertHistoryWorkRecord,
+  removeHistoryWorkRecord,
+  removeHistoryWorkRecords,
   addOcrEvidence,
   upsertActivitySegment
 } from './db'
 import { applyReportSchedule } from './report-scheduler'
-import { dayKey } from '@shared/work-report'
+import { dayKey, normalizeTaskKey, normalizeTaskLabel } from '@shared/work-report'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
 import { getFrontmostContext } from './frontapp'
 import { saveShotTempFromPng, finalizeShot, deleteShot, listShotIds, sweepTempShots } from './shotvault'
 import { getSession } from './session'
-import { isAppExcluded } from '@shared/app-exclude'
 import { redactSensitive } from '@shared/sensitive'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox } from '@shared/chat-layout'
 import { expiredShotIds } from '@shared/shot-retention'
@@ -44,15 +51,15 @@ import {
   semanticEvidenceKey,
   type SemanticWorkEvidence
 } from '@shared/semantic-work'
-import type { LocalExtraction, ParseSummary, ScanResult, TaskStatus } from '@shared/types'
+import type { HistoryStoreHealth, LocalExtraction, ParseSummary, ScanResult, TaskStatus } from '@shared/types'
 import {
   activityScanDecision,
   getScreenActivityStatus as getActivityRuntimeStatus,
-  isPrivateBrowsingContext,
   markActivityObserverFailure,
   markActivityObserverHealthy,
   markActivityScan,
   configureActivityHistoryPersistence,
+  configureHistoryHealthProvider,
   configureSemanticWorkClassifier,
   getHybridSemanticState,
   markOcrFallback,
@@ -67,6 +74,14 @@ import {
   type AccessibilityWorkContext
 } from './activity-tracker'
 import { decideOcrTrigger, type OcrTriggerReason } from '@shared/hybrid-history'
+import { ACTIVITY_RETENTION_MS } from '@shared/activity-events'
+import { decideHistoryPrivacy } from './history/privacy-policy.ts'
+import { HistorySegmentStore } from './history/event-store.ts'
+import { HistorySummarizer, runHistorySummaryAfterStoreStart, type SummaryRunResult } from './history/summarizer.ts'
+import { deriveHistoryWorkRecord } from './history/work-derivation.ts'
+import { HistoryQueryService } from './history/query-service.ts'
+import { buildRolloutComparison } from './history/rollout-comparison.ts'
+import type { HistoryDeleteResult, HistoryStatus, HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
 
 function emptySummary(error: string | null): ParseSummary {
   return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
@@ -75,6 +90,16 @@ function emptySummary(error: string | null): ParseSummary {
 interface DetectHit {
   extraction: LocalExtraction
   item: ParsedItem
+}
+
+/** 两个 History 开关独立回滚：派生路径只有在事件流和派生开关都开启时生效。 */
+function historyDerivedWorkActive(): boolean {
+  const settings = getSettings()
+  return settings.historyV2Enabled && settings.historyDerivedWorkEnabled
+}
+
+function legacyWorkSummaryHint(): string {
+  return historyDerivedWorkActive() ? '' : lastWorkRecordContent
 }
 
 // 工作记录搭同一次识别调用的便车：让模型在 items 之外多回 work_summary + focus_task 两个顶层字段。
@@ -144,7 +169,7 @@ async function detectAll(
   signal?: AbortSignal
 ): Promise<DetectResult> {
   const hint = wantWorkLog
-    ? `${HINTS.screen_scan}\n${workSummaryHint(lastWorkRecordContent, listFocusTaskCandidates())}`
+    ? `${HINTS.screen_scan}\n${workSummaryHint(legacyWorkSummaryHint(), listFocusTaskCandidates())}`
     : HINTS.screen_scan
   const { items, raw } = await parseToItemsRaw({ text, hint, signal })
   const workSummary = wantWorkLog ? parseWorkSummary(raw) : null
@@ -176,10 +201,27 @@ async function detectAll(
   return { hits, workSummary, focusTask, confirmed: false }
 }
 
-// 工作记录节流：同一活动持续中不重复记；不同活动也至少间隔 1 分钟，防打字每帧都记
+// 旧 OCR/手动路径的工作记录节流。History 派生路径不使用这组全局状态，避免跨 segment 串联。
 const WORK_RECORD_MIN_GAP_MS = 60 * 1000
 let lastWorkRecordAt = 0
 let lastWorkRecordContent = ''
+let lastWorkRecordTask: string | null = null
+let lastWorkRecordApp: string | null = null
+const OCR_FALLBACK_WORK_REASONS = new Set<OcrTriggerReason>([
+  'manual',
+  'observer_failure',
+  'partial_high_value',
+  'partial_retry',
+  'empty_active',
+  'hard_fallback_incomplete',
+  'legacy_hard_fallback',
+  'legacy_event'
+])
+
+function shouldPersistLegacyOcrWork(reason: OcrTriggerReason): boolean {
+  return !historyDerivedWorkActive() || OCR_FALLBACK_WORK_REASONS.has(reason)
+}
+
 function maybeAddWorkRecord(
   summary: string | null,
   task: string | null,
@@ -187,23 +229,35 @@ function maybeAddWorkRecord(
   source: 'accessibility' | 'ocr',
   occurredAtMs?: number
 ): void {
+  // 新路径只允许摘要回调落库；这里保留给旧 OCR/手动 fallback 和关闭开关后的回滚。
+  if (source === 'accessibility' && historyDerivedWorkActive()) return
   const normalizedSummary = normalizeActivitySummary(summary, { appName: frontApp })
   if (!normalizedSummary) return
+  const normalizedTask = normalizeTaskLabel(task)
+  const taskKey = normalizeTaskKey(normalizedTask ?? '')
+  const appKey = normalizeTaskKey(frontApp ?? '')
   const now = Date.now()
-  if (normalizedSummary === lastWorkRecordContent) return
+  if (
+    normalizedSummary === lastWorkRecordContent &&
+    taskKey === normalizeTaskKey(lastWorkRecordTask ?? '') &&
+    appKey === normalizeTaskKey(lastWorkRecordApp ?? '')
+  ) return
   // Accessibility 已经按片段聚合并限制最多 8 个上下文；不同语义活动不能再被
   // OCR 路径遗留的全局 60 秒节流合并。OCR 仍保留旧节流，避免旧路径高频写入。
   if (source === 'ocr' && now - lastWorkRecordAt < WORK_RECORD_MIN_GAP_MS) return
   lastWorkRecordAt = now
   lastWorkRecordContent = normalizedSummary
+  lastWorkRecordTask = normalizedTask
+  lastWorkRecordApp = frontApp
   addWorkRecord({
     content: normalizedSummary,
     app: frontApp,
-    task,
+    task: normalizedTask,
     source,
+    derivedBy: 'legacy',
     createdAt: occurredAtMs == null ? undefined : localDateTimeAt(occurredAtMs)
   })
-  debugEvent('record', `工作记录：${normalizedSummary}${task ? `（任务：${task}）` : ''}`)
+  debugEvent('record', `工作记录：${normalizedSummary}${normalizedTask ? `（任务：${normalizedTask}）` : ''}`)
 }
 
 const SEMANTIC_WORK_MAX_CONTEXTS = 8
@@ -292,7 +346,7 @@ async function classifySemanticWork(contexts: AccessibilityWorkContext[]): Promi
     }))
     const { raw } = await parseToItemsRaw({
       text: JSON.stringify({ evidence }),
-      hint: buildSemanticWorkHint(lastWorkRecordContent || null, listFocusTaskCandidates()),
+      hint: buildSemanticWorkHint(legacyWorkSummaryHint() || null, listFocusTaskCandidates()),
       signal: controller.signal
     })
     const results = parseSemanticWorkResults(raw, contexts.length)
@@ -305,7 +359,7 @@ async function classifySemanticWork(contexts: AccessibilityWorkContext[]): Promi
         windowTitle: context.windowTitle,
         safeLabel: context.safeLabel
       })
-      if (workSummary) {
+      if (workSummary && !historyDerivedWorkActive()) {
         maybeAddWorkRecord(
           workSummary,
           result.focusTask,
@@ -680,19 +734,43 @@ function privacyForContext(context: {
   name: string
   bundleId: string
   windowTitle: string
+  urlHost?: string | null
   focusedRole?: string
-}): {
+  focusedSubrole?: string
+  targetRole?: string
+  targetSubrole?: string
+  secureInput?: boolean
+}, historyOnly = false): {
   suppressed: boolean
   privacyState: 'normal' | 'private' | 'excluded' | 'own' | 'secure'
 } {
-  const { screenSenseExcludedApps } = getSettings()
-  if (isOwnApp(context.name)) return { suppressed: true, privacyState: 'own' }
-  if (screenSenseExcludedApps.length > 0 && isAppExcluded(context.name, screenSenseExcludedApps))
-    return { suppressed: true, privacyState: 'excluded' }
-  if (isPrivateBrowsingContext(context)) return { suppressed: true, privacyState: 'private' }
-  if (/secure|password|secret/i.test(context.focusedRole ?? ''))
-    return { suppressed: true, privacyState: 'secure' }
-  return { suppressed: false, privacyState: 'normal' }
+  const settings = getSettings()
+  const decision = decideHistoryPrivacy({
+    appName: context.name,
+    bundleId: context.bundleId,
+    windowTitle: context.windowTitle,
+    urlHost: historyOnly ? context.urlHost : undefined,
+    focusedRole: context.focusedRole,
+    focusedSubrole: context.focusedSubrole,
+    targetRole: context.targetRole,
+    targetSubrole: context.targetSubrole,
+    secureInput: context.secureInput,
+    ownAppNames: [
+      app.getName(),
+      'Electron',
+      'GuziAssistant',
+      'Guzi Assistant',
+      '谷子助手',
+      'Gooz',
+      'EShell',
+      '纸壳助手'
+    ],
+    excludedApps: settings.screenSenseExcludedApps,
+    excludedBundleIds: historyOnly ? settings.historyExcludedApps.map((item) => item.bundleId) : [],
+    excludedHosts: historyOnly ? settings.historyExcludedHosts : [],
+    includedHosts: historyOnly ? settings.historyIncludedHosts : []
+  })
+  return { suppressed: !decision.persist, privacyState: decision.state }
 }
 
 /** 云端解析可用性：已登录（网关）或已配直连 API，且完成档案设置。未就绪时监控静默跳过，不白跑截图/OCR。 */
@@ -882,7 +960,8 @@ async function watchTick(): Promise<void> {
     )
     if (signal.aborted) return
     cloudPauseNotified = false // 解析成功 → 下次再断流时重新提醒
-    maybeAddWorkRecord(workSummary, focusTask, frontApp, 'ocr')
+    if (shouldPersistLegacyOcrWork(triggerReason))
+      maybeAddWorkRecord(workSummary, focusTask, frontApp, 'ocr')
     if (!hits.length) {
       debugEvent('detect', '云端未发现明确待办')
       return
@@ -966,9 +1045,553 @@ async function watchTick(): Promise<void> {
 
 const SAMPLE_SEC = 5
 let sampleTimer: ReturnType<typeof setInterval> | null = null
+let historyStore: HistorySegmentStore | null = null
+let historyCleanupTimer: ReturnType<typeof setInterval> | null = null
+let historySummaryTimer: ReturnType<typeof setInterval> | null = null
+let historyLegacySyncTimer: ReturnType<typeof setInterval> | null = null
+let historySummarizer: HistorySummarizer | null = null
+let historyCloseTail: Promise<void> = Promise.resolve()
+let historyMutationTail: Promise<void> = Promise.resolve()
+let historyMutationPending = 0
+let historyMutationEpoch = 0
+let historyPaused = false
+let historyQueryService: HistoryQueryService | null = null
+let historyRolloutCache: { atMs: number; value: HistoryStatus['rolloutComparison'] } = { atMs: 0, value: null }
 let sampling = false
 let lastSampleAtMs = 0
 let systemInactive = false
+
+function ensureHistoryStore(): HistorySegmentStore {
+  if (!historyStore) {
+    historyStore = new HistorySegmentStore({
+      rootDir: join(app.getPath('userData'), 'history-v2'),
+      index: getHistorySegmentIndex(),
+      startAfter: historyCloseTail
+    })
+  }
+  return historyStore
+}
+
+function historyHealthFallback(enabled: boolean, state: HistoryStoreHealth['state']): HistoryStoreHealth {
+  return {
+    enabled,
+    state,
+    currentSegmentId: null,
+    queueLength: 0,
+    droppedCount: 0,
+    suppressedCount: 0,
+    invalidCount: 0,
+    segmentCount: 0,
+    lastWriteAt: null,
+    lastCleanupAt: null,
+    lastError: null
+  }
+}
+
+function historyStatusSnapshot(): HistoryStatus {
+  const settings = getSettings()
+  let health = historyStore?.health() ?? historyHealthFallback(
+    settings.historyV2Enabled,
+    settings.historyV2Enabled ? (historyPaused ? 'stopped' : 'starting') : 'disabled'
+  )
+  let tenMinute = 0
+  let sixHour = 0
+  let retentionExpiresAt: string | null = null
+  if (settings.historyV2Enabled) {
+    try {
+      const segmentRows = getHistorySegmentIndex().list()
+      retentionExpiresAt = segmentRows
+        .map((row) => row.retentionExpiresAt)
+        .filter(Boolean)
+        .sort()
+        .at(-1) ?? null
+      tenMinute = getHistorySummaryIndex().count('10m')
+      sixHour = getHistorySummaryIndex().count('6h')
+    } catch {
+      // IPC/MCP status remains readable while the database is booting.
+    }
+  }
+  health = { ...health, enabled: settings.historyV2Enabled && health.enabled }
+  return {
+    enabled: settings.historyV2Enabled,
+    paused: historyPaused,
+    health,
+    retentionExpiresAt,
+    summaryCounts: { tenMinute, sixHour },
+    rolloutComparison: historyRolloutComparisonSnapshot()
+  }
+}
+
+function invalidateHistoryRolloutComparison(): void {
+  historyRolloutCache = { atMs: 0, value: null }
+}
+
+function notifyAutomaticHistorySummary(result: SummaryRunResult): void {
+  if (
+    result.tenMinuteChanged <= 0 &&
+    result.sixHourChanged <= 0 &&
+    result.summariesPruned <= 0 &&
+    result.modelSuccesses <= 0 &&
+    result.modelFailures <= 0
+  )
+    return
+  invalidateHistoryRolloutComparison()
+  broadcast('guzi-assistant:history-updated')
+}
+
+/** Keep the legacy activity_segments baseline current while History runs alone. */
+function syncLegacyHistorySegments(): void {
+  const settings = getSettings()
+  if (!settings.historyV2Enabled || historyPaused) return
+  try {
+    getActivityRuntimeStatus({
+      eventDriven: settings.screenSenseEventDriven,
+      hybridV2: settings.screenSenseHybridV2,
+      running: isWatchActive() || !historyPaused,
+      paused: watchPaused || historyPaused
+    })
+  } catch (error) {
+    debugEvent('error', `History 旧链路双写失败：${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+function stopLegacyHistorySync(): void {
+  if (!historyLegacySyncTimer) return
+  clearInterval(historyLegacySyncTimer)
+  historyLegacySyncTimer = null
+}
+
+function startLegacyHistorySync(): void {
+  stopLegacyHistorySync()
+  syncLegacyHistorySegments()
+  historyLegacySyncTimer = setInterval(syncLegacyHistorySegments, 5_000)
+  historyLegacySyncTimer.unref?.()
+}
+
+/** Build a bounded, aggregate-only comparison for the current 48-hour rollout window. */
+function historyRolloutComparisonSnapshot(nowMs = Date.now()): HistoryStatus['rolloutComparison'] {
+  if (!getSettings().historyV2Enabled) return null
+  if (historyRolloutCache.value && nowMs - historyRolloutCache.atMs < 5_000) return historyRolloutCache.value
+  const fromMs = nowMs - ACTIVITY_RETENTION_MS
+  const fromIso = new Date(nowMs - ACTIVITY_RETENTION_MS).toISOString()
+  const toIso = new Date(nowMs).toISOString()
+  try {
+    const comparison = buildRolloutComparison({
+      nowMs,
+      retentionMs: ACTIVITY_RETENTION_MS,
+      legacySegments: listActivitySegmentsSince(fromIso, toIso),
+      // Keep the comparison bounded before materializing aggregate inputs;
+      // retention cleanup is best-effort and stale rows may survive a crash.
+      historySegments: getHistorySegmentIndex().list().filter((row) => summaryOverlapsRange(row, fromMs, nowMs)),
+      summaries: getHistorySummaryIndex().list().filter((row) => summaryOverlapsRange(row, fromMs, nowMs)),
+      workRecords: listWorkRecordsSince(fromIso.slice(0, 10)).map((record) => ({
+        id: record.id,
+        derivedBy: record.derivedBy,
+        segmentId: record.segmentId,
+        app: record.app,
+        task: record.task,
+        content: record.content,
+        startAt: record.startAt,
+        endAt: record.endAt,
+        summaryHash: record.summaryHash
+      }))
+    })
+    historyRolloutCache = { atMs: nowMs, value: comparison }
+    return comparison
+  } catch (error) {
+    debugEvent('error', `History 双写对比失败：${error instanceof Error ? error.message : String(error)}`)
+    historyRolloutCache = { atMs: nowMs, value: null }
+    return null
+  }
+}
+
+async function historyStoreForQuery(allowPaused = false, allowDisabled = false): Promise<HistorySegmentStore | null> {
+  const enabled = getSettings().historyV2Enabled
+  if (!allowDisabled && !enabled) return null
+  if (historyPaused && !allowPaused) return null
+  try {
+    const store = ensureHistoryStore()
+    await store.start()
+    configureHistoryHealthProvider(() => store.health())
+    return store
+  } catch (error) {
+    debugEvent('error', `History 查询初始化失败：${error instanceof Error ? error.message : String(error)}`)
+    return null
+  }
+}
+
+function historySummaryOnlineEnabled(): boolean {
+  try {
+    const session = getSession()
+    const settings = getSettings()
+    return Boolean((session.functionsBase && session.token) || (settings.apiBase && settings.apiKey))
+  } catch {
+    return false
+  }
+}
+
+function ensureHistorySummarizer(store: HistorySegmentStore): HistorySummarizer {
+  if (!historySummarizer) {
+    historySummarizer = new HistorySummarizer({
+      store,
+      summaryIndex: getHistorySummaryIndex(),
+      onlineEnabled: historySummaryOnlineEnabled,
+      onTenMinuteSummary: (document, sourceHash) => {
+        if (historyMutationPending > 0 || !historyDerivedWorkActive()) return
+        const derived = deriveHistoryWorkRecord(document, sourceHash)
+        const segmentId = document.sourceSegmentId ?? document.sourceSegmentIds[0] ?? document.id
+        try {
+          if (derived) upsertHistoryWorkRecord(derived)
+          else if (segmentId) removeHistoryWorkRecord(segmentId)
+        } catch (error) {
+          debugEvent('error', `History 工作记录派生失败：${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    })
+  }
+  return historySummarizer
+}
+
+function historySummaryRunEmpty() {
+  return {
+    tenMinuteSummaries: 0,
+    sixHourSummaries: 0,
+    tenMinuteChanged: 0,
+    sixHourChanged: 0,
+    summariesPruned: 0,
+    modelSuccesses: 0,
+    modelFailures: 0
+  }
+}
+
+function summaryOverlapsRange(record: { bucketStart: string; bucketEnd: string }, fromMs: number, toMs: number): boolean {
+  const start = Date.parse(record.bucketStart)
+  const end = Date.parse(record.bucketEnd)
+  return Number.isFinite(start) && Number.isFinite(end) && end > fromMs && start < toMs
+}
+
+function serializeHistoryMutation<T>(job: () => Promise<T>): Promise<T> {
+  // Raise the barrier synchronously so a timer/manual summary cannot start
+  // between the destructive request and its position in the mutation queue.
+  historyMutationPending += 1
+  historyMutationEpoch += 1
+  const run = historyMutationTail.then(async () => {
+    await historyCloseTail.catch(() => {})
+    await historySummarizer?.invalidateAndWait()
+    return job()
+  })
+  historyMutationTail = run
+    .then(() => undefined, () => undefined)
+    .finally(() => {
+      historyMutationPending = Math.max(0, historyMutationPending - 1)
+    })
+  return run
+}
+
+/** Keep summary timers out while a legacy wipe finishes its SQLite cleanup. */
+export function acquireHistoryMutationBarrier(): () => void {
+  historyMutationPending += 1
+  historyMutationEpoch += 1
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    historyMutationPending = Math.max(0, historyMutationPending - 1)
+  }
+}
+
+async function createTemporaryHistoryStore(): Promise<{ store: HistorySegmentStore; temporary: boolean }> {
+  if (historyStore) {
+    await historyStore.start()
+    return { store: historyStore, temporary: false }
+  }
+  const store = new HistorySegmentStore({
+    rootDir: join(app.getPath('userData'), 'history-v2'),
+    index: getHistorySegmentIndex(),
+    startAfter: historyCloseTail
+  })
+  historyStore = store
+  try {
+    await store.start()
+    return { store, temporary: true }
+  } catch (error) {
+    if (historyStore === store) historyStore = null
+    throw error
+  }
+}
+
+async function deleteHistoryRangeInternal(fromMs: number, toMs: number): Promise<HistoryDeleteResult> {
+  return serializeHistoryMutation(async () => {
+    const summaryIndex = getHistorySummaryIndex()
+    const summariesBefore = summaryIndex.list()
+    const summaryIds = summariesBefore
+      .filter((record) => summaryOverlapsRange(record, fromMs, toMs))
+      .map((record) => record.id)
+    const segmentIdsFromSummaries = summariesBefore
+      .filter((record) => summaryIds.includes(record.id))
+      .flatMap((record) => record.sourceSegmentIds)
+    // A 6-hour summary may overlap a narrow delete range while referencing
+    // segments outside it. Only work records whose own segment intersects the
+    // requested range are eligible for removal.
+    const segmentIdsInRange = new Set(
+      getHistorySegmentIndex()
+        .list()
+        .filter((record) => summaryOverlapsRange(record, fromMs, toMs))
+        .map((record) => record.id)
+    )
+    const { store, temporary } = await createTemporaryHistoryStore()
+    let deletedSegmentIds: string[] = []
+    try {
+      deletedSegmentIds = await store.deleteRange(fromMs, toMs)
+    } finally {
+      if (temporary) {
+        if (historyStore === store) historyStore = null
+        await store.close()
+      }
+    }
+    for (const id of summaryIds) summaryIndex.remove(id)
+    const workRecordIds = removeHistoryWorkRecords([
+      ...new Set([
+        ...deletedSegmentIds,
+        ...segmentIdsFromSummaries.filter((segmentId) => segmentIdsInRange.has(segmentId))
+      ])
+    ])
+    return {
+      range: { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() },
+      deletedSegmentIds,
+      deletedSummaryIds: summaryIds,
+      deletedWorkRecordIds: workRecordIds
+    }
+  })
+}
+
+async function clearHistoryInternal(): Promise<HistoryDeleteResult> {
+  return serializeHistoryMutation(async () => {
+    const summaryIndex = getHistorySummaryIndex()
+    const summaries = summaryIndex.list()
+    const summaryIds = summaries.map((record) => record.id)
+    const summarySegmentIds = summaries.flatMap((record) => record.sourceSegmentIds)
+    const indexedSegmentIds = getHistorySegmentIndex().list().map((record) => record.id)
+    const { store, temporary } = await createTemporaryHistoryStore()
+    let deletedSegmentIds: string[] = []
+    try {
+      deletedSegmentIds = await store.clear()
+    } finally {
+      if (temporary) {
+        if (historyStore === store) historyStore = null
+        await store.close()
+      }
+    }
+    for (const id of summaryIds) summaryIndex.remove(id)
+    const workRecordIds = removeHistoryWorkRecords([...new Set([...deletedSegmentIds, ...indexedSegmentIds, ...summarySegmentIds])])
+    return {
+      range: null,
+      deletedSegmentIds: [...new Set([...deletedSegmentIds, ...indexedSegmentIds])].sort(),
+      deletedSummaryIds: summaryIds,
+      deletedWorkRecordIds: workRecordIds
+    }
+  })
+}
+
+async function processHistorySummaries() {
+  if (historyMutationPending > 0 || !getSettings().historyV2Enabled || historyPaused)
+    return historySummaryRunEmpty()
+  const startEpoch = historyMutationEpoch
+  const store = startHistoryPersistence()
+  if (!store) return historySummaryRunEmpty()
+  const result = await runHistorySummaryAfterStoreStart(
+    store,
+    () =>
+      historyMutationPending === 0 &&
+      historyMutationEpoch === startEpoch &&
+      !historyPaused &&
+      getSettings().historyV2Enabled &&
+      historyStore === store,
+    () => ensureHistorySummarizer(store).process()
+  )
+  return result ?? historySummaryRunEmpty()
+}
+
+function ensureHistoryQueryService(): HistoryQueryService {
+  if (!historyQueryService) {
+    historyQueryService = new HistoryQueryService({
+      summaryIndex: getHistorySummaryIndex(),
+      segmentIndex: getHistorySegmentIndex(),
+      getStore: () => historyStoreForQuery(),
+      getStatus: historyStatusSnapshot,
+      summarize: processHistorySummaries,
+      pause: pauseHistory,
+      resume: resumeHistory,
+      deleteRange: deleteHistoryRangeInternal,
+      clear: clearHistoryInternal
+    })
+  }
+  return historyQueryService
+}
+
+export function historyStatus(): HistoryStatus {
+  return historyStatusSnapshot()
+}
+
+export function historyRecent(options: HistoryQueryOptions = {}) {
+  return ensureHistoryQueryService().recent(options)
+}
+
+export function historySearch(options: HistorySearchOptions = {}) {
+  return ensureHistoryQueryService().search(options)
+}
+
+export async function historySummarize(options: HistoryQueryOptions = {}) {
+  const result = await ensureHistoryQueryService().summarize(options)
+  invalidateHistoryRolloutComparison()
+  broadcast('guzi-assistant:history-updated')
+  return result
+}
+
+export async function pauseHistory(): Promise<HistoryStatus> {
+  if (!getSettings().historyV2Enabled) return historyStatusSnapshot()
+  historyPaused = true
+  historyMutationEpoch += 1
+  await stopHistoryPersistence()
+  invalidateHistoryRolloutComparison()
+  broadcast('guzi-assistant:history-updated')
+  return historyStatusSnapshot()
+}
+
+export async function resumeHistory(): Promise<HistoryStatus> {
+  historyPaused = false
+  historyMutationEpoch += 1
+  if (getSettings().historyV2Enabled) {
+    const store = startHistoryPersistence()
+    if (store) await store.start()
+  }
+  invalidateHistoryRolloutComparison()
+  broadcast('guzi-assistant:history-updated')
+  return historyStatusSnapshot()
+}
+
+export async function clearHistory() {
+  const result = await ensureHistoryQueryService().clear()
+  invalidateHistoryRolloutComparison()
+  broadcast('guzi-assistant:history-updated')
+  return result
+}
+
+export async function deleteHistoryRange(options: HistoryQueryOptions) {
+  const result = await ensureHistoryQueryService().deleteRange(options)
+  invalidateHistoryRolloutComparison()
+  broadcast('guzi-assistant:history-updated')
+  return result
+}
+
+function stopHistoryPersistence(): Promise<void> {
+  historyMutationEpoch += 1
+  if (historyCleanupTimer) {
+    clearInterval(historyCleanupTimer)
+    historyCleanupTimer = null
+  }
+  if (historySummaryTimer) {
+    clearInterval(historySummaryTimer)
+    historySummaryTimer = null
+  }
+  configureHistoryHealthProvider(null)
+  const store = historyStore
+  historyStore = null
+  const summarizer = historySummarizer
+  historySummarizer = null
+  const closeSummarizer = summarizer?.close() ?? Promise.resolve()
+  if (!store) return historyCloseTail.then(() => closeSummarizer)
+
+  // Every new store waits for this tail. This prevents a pause/resume or
+  // settings toggle from racing the previous instance while it flushes.
+  historyCloseTail = historyCloseTail
+    .catch(() => {})
+    .then(() => closeSummarizer)
+    .then(() => store.close())
+    .catch((error) => {
+      debugEvent('error', `History store 关闭失败：${error instanceof Error ? error.message : String(error)}`)
+    })
+  return historyCloseTail
+}
+
+function startHistoryPersistence(): HistorySegmentStore | null {
+  if (!getSettings().historyV2Enabled || historyPaused) {
+    void stopHistoryPersistence()
+    return null
+  }
+  try {
+    const store = ensureHistoryStore()
+    const summarizer = ensureHistorySummarizer(store)
+    const startEpoch = historyMutationEpoch
+    configureHistoryHealthProvider(() => store.health())
+    void store
+      .start()
+      .then(() => store.cleanup())
+      .then(() => {
+        if (
+          historyMutationPending > 0 ||
+          historyMutationEpoch !== startEpoch ||
+          historyPaused ||
+          !getSettings().historyV2Enabled ||
+          historyStore !== store ||
+          historySummarizer !== summarizer
+        )
+          return historySummaryRunEmpty()
+        return summarizer.process()
+      })
+      .then((result) => {
+        notifyAutomaticHistorySummary(result)
+        return result
+      })
+      .catch((error) => {
+        debugEvent('error', `History store 启动/摘要失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+    if (!historyCleanupTimer) {
+      const timerStore = store
+      historyCleanupTimer = setInterval(() => {
+        if (historyStore !== timerStore) return
+        void timerStore.cleanup().catch((error) => {
+          debugEvent('error', `History store 清理失败：${error instanceof Error ? error.message : String(error)}`)
+        })
+      }, 10 * 60 * 1000)
+      historyCleanupTimer.unref?.()
+    }
+    if (!historySummaryTimer) {
+      const timerStore = store
+      historySummaryTimer = setInterval(() => {
+        if (historyMutationPending > 0 || historyStore !== timerStore || historySummarizer !== summarizer) return
+        void summarizer.process()
+          .then((result) => notifyAutomaticHistorySummary(result))
+          .catch((error) => {
+            debugEvent('error', `History 摘要失败：${error instanceof Error ? error.message : String(error)}`)
+          })
+      }, 60 * 1000)
+      historySummaryTimer.unref?.()
+    }
+    return store
+  } catch (error) {
+    configureHistoryHealthProvider(() => ({
+      enabled: true,
+      state: 'degraded',
+      currentSegmentId: null,
+      queueLength: 0,
+      droppedCount: 0,
+      suppressedCount: 0,
+      invalidCount: 0,
+      segmentCount: 0,
+      lastWriteAt: null,
+      lastCleanupAt: null,
+      lastError: error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)
+    }))
+    debugEvent('error', `History store 初始化失败：${error instanceof Error ? error.message : String(error)}`)
+    return null
+  }
+}
+
+export async function shutdownHistoryStore(): Promise<void> {
+  await stopHistoryPersistence()
+  await historyCloseTail
+}
 
 const markSystemInactive = (): void => {
   systemInactive = true
@@ -1029,6 +1652,26 @@ async function sampleTick(): Promise<void> {
   }
 }
 
+function configureHistoryCollector(): void {
+  const historyEnabled = getSettings().historyV2Enabled
+  startHistoryPersistence()
+  configureActivityHistoryPersistence({
+    upsertSegment: upsertActivitySegment,
+    addOcrEvidence,
+    appendHistoryEvent: (event) => {
+      if (historyPaused) return
+      // Resolve the current singleton at callback time. A pause/resume can
+      // replace the store while the collector itself remains running.
+      historyStore?.append(event)
+    }
+  })
+  // History-specific App/host filters are opt-in; keep the legacy screen
+  // sensing privacy behavior unchanged while History v2 is disabled.
+  startActivityCollector((context) => privacyForContext(context, historyEnabled))
+  if (historyEnabled) startLegacyHistorySync()
+  else stopLegacyHistorySync()
+}
+
 function startSampler(): void {
   stopSampler()
   systemInactive = false
@@ -1038,11 +1681,16 @@ function startSampler(): void {
   powerMonitor.on('shutdown', markSystemInactive)
   powerMonitor.on('resume', markSystemActive)
   powerMonitor.on('unlock-screen', markSystemActive)
-  configureActivityHistoryPersistence({ upsertSegment: upsertActivitySegment, addOcrEvidence })
+  configureHistoryCollector()
   configureSemanticWorkClassifier(scheduleSemanticWork)
-  startActivityCollector(privacyForContext)
   void sampleTick().catch(() => {})
   sampleTimer = setInterval(() => void sampleTick().catch(() => {}), SAMPLE_SEC * 1000)
+}
+
+/** Start native History without enabling the legacy OCR watcher or semantic model calls. */
+function startHistoryCollectorOnly(): void {
+  stopSampler()
+  configureHistoryCollector()
 }
 function stopSampler(): void {
   if (sampleTimer) {
@@ -1055,7 +1703,10 @@ function stopSampler(): void {
   powerMonitor.removeListener('resume', markSystemActive)
   powerMonitor.removeListener('unlock-screen', markSystemActive)
   systemInactive = false
+  stopLegacyHistorySync()
   stopActivityCollector()
+  void stopHistoryPersistence()
+  configureActivityHistoryPersistence({ upsertSegment: upsertActivitySegment, addOcrEvidence })
   configureSemanticWorkClassifier(null)
   stopSemanticWorkClassifier()
   lastSwitchApp = null // 停启之间的间隔不算一次「切换」
@@ -1064,6 +1715,10 @@ function stopSampler(): void {
 export function startWatch(intervalSec: number): void {
   stopWatch()
   resetActivityGate()
+  lastWorkRecordAt = 0
+  lastWorkRecordContent = ''
+  lastWorkRecordTask = null
+  lastWorkRecordApp = null
   startSampler()
   const minInterval = getSettings().screenSenseEventDriven ? 5 : 1
   watchTimer = setInterval(() => void watchTick(), Math.max(minInterval, intervalSec) * 1000)
@@ -1080,6 +1735,10 @@ export function stopWatch(): void {
   lastHash = null
   lastTextHash = ''
   resetActivityGate()
+  lastWorkRecordAt = 0
+  lastWorkRecordContent = ''
+  lastWorkRecordTask = null
+  lastWorkRecordApp = null
   trayRefresh?.()
 }
 /** 托盘「暂停/恢复屏幕监控」：暂停时 watcher 仍在转但每轮直接 return */
@@ -1091,7 +1750,9 @@ export function setWatchPaused(paused: boolean): void {
     stopSampler()
   } else {
     resetActivityGate()
-    startSampler()
+    const settings = getSettings()
+    if (settings.screenSenseEnabled && settings.screenSenseContinuous) startSampler()
+    else if (settings.historyV2Enabled) startHistoryCollectorOnly()
   }
   trayRefresh?.()
 }
@@ -1108,12 +1769,15 @@ export function screenActivityStatus(): ReturnType<typeof getActivityRuntimeStat
 
 /** 跟随设置开关注册/注销扫描快捷键 + 启停持续监控（启动时 + settings:save 时调用） */
 export function applyScreenSenseSettings(): void {
-  const { screenSenseEnabled, screenSenseHotkey, screenSenseContinuous, screenSenseIntervalSec } =
+  const { screenSenseEnabled, screenSenseHotkey, screenSenseContinuous, screenSenseIntervalSec, historyV2Enabled } =
     getSettings()
   if (screenSenseEnabled) initScanHotkey(screenSenseHotkey, () => void scanOnce())
   else unregisterScanHotkey()
   if (screenSenseEnabled && screenSenseContinuous) startWatch(screenSenseIntervalSec)
-  else stopWatch()
+  else {
+    stopWatch()
+    if (historyV2Enabled) startHistoryCollectorOnly()
+  }
   applyReportSchedule() // 每日定时日报跟随设置启停
   runShotRetention()
 }

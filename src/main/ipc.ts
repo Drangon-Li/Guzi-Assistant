@@ -61,8 +61,19 @@ import {
   dismissDetection,
   onPreviewHidden,
   scanOnce,
-  screenActivityStatus
+  screenActivityStatus,
+  historyStatus,
+  historyRecent,
+  historySearch,
+  historySummarize,
+  pauseHistory,
+  resumeHistory,
+  clearHistory,
+  deleteHistoryRange,
+  acquireHistoryMutationBarrier
 } from './screenwatch'
+import { pickHistoryApps } from './history/app-picker.ts'
+import { invalidateActivityHistoryPersistenceCache } from './activity-tracker'
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
@@ -82,6 +93,7 @@ import { hideQuickBar, resizeQuickBar } from './quickbar'
 import { applyMcpSettings } from './mcp-server'
 import { checkForUpdates } from './updater'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
+import type { HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
 
 const STATUSES: TaskStatus[] = [
   'pending',
@@ -177,6 +189,8 @@ export function registerIpc(): void {
       patch.screenSenseContinuous !== undefined ||
       patch.screenSenseIntervalSec !== undefined ||
       patch.screenSenseEventDriven !== undefined ||
+      patch.historyV2Enabled !== undefined ||
+      patch.historyDerivedWorkEnabled !== undefined ||
       patch.dailyReportTime !== undefined
     )
       applyScreenSenseSettings()
@@ -254,17 +268,31 @@ export function registerIpc(): void {
     broadcast('guzi-assistant:tasks-updated')
   })
 
-  ipcMain.handle('data:wipe', () => {
-    wipeAll()
-    clearAllShots() // 一键清除覆盖加密截图（#53）
-    broadcast('guzi-assistant:tasks-updated')
+  ipcMain.handle('data:wipe', async () => {
+    const releaseHistoryBarrier = acquireHistoryMutationBarrier()
+    try {
+      await clearHistory()
+      wipeAll()
+      invalidateActivityHistoryPersistenceCache()
+      clearAllShots() // 一键清除覆盖加密截图（#53）
+      broadcast('guzi-assistant:tasks-updated')
+    } finally {
+      releaseHistoryBarrier()
+    }
   })
 
   // 记忆页「清空所有记忆」：清来源历史 + 屏幕识别历史 + 加密截图；保留任务/校正记忆/档案
-  ipcMain.handle('memory:wipe', () => {
-    wipeMemory()
-    clearAllShots()
-    broadcast('guzi-assistant:tasks-updated')
+  ipcMain.handle('memory:wipe', async () => {
+    const releaseHistoryBarrier = acquireHistoryMutationBarrier()
+    try {
+      await clearHistory()
+      wipeMemory()
+      invalidateActivityHistoryPersistenceCache()
+      clearAllShots()
+      broadcast('guzi-assistant:tasks-updated')
+    } finally {
+      releaseHistoryBarrier()
+    }
   })
 
   ipcMain.handle('permissions:get', (): PermissionStatus => {
@@ -289,6 +317,15 @@ export function registerIpc(): void {
   ipcMain.handle('feishu:status', () => feishuStatus())
   ipcMain.handle('screen:scan', () => scanOnce())
   ipcMain.handle('screen:activity-status', () => screenActivityStatus())
+  ipcMain.handle('history:status', () => historyStatus())
+  ipcMain.handle('history:recent', (_e, options: HistoryQueryOptions = {}) => historyRecent(options))
+  ipcMain.handle('history:search', (_e, options: HistorySearchOptions = {}) => historySearch(options))
+  ipcMain.handle('history:summarize', (_e, options: HistoryQueryOptions = {}) => historySummarize(options))
+  ipcMain.handle('history:pause', () => pauseHistory())
+  ipcMain.handle('history:resume', () => resumeHistory())
+  ipcMain.handle('history:clear', () => clearHistory())
+  ipcMain.handle('history:delete-range', (_e, options: HistoryQueryOptions) => deleteHistoryRange(options ?? {}))
+  ipcMain.handle('history:pick-apps', () => pickHistoryApps())
   ipcMain.handle('suggestion:accept', (_e, payload: { item: ParsedItem; sourceText: string }) =>
     acceptSuggestion(payload)
   )

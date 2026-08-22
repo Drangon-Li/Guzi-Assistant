@@ -1,5 +1,5 @@
 // 排除名单匹配（#40 隐私门）离线单测。运行：npm run test:appexclude
-import { isAppExcluded } from '../src/shared/app-exclude.ts'
+import { isAppExcluded, isBundleIdExcluded } from '../src/shared/app-exclude.ts'
 
 let failed = 0
 const check = (name, ok) => {
@@ -20,6 +20,8 @@ check('前台为空串→false', !isAppExcluded('   ', list))
 check('空名单→false', !isAppExcluded('1Password', []))
 check('名单项空白被忽略', !isAppExcluded('Safari', ['', '  ']))
 check('名单项含空白仍能命中', isAppExcluded('1Password', [' 1password ']))
+check('Bundle ID 精确命中', isBundleIdExcluded('com.apple.Safari', ['com.apple.safari']))
+check('Bundle ID 不接受子串', !isBundleIdExcluded('com.apple.SafariBeta', ['com.apple.safari']))
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

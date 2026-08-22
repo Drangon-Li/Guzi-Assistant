@@ -20,13 +20,19 @@ import {
 } from '../shared/hybrid-history.ts'
 import { redactSensitive } from '../shared/sensitive.ts'
 import type { SemanticWorkEvidence } from '../shared/semantic-work.ts'
-import type { ActivityHistorySegmentRecord, OcrEvidenceRecord, ScreenActivityStatus } from '../shared/types.ts'
+import type {
+  ActivityHistorySegmentRecord,
+  HistoryStoreHealth,
+  OcrEvidenceRecord,
+  ScreenActivityStatus
+} from '../shared/types.ts'
 import type {
   CollectorEvent,
   CollectorHealth,
   FrontmostCollectorHandle,
   FrontmostContext
 } from './frontapp.ts'
+import { CollectorPolicy, type CollectorPolicyMetrics } from './history/collector-policy.ts'
 
 export type ActivityScanReason = 'event' | 'hard_fallback' | 'interval' | 'manual' | 'semantic_only'
 
@@ -45,8 +51,8 @@ export interface AccessibilityWorkContext extends SemanticWorkEvidence {
 
 const MAX_EVENTS = 5000
 const BROWSER_BUNDLES = new Set([
-  'com.apple.Safari',
-  'com.google.Chrome',
+  'com.apple.safari',
+  'com.google.chrome',
   'com.microsoft.edgemac',
   'org.mozilla.firefox'
 ])
@@ -64,7 +70,18 @@ let collectorState: ScreenActivityStatus['collector'] = 'stopped'
 let collectorDetail: string | null = null
 let collectorRestartCount = 0
 let collectorAccessibility: ScreenActivityStatus['accessibility'] = 'unknown'
+let collectorInputMonitoring: ScreenActivityStatus['inputMonitoring'] = 'unknown'
+let collectorLastHeartbeatAtMs: number | null = null
+let collectorPolicyMetrics: CollectorPolicyMetrics = {
+  droppedCount: 0,
+  deduplicatedCount: 0,
+  rateLimitedCount: 0,
+  backoffDroppedCount: 0,
+  backoffBundleCount: 0
+}
+const collectorPolicy = new CollectorPolicy()
 let collectorHandle: FrontmostCollectorHandle | null = null
+let collectorGeneration = 0
 let lastEventAtMs: number | null = null
 let lastScanAtMs: number | null = null
 let lastScanReason: ActivityScanReason | null = null
@@ -92,12 +109,40 @@ let workClassificationCount = 0
 interface ActivityHistoryPersistence {
   upsertSegment: (record: ActivityHistorySegmentRecord) => void
   addOcrEvidence: (record: OcrEvidenceRecord) => void
+  appendHistoryEvent?: (event: ActivityEvent) => void
+}
+
+interface CollectorModule {
+  startFrontmostCollector: (
+    onEvent: (event: CollectorEvent) => void,
+    onHealth: (health: CollectorHealth) => void
+  ) => FrontmostCollectorHandle
+}
+
+type CollectorModuleLoader = () => Promise<CollectorModule>
+
+const defaultCollectorModuleLoader: CollectorModuleLoader = () => import('./frontapp.ts')
+
+function isCurrentCollectorGeneration(generation: number): boolean {
+  return generation === collectorGeneration && collectorState !== 'stopped'
 }
 
 let persistence: ActivityHistoryPersistence | null = null
+let persistedSegmentFingerprints = new Map<string, string>()
+let historyHealthProvider: (() => HistoryStoreHealth) | null = null
 
 export function configureActivityHistoryPersistence(next: ActivityHistoryPersistence | null): void {
+  if (persistence !== next) persistedSegmentFingerprints.clear()
   persistence = next
+}
+
+/** Clear the process-local baseline cache after an external database wipe. */
+export function invalidateActivityHistoryPersistenceCache(): void {
+  persistedSegmentFingerprints.clear()
+}
+
+export function configureHistoryHealthProvider(next: (() => HistoryStoreHealth) | null): void {
+  historyHealthProvider = next
 }
 
 export function configureSemanticWorkClassifier(
@@ -123,8 +168,45 @@ export function setWorkClassificationStatus(input: {
 const isoOrNull = (value: number | null): string | null =>
   value === null ? null : new Date(value).toISOString()
 
+function readHistoryHealth(): HistoryStoreHealth {
+  if (!historyHealthProvider) {
+    return {
+      enabled: false,
+      state: 'disabled',
+      currentSegmentId: null,
+      queueLength: 0,
+      droppedCount: 0,
+      suppressedCount: 0,
+      invalidCount: 0,
+      segmentCount: 0,
+      lastWriteAt: null,
+      lastCleanupAt: null,
+      lastError: null
+    }
+  }
+  try {
+    return historyHealthProvider()
+  } catch (error) {
+    return {
+      enabled: true,
+      state: 'degraded',
+      currentSegmentId: null,
+      queueLength: 0,
+      droppedCount: 0,
+      suppressedCount: 0,
+      invalidCount: 0,
+      segmentCount: 0,
+      lastWriteAt: null,
+      lastCleanupAt: null,
+      lastError: error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)
+    }
+  }
+}
+
 function appendEvent(event: ActivityEvent, nowMs: number): void {
-  events = dedupeActivityEvents([...events, event])
+  const nextEvents = event.suppressed ? [...events, event] : dedupeActivityEvents([...events, event])
+  const accepted = event.suppressed || nextEvents.some((item) => item.id === event.id)
+  events = nextEvents
     .filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
     .slice(-MAX_EVENTS)
   for (const id of assessments.keys()) {
@@ -132,6 +214,12 @@ function appendEvent(event: ActivityEvent, nowMs: number): void {
     if (!assessment) assessments.delete(id)
   }
   lastEventAtMs = event.occurredAtMs
+  if (!accepted) return
+  try {
+    persistence?.appendHistoryEvent?.(event)
+  } catch {
+    // A persistence failure must not stop foreground-event collection.
+  }
 }
 
 function safeContext(context: FrontmostContext): FrontmostContext {
@@ -139,18 +227,34 @@ function safeContext(context: FrontmostContext): FrontmostContext {
     name: context.name.trim().slice(0, 80),
     bundleId: context.bundleId.trim().slice(0, 160),
     windowTitle: sanitizeWindowTitle(redactSensitive(context.windowTitle).text),
+    urlHost: context.urlHost?.trim().toLowerCase().slice(0, 255),
+    windowId:
+      context.windowId == null || !Number.isFinite(context.windowId)
+        ? undefined
+        : Math.max(0, Math.trunc(context.windowId)),
     focusedRole: context.focusedRole?.trim().slice(0, 80),
+    focusedSubrole: context.focusedSubrole?.trim().slice(0, 80),
     safeLabel: sanitizeWindowTitle(redactSensitive(context.safeLabel ?? '').text)
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 160),
+    targetRole: context.targetRole?.trim().slice(0, 80),
+    targetSubrole: context.targetSubrole?.trim().slice(0, 80),
+    targetId: context.targetId?.trim().slice(0, 160),
+    command: context.command?.trim().slice(0, 80),
+    modifiers: context.modifiers?.map((item) => item.trim().slice(0, 24)).filter(Boolean).slice(0, 8),
+    inputLength:
+      context.inputLength == null || !Number.isFinite(context.inputLength)
+        ? null
+        : Math.max(0, Math.min(100_000, Math.trunc(context.inputLength))),
+    secureInput: context.secureInput === true,
     eventKind: context.eventKind,
     eventSource: context.eventSource
   }
 }
 
 export function isPrivateBrowsingContext(context: FrontmostContext): boolean {
-  return BROWSER_BUNDLES.has(context.bundleId) && PRIVATE_TITLE.test(context.windowTitle)
+  return BROWSER_BUNDLES.has(context.bundleId.toLowerCase()) && PRIVATE_TITLE.test(context.windowTitle)
 }
 
 export interface RecordContextOptions {
@@ -161,6 +265,13 @@ export interface RecordContextOptions {
   nowMs?: number
   eventKind?: FrontmostContext['eventKind']
   eventSource?: FrontmostContext['eventSource']
+  forceEvent?: boolean
+  targetRole?: string | null
+  targetId?: string | null
+  command?: string | null
+  modifiers?: string[] | null
+  inputLength?: number | null
+  secureInput?: boolean
 }
 
 export function recordFrontmostContext(
@@ -168,38 +279,64 @@ export function recordFrontmostContext(
   options: RecordContextOptions
 ): ActivityEvent | null {
   const nowMs = options.nowMs ?? Date.now()
-  observer = 'healthy'
-  observerDetail = null
-  const safe = safeContext({ ...context, eventKind: options.eventKind ?? context.eventKind, eventSource: options.eventSource ?? context.eventSource })
+  observer = options.observerHealthy === false ? 'unavailable' : 'healthy'
+  observerDetail = options.observerHealthy === false ? 'Accessibility unavailable' : null
+  const safe = safeContext({
+    ...context,
+    eventKind: options.eventKind ?? context.eventKind,
+    eventSource: options.eventSource ?? context.eventSource,
+    targetRole: options.targetRole ?? context.targetRole,
+    targetId: options.targetId ?? context.targetId,
+    command: options.command ?? context.command,
+    modifiers: options.modifiers ?? context.modifiers,
+    inputLength: options.inputLength ?? context.inputLength,
+    secureInput: options.secureInput ?? context.secureInput
+  })
   const previous = lastContext
   const appChanged = !previous || previous.name !== safe.name || previous.bundleId !== safe.bundleId
   const contextChanged =
     appChanged ||
     !previous ||
     previous.windowTitle !== safe.windowTitle ||
+    previous.urlHost !== safe.urlHost ||
+    previous.windowId !== safe.windowId ||
     previous.focusedRole !== safe.focusedRole ||
+    previous.focusedSubrole !== safe.focusedSubrole ||
     previous.safeLabel !== safe.safeLabel ||
+    previous.targetSubrole !== safe.targetSubrole ||
     safe.eventKind === 'ax_focus_changed' ||
-    safe.eventKind === 'ax_attribute_changed'
+    safe.eventKind === 'ax_attribute_changed' ||
+    options.forceEvent === true
   lastContext = safe
   if (!contextChanged) return null
 
+  const privacyState = options.privacyState ?? (options.suppressed ? 'excluded' : 'normal')
   const event: ActivityEvent = {
     id: randomUUID(),
     occurredAtMs: nowMs,
     kind: safe.eventKind ?? (appChanged ? 'app_activated' : 'window_changed'),
     source: safe.eventSource === 'accessibility' ? 'accessibility' : safe.eventSource === 'collector' ? 'collector' : 'workspace',
+    privacyState,
     ...(options.suppressed
       ? { suppressed: true }
       : {
           appName: safe.name || null,
           bundleId: safe.bundleId || null,
           windowTitle: safe.windowTitle || null,
+          urlHost: safe.urlHost || null,
+          windowId: safe.windowId ?? null,
           focusedRole: safe.focusedRole || null,
-          safeLabel: safe.safeLabel || null
+          focusedSubrole: safe.focusedSubrole || null,
+          safeLabel: safe.safeLabel || null,
+          targetRole: safe.targetRole || safe.focusedRole || null,
+          targetSubrole: safe.targetSubrole || safe.focusedSubrole || null,
+          targetId: safe.targetId || null,
+          command: safe.command || null,
+          modifiers: safe.modifiers ?? [],
+          inputLength: safe.inputLength ?? null,
+          secureInput: safe.secureInput === true
         })
   }
-  const privacyState = options.privacyState ?? (options.suppressed ? 'excluded' : 'normal')
   const assessment = assessSemanticCompleteness({
     appName: safe.name,
     bundleId: safe.bundleId,
@@ -254,7 +391,8 @@ export function recordScreenChange(context: FrontmostContext, nowMs = Date.now()
       source: 'fallback',
       appName: safe.name || null,
       bundleId: safe.bundleId || null,
-      windowTitle: safe.windowTitle || null
+      windowTitle: safe.windowTitle || null,
+      privacyState: 'normal'
     },
     nowMs
   )
@@ -270,7 +408,8 @@ export function recordCollectorEvent(
       restartCount: collectorRestartCount,
       lastHeartbeatAtMs: event.occurredAtMs,
       accessibility: event.accessibility,
-      detail: null
+      detail: null,
+      inputMonitoring: event.inputMonitoring ?? collectorInputMonitoring
     })
     return null
   }
@@ -278,36 +417,99 @@ export function recordCollectorEvent(
     name: event.appName,
     bundleId: event.bundleId,
     windowTitle: event.windowTitle,
+    urlHost: event.urlHost,
+    windowId: event.windowId,
     focusedRole: event.focusedRole,
+    focusedSubrole: event.focusedSubrole,
     safeLabel: event.safeLabel,
+    targetRole: event.targetRole,
+    targetSubrole: event.targetSubrole,
+    targetId: event.targetId,
+    command: event.command,
+    modifiers: event.modifiers,
+    inputLength: event.inputLength,
+    secureInput: event.secureInput,
     eventKind: event.type === 'app_activated' ? 'app_activated' : event.type,
     eventSource: event.accessibility === 'available' ? 'accessibility' : 'collector'
   }
-  const privacy = privacyForContext(context)
-  return recordFrontmostContext(context, {
+  const privacy =
+    event.privacyState && event.privacyState !== 'normal'
+      ? { suppressed: true, privacyState: event.privacyState as PrivacyState }
+      : privacyForContext(context)
+  const gateDecision = privacy.suppressed
+    ? { accepted: true, reason: 'accepted' as const }
+    : collectorPolicy.accept({
+        kind: context.eventKind!,
+        source: context.eventSource === 'accessibility' ? 'accessibility' : 'collector',
+        appName: context.name,
+        bundleId: context.bundleId,
+        windowTitle: context.windowTitle,
+        urlHost: context.urlHost,
+        windowId: context.windowId,
+        focusedRole: context.focusedRole,
+        focusedSubrole: context.focusedSubrole,
+        targetRole: context.targetRole,
+        targetSubrole: context.targetSubrole,
+        safeLabel: context.safeLabel,
+        command: context.command,
+        modifiers: context.modifiers,
+        inputLength: context.inputLength,
+        privacyState: privacy.privacyState,
+        occurredAtMs: event.occurredAtMs
+      }, event.occurredAtMs)
+  collectorPolicyMetrics = collectorPolicy.snapshot()
+  if (!gateDecision.accepted) return null
+  const recorded = recordFrontmostContext(context, {
     ...privacy,
     observerHealthy: event.accessibility === 'available',
-    nowMs: event.occurredAtMs
+    nowMs: event.occurredAtMs,
+    forceEvent: true,
+    targetRole: event.targetRole,
+    targetId: event.targetId,
+    command: event.command,
+    modifiers: event.modifiers,
+    inputLength: event.inputLength,
+    secureInput: event.secureInput
   })
+  if (event.accessibility === 'unavailable') collectorPolicy.recordBundleFailure(event.bundleId, event.occurredAtMs)
+  else collectorPolicy.recordBundleSuccess(event.bundleId)
+  collectorPolicyMetrics = collectorPolicy.snapshot()
+  return recorded
 }
 
 export function startActivityCollector(
-  privacyForContext: (context: FrontmostContext) => { suppressed: boolean; privacyState: PrivacyState }
+  privacyForContext: (context: FrontmostContext) => { suppressed: boolean; privacyState: PrivacyState },
+  loadCollectorModule: CollectorModuleLoader = defaultCollectorModuleLoader
 ): void {
   stopActivityCollector()
+  const generation = ++collectorGeneration
   collectorState = 'starting'
   collectorDetail = null
   collectorRestartCount = 0
   collectorAccessibility = 'unknown'
-  void import('./frontapp.ts').then(({ startFrontmostCollector }) => {
-    if (collectorState === 'stopped') return
-    collectorHandle = startFrontmostCollector(
+  collectorInputMonitoring = 'unknown'
+  collectorLastHeartbeatAtMs = null
+  collectorPolicy.reset()
+  collectorPolicyMetrics = collectorPolicy.snapshot()
+  void loadCollectorModule().then(({ startFrontmostCollector }) => {
+    if (!isCurrentCollectorGeneration(generation)) return
+    const handle = startFrontmostCollector(
       (event) => {
+        if (generation !== collectorGeneration) return
         recordCollectorEvent(event, privacyForContext)
       },
-      (health) => markCollectorHealth(health)
+      (health) => {
+        if (generation !== collectorGeneration) return
+        markCollectorHealth(health)
+      }
     )
+    if (!isCurrentCollectorGeneration(generation)) {
+      handle.stop()
+      return
+    }
+    collectorHandle = handle
   }).catch((error) => {
+    if (generation !== collectorGeneration) return
     markCollectorHealth({
       state: 'degraded',
       restartCount: 3,
@@ -319,17 +521,22 @@ export function startActivityCollector(
 }
 
 export function stopActivityCollector(): void {
-  collectorHandle?.stop()
+  collectorGeneration += 1
+  const handle = collectorHandle
   collectorHandle = null
   collectorState = 'stopped'
   collectorDetail = null
+  collectorLastHeartbeatAtMs = null
+  handle?.stop()
 }
 
 function markCollectorHealth(health: CollectorHealth): void {
-  collectorState = health.state
+  collectorState = health.state === 'healthy' && health.accessibility === 'unavailable' ? 'degraded' : health.state
   collectorDetail = health.detail
   collectorRestartCount = health.restartCount
   collectorAccessibility = health.accessibility
+  collectorInputMonitoring = health.inputMonitoring ?? collectorInputMonitoring
+  collectorLastHeartbeatAtMs = health.lastHeartbeatAtMs
 }
 
 export function markActivityObserverFailure(detail: string): void {
@@ -388,7 +595,8 @@ export function getHybridSemanticState(): {
     observerHealthy:
       !latestAssessment.reasonCodes.includes('observer_degraded') &&
       observer === 'healthy' &&
-      collectorState !== 'degraded',
+      collectorState !== 'degraded' &&
+      collectorAccessibility !== 'unavailable',
     observerFailureCount: collectorRestartCount,
     lastOcrAtMs,
     lastOcrContextKey
@@ -462,6 +670,9 @@ export function resetActivityGate(nowMs = Date.now()): void {
   consecutivePartialCount = 0
   lastOcrAtMs = null
   lastOcrContextKey = null
+  collectorPolicy.reset()
+  collectorPolicyMetrics = collectorPolicy.snapshot()
+  persistedSegmentFingerprints.clear()
   observerFailureOcrUsed = false
   workClassificationStatus = 'idle'
   workClassificationSource = null
@@ -511,7 +722,13 @@ export function getScreenActivityStatus(input: {
     collector: collectorState,
     collectorDetail,
     collectorRestartCount,
+    collectorDroppedEventCount: collectorPolicyMetrics.droppedCount,
+    collectorDeduplicatedEventCount: collectorPolicyMetrics.deduplicatedCount,
+    collectorRateLimitedCount: collectorPolicyMetrics.rateLimitedCount,
+    collectorBackoffBundleCount: collectorPolicyMetrics.backoffBundleCount,
     accessibility: collectorAccessibility,
+    inputMonitoring: collectorInputMonitoring,
+    lastHeartbeatAt: isoOrNull(collectorLastHeartbeatAtMs),
     semanticCoverage,
     ocrFallbackCount,
     ocrFallbackReasons: { ...ocrFallbackReasons },
@@ -535,7 +752,8 @@ export function getScreenActivityStatus(input: {
     workClassificationSource,
     workClassificationAt: isoOrNull(workClassificationAtMs),
     workClassificationDetail,
-    workClassificationCount
+    workClassificationCount,
+    history: readHistoryHealth()
   }
 }
 
@@ -546,6 +764,10 @@ function persistSegments(
 ): void {
   if (!persistence) return
   const all = [...tenMinuteSegments, ...sixHourSegments]
+  const activeIds = new Set(all.map((segment) => segment.id))
+  for (const id of persistedSegmentFingerprints.keys()) {
+    if (!activeIds.has(id)) persistedSegmentFingerprints.delete(id)
+  }
   for (const segment of all) {
     const segmentEvents = events.filter(
       (event) => event.occurredAtMs >= segment.bucket.startMs && event.occurredAtMs < segment.bucket.endMs
@@ -557,7 +779,7 @@ function persistSegments(
       (evidence) => evidence.occurredAtMs >= segment.bucket.startMs && evidence.occurredAtMs < segment.bucket.endMs
     )
     const hybrid = hybridSegmentFromActivity(segment, segmentAssessments, segmentOcr)
-    persistence.upsertSegment({
+    const record: ActivityHistorySegmentRecord = {
       id: hybrid.id,
       bucketKind: hybrid.bucket.kind,
       bucketStart: hybrid.bucket.startIso,
@@ -575,6 +797,10 @@ function persistSegments(
       closed: nowMs >= hybrid.bucket.endMs,
       createdAt: new Date(hybrid.firstEventAtMs).toISOString(),
       updatedAt: new Date(nowMs).toISOString()
-    })
+    }
+    const fingerprint = JSON.stringify({ ...record, updatedAt: null })
+    if (persistedSegmentFingerprints.get(record.id) === fingerprint) continue
+    persistence.upsertSegment(record)
+    persistedSegmentFingerprints.set(record.id, fingerprint)
   }
 }

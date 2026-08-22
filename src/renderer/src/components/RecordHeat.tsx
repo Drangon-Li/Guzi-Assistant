@@ -47,15 +47,15 @@ function WeekGrid(): React.JSX.Element {
   const days = Array.from({ length: 7 }, (_, i) => dayKey(new Date(Date.now() - (offset * 7 + 6 - i) * DAY_MS)))
 
   useEffect(() => {
-    void api.workRecordsSince(days[0]).then((rs) => setRecords(rs.filter((r) => r.createdAt.slice(0, 10) <= days[6])))
+    void api.workRecordsSince(days[0]).then((rs) => setRecords(rs.filter((r) => r.startAt.slice(0, 10) <= days[6])))
     // days 由 offset 派生，依赖 offset 即可
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offset])
 
   const byDay = new Map<string, number[]>()
   for (const r of records) {
-    const d = r.createdAt.slice(0, 10)
-    const h = Number(r.createdAt.slice(11, 13))
+    const d = r.startAt.slice(0, 10)
+    const h = Number(r.startAt.slice(11, 13))
     if (!byDay.has(d)) byDay.set(d, Array<number>(24).fill(0))
     if (h >= 0 && h < 24) byDay.get(d)![h]++
   }

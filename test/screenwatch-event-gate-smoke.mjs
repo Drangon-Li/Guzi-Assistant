@@ -10,6 +10,7 @@ const screenwatch = readFileSync(new URL('../src/main/screenwatch.ts', import.me
 const parser = readFileSync(new URL('../src/main/parser.ts', import.meta.url), 'utf8')
 const capture = readFileSync(new URL('../src/main/capture.ts', import.meta.url), 'utf8')
 const db = readFileSync(new URL('../src/main/db.ts', import.meta.url), 'utf8')
+const ipc = readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')
 
 const watchStart = screenwatch.indexOf('async function watchTick')
 const contextGate = screenwatch.indexOf('const context = await getFrontmostContext()', watchStart)
@@ -31,6 +32,13 @@ check('视觉观察内容声明为不可信', /不可信观察截图/.test(captu
 check('诊断日志不写 OCR 原文', !/OCR 原文---|text\.slice\(0, 4000\)/.test(screenwatch))
 check('检测 OCR 原文有 48h 清理', /UPDATE detections SET source_text=''[\s\S]*48 \* 60 \* 60/.test(db))
 check('新增 additive 片段和 OCR 证据表', /CREATE TABLE IF NOT EXISTS activity_segments/.test(db) && /CREATE TABLE IF NOT EXISTS ocr_evidence/.test(db))
+check('historyV2Enabled 保存后即时重启监控', /patch\.historyV2Enabled !== undefined/.test(ipc) && /applyScreenSenseSettings\(\)/.test(ipc))
+check('History 设置包含独立 host include/exclude', /historyIncludedHosts: parseList\(map\.historyIncludedHosts\)/.test(db) && /historyExcludedHosts: parseList\(map\.historyExcludedHosts\)/.test(db))
+check('History 原生开关与派生开关可独立保存', /patch\.historyV2Enabled !== undefined/.test(ipc) && /patch\.historyDerivedWorkEnabled !== undefined/.test(ipc))
+check('History 关闭时不把 History host/app 过滤带入旧屏幕感知', /const historyEnabled = getSettings\(\)\.historyV2Enabled/.test(screenwatch) && /privacyForContext\(context, historyEnabled\)/.test(screenwatch))
+check('暂停/停止会排队关闭 History store', /stopSampler[\s\S]*stopHistoryPersistence/.test(screenwatch))
+check('History replacement waits for previous lock release', /startAfter: historyCloseTail/.test(screenwatch))
+check('旧工作记录去重同时考虑 task 和 App', /lastWorkRecordTask/.test(screenwatch) && /lastWorkRecordApp/.test(screenwatch) && /normalizeTaskKey\(lastWorkRecordTask/.test(screenwatch))
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

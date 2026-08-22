@@ -9,6 +9,8 @@ import {
   periodLabel,
   focusDurations,
   normalizeTaskKey,
+  normalizeTaskLabel,
+  timeRangeLabel,
   daySegmentOf,
   memoryToPlain,
   plainToMemory
@@ -117,6 +119,30 @@ check('乱序输入按时间排序', (() => {
   const p = groupWorkPeriods([wr('09:06', 'x'), wr('09:00', 'x'), wr('09:03', 'x')])
   return p.length === 1 && p[0].start.endsWith('09:00')
 })())
+const wrInterval = (id, startAt, endAt, task) => ({
+  id,
+  content: 'x',
+  app: 'Code',
+  task,
+  source: 'accessibility',
+  derivedBy: 'history',
+  segmentId: id,
+  startAt,
+  endAt,
+  confidence: 0.8,
+  evidenceCount: 1,
+  summaryHash: id,
+  createdAt: endAt
+})
+check('工作记录 task 变化会切开时段', groupWorkPeriods([
+  wrInterval('task-1', '2026-07-02T12:00:00.000Z', '2026-07-02T12:05:00.000Z', '任务 A'),
+  wrInterval('task-2', '2026-07-02T12:06:00.000Z', '2026-07-02T12:10:00.000Z', '任务 B')
+]).length === 2)
+check('空 task 不会与有 task 的记录合并', groupWorkPeriods([
+  wrInterval('empty-task', '2026-07-02T12:00:00.000Z', '2026-07-02T12:05:00.000Z', null),
+  wrInterval('named-task', '2026-07-02T12:06:00.000Z', '2026-07-02T12:10:00.000Z', '任务 A')
+]).length === 2)
+check('任务条展示真实时间范围', timeRangeLabel('2026-07-02T12:00:00.000Z', '2026-07-02T12:10:00.000Z') === '12:00–12:10')
 
 // ---- focusDurations ----
 const fr = (t, task) => ({ id: t, content: 'x', app: 'Code', task, createdAt: `2026-07-02T${t}` })
@@ -136,6 +162,7 @@ check('去空格', normalizeTaskKey('评审 EMNLP 论文') === normalizeTaskKey(
 check('全角折半角', normalizeTaskKey('评审ＥＭＮＬＰ论文') === normalizeTaskKey('评审EMNLP论文'))
 check('大小写归一', normalizeTaskKey('emnlp') === normalizeTaskKey('EMNLP'))
 check('不同任务不误合', normalizeTaskKey('写论文') !== normalizeTaskKey('读论文'))
+check('持久化任务标签统一全角与空白', normalizeTaskLabel('  评审ＥＭＮＬＰ  论文  ') === '评审EMNLP 论文')
 
 // ---- focusDurations：仅空格差异的变体合并、桥接成一段、展示取更长写法 ----
 const fdMerge = focusDurations([

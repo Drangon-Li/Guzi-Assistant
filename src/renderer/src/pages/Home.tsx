@@ -81,7 +81,7 @@ export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.
   // 谷穗：按小时数工作记录条数（谷粒饱满度）
   const byHour = Array<number>(24).fill(0)
   for (const r of records) {
-    const h = Number(r.createdAt.slice(11, 13))
+    const h = Number(r.startAt.slice(11, 13))
     if (h >= 0 && h < 24) byHour[h]++
   }
   const grainCount = byHour.filter((n) => n > 0).length
@@ -97,7 +97,7 @@ export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.
     const deep = deepWorkSeconds(productiveRuns(records, cat))
     const nowHm = new Date().toTimeString().slice(0, 5)
     const deepYtd = deepWorkSeconds(
-      productiveRuns(ytdRecords.filter((r) => r.createdAt.slice(11, 16) <= nowHm), cat)
+      productiveRuns(ytdRecords.filter((r) => r.startAt.slice(11, 16) <= nowHm), cat)
     )
     let s = deep
       ? `今天已专注 ${formatDuration(deep)}，谷穗结了 ${grainCount} 粒`

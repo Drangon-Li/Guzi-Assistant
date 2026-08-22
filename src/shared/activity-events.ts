@@ -30,6 +30,9 @@ export type ActivityEventKind =
 
 export type ActivityEventSource = 'accessibility' | 'workspace' | 'fallback' | 'collector'
 
+/** Privacy decision attached before an event can cross a persistence boundary. */
+export type ActivityPrivacyState = 'normal' | 'private' | 'excluded' | 'own' | 'secure'
+
 /**
  * Privacy-minimized activity metadata. Raw typed text, selected text, AX text,
  * and full URLs are intentionally absent from this type. Window and target
@@ -44,10 +47,14 @@ export interface ActivityEvent {
   bundleId?: string | null
   windowTitle?: string | null
   urlHost?: string | null
+  /** WindowServer identity used only to distinguish same-title windows in memory. */
+  windowId?: number | null
   targetRole?: string | null
   targetId?: string | null
   /** Shallow AX metadata only; never a raw value or selected text. */
   focusedRole?: string | null
+  focusedSubrole?: string | null
+  targetSubrole?: string | null
   safeLabel?: string | null
   /** Semantic command or shortcut only, never a printable key stream. */
   command?: string | null
@@ -55,6 +62,7 @@ export interface ActivityEvent {
   inputLength?: number | null
   secureInput?: boolean
   suppressed?: boolean
+  privacyState?: ActivityPrivacyState
 }
 
 export type ActivityBucketKind = '10m' | '6h'
@@ -149,15 +157,19 @@ export function activityEventSignature(event: ActivityEvent): string {
     normalizeSignaturePart(event.bundleId),
     normalizeSignaturePart(event.windowTitle),
     normalizeSignaturePart(event.urlHost),
+    Number.isFinite(event.windowId) ? String(Math.trunc(event.windowId!)) : '',
     normalizeSignaturePart(event.targetRole),
     normalizeSignaturePart(event.targetId),
     normalizeSignaturePart(event.focusedRole),
+    normalizeSignaturePart(event.focusedSubrole),
+    normalizeSignaturePart(event.targetSubrole),
     normalizeSignaturePart(event.safeLabel),
     normalizeSignaturePart(event.command),
     [...(event.modifiers ?? [])].map(normalizeSignaturePart).sort().join('+'),
     Number.isFinite(event.inputLength) ? String(event.inputLength) : '',
     event.secureInput ? 'secure' : '',
-    event.suppressed ? 'suppressed' : ''
+    event.suppressed ? 'suppressed' : '',
+    event.privacyState && event.privacyState !== 'normal' ? event.privacyState : ''
   ]
   return `ae1-${fnv1a64(JSON.stringify(parts))}`
 }

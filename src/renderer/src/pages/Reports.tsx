@@ -8,7 +8,8 @@ import {
   formatDuration,
   groupWorkPeriods,
   normalizeTaskKey,
-  periodLabel
+  periodLabel,
+  timeRangeLabel
 } from '@shared/work-report'
 import { api } from '../api'
 import { BarRow, DayNav, Section } from '../components/ui'
@@ -105,7 +106,7 @@ export default function Reports(): React.JSX.Element {
     ...durations,
     ...taskPrefs
       .filter((p) => p.custom && !p.hidden && !shownKeys.has(normalizeTaskKey(p.name)))
-      .map((p) => ({ task: p.name, seconds: 0 }))
+      .map((p) => ({ task: p.name, seconds: 0, startAt: null, endAt: null }))
   ]
   const maxFocus = Math.max(...focusList.map((f) => f.seconds), 1)
   const maxUsage = usage.length ? usage[0].seconds : 1
@@ -230,6 +231,7 @@ export default function Reports(): React.JSX.Element {
                   value={f.seconds}
                   max={maxFocus}
                   valueLabel={f.seconds ? formatDuration(f.seconds) : '—'}
+                  detail={timeRangeLabel(f.startAt, f.endAt)}
                   onDelete={() => void hideTask(f.task)}
                 />
               ))}

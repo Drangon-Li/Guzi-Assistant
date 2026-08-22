@@ -6,11 +6,12 @@ import type {
   Profile,
   ScreenActivityStatus
 } from '@shared/types'
+import type { HistoryStatus } from '@shared/history'
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
 import PetSettings from '../components/PetSettings'
 import FeedbackSection from '../components/FeedbackSection'
-import { Section } from '../components/ui'
+import { Section, Toggle } from '../components/ui'
 
 interface Props {
   onProfileChange: (p: Profile) => void
@@ -106,6 +107,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
   const [activityStatus, setActivityStatus] = useState<ScreenActivityStatus | null>(null)
+  const [historyStatus, setHistoryStatus] = useState<HistoryStatus | null>(null)
   const todayStr = new Date().toISOString().slice(0, 10)
   const weekAgoStr = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)
   const [exportFrom, setExportFrom] = useState(weekAgoStr)
@@ -119,6 +121,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     void api.screenActivityStatus().then(setActivityStatus)
   }
 
+  const loadHistoryStatus = (): void => {
+    void api.historyStatus().then(setHistoryStatus)
+  }
+
   useEffect(() => {
     void api.getProfile().then(setProfile)
     void api.appVersion().then(setAppVersion)
@@ -127,8 +133,16 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     void api.feishuStatus().then(setFeishu)
     loadPerms()
     loadActivityStatus()
-    const timer = window.setInterval(loadActivityStatus, 5000)
-    return () => window.clearInterval(timer)
+    loadHistoryStatus()
+    const timer = window.setInterval(() => {
+      loadActivityStatus()
+      loadHistoryStatus()
+    }, 5000)
+    const offHistory = api.on('guzi-assistant:history-updated', loadHistoryStatus)
+    return () => {
+      window.clearInterval(timer)
+      offHistory()
+    }
   }, [])
 
   const flash = (msg: string): void => {
@@ -363,11 +377,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         <div className="flex flex-col gap-3 text-sm">
           <label className="flex items-center justify-between gap-4">
             <span>启用 MCP 服务</span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={settings.mcpEnabled}
-              onChange={async (e) => {
-                const on = e.target.checked
+              ariaLabel="启用 MCP 服务"
+              onChange={async (on) => {
                 const patch: Partial<AppSettings> = { mcpEnabled: on }
                 if (on && !settings.mcpToken) patch.mcpToken = genMcpToken()
                 await api.saveSettings(patch)
@@ -530,13 +543,59 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           屏幕感知默认关闭。开启后，谷子助手先在本机观察前台 App 与窗口变化，不记录键盘正文；Hybrid v2 会先评估语义完整度，只有语义不足时才截图并在本地 OCR。
           默认只把脱敏后的 OCR 文字送解析，截图仅在你开启「日程深度确认」时上传。私密浏览始终跳过；原图用完即弃，证据缩略图也默认不保存。
         </p>
+        <div className="mb-4 border-b border-slate-100 pb-4">
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span>
+              History v2 原生活动记录
+              <span className="ml-2 text-xs text-slate-400">
+                独立采集 App、窗口和交互事件；默认关闭，不保存键盘正文或完整 URL
+              </span>
+            </span>
+            <Toggle
+              checked={settings.historyV2Enabled}
+              ariaLabel="History v2 原生活动记录"
+              onChange={async (next) => {
+                const ok = await api.saveSettings({ historyV2Enabled: next })
+                if (ok) {
+                  setSettings({ ...settings, historyV2Enabled: next })
+                  loadActivityStatus()
+                  loadHistoryStatus()
+                  flash(next ? '已开启 History v2 原生采集' : '已关闭 History v2 原生采集')
+                } else flash('History v2 设置保存失败')
+              }}
+            />
+          </label>
+          <label className="mt-3 flex items-center justify-between gap-4 text-sm">
+            <span>
+              从摘要派生工作记录
+              <span className="ml-2 text-xs text-slate-400">
+                单独控制 10 分钟摘要是否写入新的工作记录；需要同时开启 History v2
+              </span>
+            </span>
+            <Toggle
+              checked={settings.historyDerivedWorkEnabled}
+              disabled={!settings.historyV2Enabled}
+              ariaLabel="从摘要派生工作记录"
+              onChange={async (next) => {
+                const ok = await api.saveSettings({ historyDerivedWorkEnabled: next })
+                if (ok) {
+                  setSettings({ ...settings, historyDerivedWorkEnabled: next })
+                  loadActivityStatus()
+                  flash(next ? '已开启摘要派生工作记录' : '已关闭摘要派生工作记录')
+                } else flash('工作记录派生设置保存失败')
+              }}
+            />
+          </label>
+          {!settings.historyV2Enabled && (
+            <p className="mt-2 text-xs text-slate-400">先开启 History v2 后，才能启用摘要派生工作记录。</p>
+          )}
+        </div>
         <label className="flex items-center justify-between gap-4 text-sm">
           <span>屏幕感知</span>
-          <input
-            type="checkbox"
+          <Toggle
             checked={settings.screenSenseEnabled}
-            onChange={async (e) => {
-              const next = e.target.checked
+            ariaLabel="屏幕感知"
+            onChange={async (next) => {
               setSettings({ ...settings, screenSenseEnabled: next })
               await api.saveSettings({ screenSenseEnabled: next })
               flash(next ? '已开启屏幕感知' : '已关闭屏幕感知')
@@ -545,6 +604,11 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         </label>
 
         {settings.screenSenseEnabled && (
+          <details className="mt-4 rounded-lg border border-slate-200 px-3 py-2">
+            <summary className="cursor-pointer select-none text-sm font-medium text-slate-600">
+              高级设置与隐私选项
+              <span className="ml-2 text-xs font-normal text-slate-400">扫描策略、截图、排除应用和运行状态</span>
+            </summary>
           <div className="mt-4 flex flex-col gap-4">
             <div className="border-y border-slate-100 py-3">
               <label className="flex items-center justify-between gap-4 text-sm">
@@ -554,11 +618,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     App/窗口变化触发扫描，静止时低频兜底；不可用时自动停止截图
                   </span>
                 </span>
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={settings.screenSenseEventDriven}
-                  onChange={async (e) => {
-                    const next = e.target.checked
+                  ariaLabel="事件驱动模式"
+                  onChange={async (next) => {
                     const interval = next
                       ? Math.max(5, settings.screenSenseIntervalSec)
                       : settings.screenSenseIntervalSec
@@ -608,11 +671,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     语义充分直接进入片段；语义不足才按需 OCR。关闭后回到 legacy 事件/兜底扫描
                   </span>
                 </span>
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={settings.screenSenseHybridV2}
-                  onChange={async (e) => {
-                    const next = e.target.checked
+                  ariaLabel="Hybrid History v2"
+                  onChange={async (next) => {
                     setSettings({ ...settings, screenSenseHybridV2: next })
                     await api.saveSettings({ screenSenseHybridV2: next })
                     loadActivityStatus()
@@ -698,11 +760,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     关闭则完全被动，只在「记忆」里留存供回看
                   </span>
                 </span>
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={settings.screenSensePopup}
-                  onChange={async (e) => {
-                    const next = e.target.checked
+                  ariaLabel="检测到日程时弹窗提醒"
+                  onChange={async (next) => {
                     setSettings({ ...settings, screenSensePopup: next })
                     await api.saveSettings({ screenSensePopup: next })
                     flash(next ? '检测到日程会弹窗提醒' : '已转为完全被动（只进记忆）')
@@ -742,11 +803,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     识别时顺带记下「在做什么」，供「日报」页生成工作日报（不额外耗积分）
                   </span>
                 </span>
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={settings.screenSenseWorkLog}
-                  onChange={async (e) => {
-                    const next = e.target.checked
+                  ariaLabel="工作记录"
+                  onChange={async (next) => {
                     setSettings({ ...settings, screenSenseWorkLog: next })
                     await api.saveSettings({ screenSenseWorkLog: next })
                     flash(next ? '已开启工作记录' : '已关闭工作记录')
@@ -780,11 +840,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     检出日程候选后把截图发视觉模型二次确认，更准；注意此时<b>截图会上传云端</b>、额外耗积分
                   </span>
                 </span>
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={settings.screenSenseVlmConfirm}
-                  onChange={async (e) => {
-                    const next = e.target.checked
+                  ariaLabel="日程深度确认"
+                  onChange={async (next) => {
                     setSettings({ ...settings, screenSenseVlmConfirm: next })
                     await api.saveSettings({ screenSenseVlmConfirm: next })
                     flash(next ? '已开启日程深度确认（截图上云）' : '已关闭深度确认（仅文字上云）')
@@ -799,11 +858,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                   持续监控（自动）
                   <span className="ml-2 text-xs text-slate-400">屏幕变化时自动识别，无需手动扫描</span>
                 </span>
-                <input
-                  type="checkbox"
+                <Toggle
                   checked={settings.screenSenseContinuous}
-                  onChange={async (e) => {
-                    const next = e.target.checked
+                  ariaLabel="持续监控"
+                  onChange={async (next) => {
                     setSettings({ ...settings, screenSenseContinuous: next })
                     await api.saveSettings({ screenSenseContinuous: next })
                     flash(next ? '已开启持续监控' : '已关闭持续监控')
@@ -860,11 +918,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                         保存截图到可搜索记忆
                         <span className="ml-2 text-xs text-slate-400">本地加密保存，可在「记忆」里回看</span>
                       </span>
-                      <input
-                        type="checkbox"
+                      <Toggle
                         checked={settings.screenSenseKeepShots}
-                        onChange={async (e) => {
-                          const next = e.target.checked
+                        ariaLabel="保存截图到可搜索记忆"
+                        onChange={async (next) => {
                           setSettings({ ...settings, screenSenseKeepShots: next })
                           await api.saveSettings({ screenSenseKeepShots: next })
                           flash(next ? '已开启截图保存（加密）' : '已关闭截图保存')
@@ -907,7 +964,98 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               </div>
             )}
           </div>
+          </details>
         )}
+      </Section>
+
+      <Section title="History 健康" desc="实时状态来自本地 collector 与 48 小时 History store；不会展示原始事件正文。">
+        {historyStatus && (
+          <>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className={`rounded-md px-2 py-1 ${!historyStatus.enabled ? 'bg-slate-100 text-slate-500' : historyStatus.paused ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                {!historyStatus.enabled ? 'History 未开启' : historyStatus.paused ? '已暂停' : '运行中'}
+              </span>
+              <button
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                disabled={!historyStatus.enabled}
+                onClick={async () => {
+                  const next = historyStatus.paused ? await api.historyResume() : await api.historyPause()
+                  setHistoryStatus(next)
+                  loadActivityStatus()
+                  flash(next.paused ? 'History 已暂停' : 'History 已恢复')
+                }}
+              >
+                {historyStatus.paused ? '恢复采集' : '暂停采集'}
+              </button>
+            </div>
+            <details className="mt-3">
+              <summary className="cursor-pointer select-none text-xs text-slate-400">查看采集器健康详情</summary>
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-500">
+              <span>
+                Heartbeat：{activityStatus?.lastHeartbeatAt
+                  ? new Date(activityStatus.lastHeartbeatAt).toLocaleTimeString()
+                  : '暂无'}
+              </span>
+              <span>
+                Accessibility：{activityStatus?.accessibility === 'available'
+                  ? '可用'
+                  : activityStatus?.accessibility === 'unavailable'
+                    ? '不可用'
+                    : '未知'}
+              </span>
+              <span>
+                Input Monitoring：{activityStatus?.inputMonitoring === 'available'
+                  ? '可用'
+                  : activityStatus?.inputMonitoring === 'unavailable'
+                    ? '不可用'
+                    : '未知'}
+              </span>
+              <span>Collector 重启：{activityStatus?.collectorRestartCount ?? 0} 次</span>
+              <span>丢弃事件：{(activityStatus?.collectorDroppedEventCount ?? 0) + historyStatus.health.droppedCount}</span>
+              <span>抑制事件：{historyStatus.health.suppressedCount}</span>
+              <span>当前 segment：{historyStatus.health.currentSegmentId ?? '暂无'}</span>
+              <span>队列：{historyStatus.health.queueLength}</span>
+              <span>Store 状态：{historyStatus.health.state}</span>
+              <span>
+                最近写入：{historyStatus.health.lastWriteAt
+                  ? new Date(historyStatus.health.lastWriteAt).toLocaleTimeString()
+                  : '暂无'}
+              </span>
+              <span>
+                保留截止：{historyStatus.retentionExpiresAt
+                  ? new Date(historyStatus.retentionExpiresAt).toLocaleString()
+                  : '暂无'}
+              </span>
+              <span>10 分钟摘要：{historyStatus.summaryCounts.tenMinute}</span>
+              <span>6 小时摘要：{historyStatus.summaryCounts.sixHour}</span>
+              {historyStatus.rolloutComparison && (
+                <>
+                  <span className="col-span-2 mt-2 border-t border-slate-100 pt-2 text-slate-400">双写对比（最近 48 小时）</span>
+                  <span>
+                    事件：旧 {historyStatus.rolloutComparison.legacy.eventCount} / 新 {historyStatus.rolloutComparison.history.eventCount + historyStatus.rolloutComparison.history.suppressedEventCount}
+                  </span>
+                  <span>
+                    摘要（10 分钟）：旧 {historyStatus.rolloutComparison.legacy.tenMinuteSummaryCount} / 新 {historyStatus.rolloutComparison.history.tenMinuteSummaryCount}
+                  </span>
+                  <span>
+                    摘要（6 小时）：新 {historyStatus.rolloutComparison.history.sixHourSummaryCount}
+                  </span>
+                  <span>
+                    工作记录：旧 {historyStatus.rolloutComparison.workRecords.legacyCount} / 新 {historyStatus.rolloutComparison.workRecords.historyCount}
+                  </span>
+                  <span>
+                    重复率：旧 {Math.round(historyStatus.rolloutComparison.workRecords.legacyDuplicateRate * 100)}% / 新 {Math.round(historyStatus.rolloutComparison.workRecords.historyDuplicateRate * 100)}%
+                  </span>
+                </>
+              )}
+              {historyStatus.health.lastError && (
+                <span className="col-span-2 text-amber-600">最近错误：{historyStatus.health.lastError}</span>
+              )}
+            </div>
+            </details>
+          </>
+        )}
+        {!historyStatus && <p className="text-xs text-slate-400">正在读取 History 状态…</p>}
       </Section>
 
       <Section title="权限状态">
