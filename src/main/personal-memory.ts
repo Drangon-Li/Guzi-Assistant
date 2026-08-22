@@ -12,7 +12,8 @@ import {
   buildPersonalMemoryPrompt,
   dayKey,
   groupWorkPeriods,
-  periodLabel
+  periodLabel,
+  workRecordStart
 } from '@shared/work-report'
 import type { Profile } from '@shared/types'
 
@@ -39,7 +40,7 @@ function gatherMaterial(): Material {
 
   const byDay = new Map<string, typeof records>()
   for (const r of records) {
-    const d = r.createdAt.slice(0, 10)
+    const d = workRecordStart(r).slice(0, 10)
     const arr = byDay.get(d) ?? []
     arr.push(r)
     byDay.set(d, arr)
@@ -47,7 +48,7 @@ function gatherMaterial(): Material {
   const activityLines: string[] = []
   for (const [d, recs] of byDay) {
     for (const p of groupWorkPeriods(recs)) {
-      activityLines.push(`${d} ${periodLabel(p)} ${p.app ? `[${p.app}] ` : ''}${p.summary}`)
+      activityLines.push(`${d} ${periodLabel(p)} ${p.app ? `[${p.app}] ` : ''}${p.summary}（${Math.round(p.durationSeconds / 60)} 分钟）`)
     }
   }
   return { profile, activityLines: activityLines.slice(-120), tasks }

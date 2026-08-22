@@ -87,6 +87,13 @@ check(
   '任务切换按标签变化计数',
   taskSwitchCount([tr('09:00', 'A'), tr('09:10', 'A'), tr('09:20', 'B'), tr('09:30', 'A')]) === 2
 )
+check('任务标签空格/全角/大小写变体不产生额外切换',
+  taskSwitchCount([
+    tr('09:00', '评审ＥＭＮＬＰ论文'),
+    tr('09:10', '评审 EMNLP 论文'),
+    tr('09:20', '评审EMNLP论文')
+  ]) === 0
+)
 check('无标签记录不参与', taskSwitchCount([tr('09:00', 'A'), tr('09:05', null), tr('09:10', 'A')]) === 0)
 check('空记录 → 0', taskSwitchCount([]) === 0)
 

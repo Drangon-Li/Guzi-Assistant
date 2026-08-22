@@ -69,6 +69,13 @@ export interface DetectionRecord {
   createdAt: string
 }
 
+/** A macOS application selected for the History privacy blacklist. */
+export interface HistoryAppSelection {
+  bundleId: string
+  name: string
+  path: string
+}
+
 export interface TaskRecord {
   id: string
   sourceId: string | null
@@ -153,6 +160,14 @@ export interface AppSettings {
   screenSenseHybridV2: boolean
   /** 应用排除名单（#40 隐私门）：这些 App 在前台时连截图都不做，默认空（不排除） */
   screenSenseExcludedApps: string[]
+  /** @deprecated History include 名单，保留用于旧数据库兼容；新 UI 只使用黑名单。 */
+  historyIncludedApps: string[]
+  /** History 原生事件黑名单；选中的 macOS App 不写入 History。 */
+  historyExcludedApps: HistoryAppSelection[]
+  /** History 浏览器 host include 名单；空表示不按网站限制。只接受 host，不接受完整 URL。 */
+  historyIncludedHosts: string[]
+  /** History 浏览器 host exclude 名单；匹配域名及其子域名时抑制事件。 */
+  historyExcludedHosts: string[]
   /** 持久化任务证据缩略图（#52/#53/#3）：默认 false；开启后加密落盘、任务完成即清 */
   screenSenseKeepShots: boolean
   /** 截图保留天数（#53），到期自动清；<=0 永久保留。默认 14 */
@@ -177,6 +192,12 @@ export interface AppSettings {
   mcpPort: number
   /** MCP Bearer token（设置页生成/重置；空 = 未生成，服务不会启动） */
   mcpToken: string
+  /** Computer History 2.0 原始事件双写；默认关闭，第一阶段不改变旧派生链路。 */
+  historyV2Enabled: boolean
+  /** Computer History 2.0 从 10 分钟摘要派生工作记录；需与 historyV2Enabled 同时开启。 */
+  historyDerivedWorkEnabled: boolean
+  /** 未来可选的文本捕获；默认关闭，第一阶段 schema 永不保存原始文本。 */
+  historyCaptureText: boolean
 }
 
 export interface FeishuStatus {
@@ -199,7 +220,14 @@ export interface ScreenActivityStatus {
   collector: 'starting' | 'healthy' | 'degraded' | 'stopped'
   collectorDetail: string | null
   collectorRestartCount: number
+  collectorDroppedEventCount: number
+  collectorDeduplicatedEventCount: number
+  collectorRateLimitedCount: number
+  collectorBackoffBundleCount: number
   accessibility: 'available' | 'unavailable' | 'unknown'
+  inputMonitoring: 'available' | 'unavailable' | 'unknown'
+  /** 最近一次 native collector heartbeat；与普通活动事件时间分开，便于诊断无前台 App。 */
+  lastHeartbeatAt: string | null
   semanticCoverage: number
   ocrFallbackCount: number
   ocrFallbackReasons: Record<string, number>
@@ -224,6 +252,21 @@ export interface ScreenActivityStatus {
   workClassificationAt: string | null
   workClassificationDetail: string | null
   workClassificationCount: number
+  history: HistoryStoreHealth
+}
+
+export interface HistoryStoreHealth {
+  enabled: boolean
+  state: 'disabled' | 'starting' | 'healthy' | 'degraded' | 'stopped'
+  currentSegmentId: string | null
+  queueLength: number
+  droppedCount: number
+  suppressedCount: number
+  invalidCount: number
+  segmentCount: number
+  lastWriteAt: string | null
+  lastCleanupAt: string | null
+  lastError: string | null
 }
 
 export interface ActivityHistorySegmentRecord {
@@ -262,6 +305,7 @@ export interface OcrEvidenceRecord {
 }
 
 export type WorkRecordSource = 'accessibility' | 'ocr'
+export type WorkRecordDerivedBy = 'history' | 'legacy'
 
 /** 工作记录：屏幕识别顺带的「在做什么」一句话时间线（供日报生成）。 */
 export interface WorkRecord {
@@ -273,7 +317,33 @@ export interface WorkRecord {
   task: string | null
   /** 归类证据来源：Accessibility 浅层语义或 OCR 补证。 */
   source: WorkRecordSource
+  /** 记录由 History 摘要派生，还是旧屏幕/OCR 路径写入。 */
+  derivedBy: WorkRecordDerivedBy
+  /** 关联的 10 分钟 History segment；旧记录为空。 */
+  segmentId: string | null
+  /** 工作活动的真实起止时间；旧记录回退到 createdAt。 */
+  startAt: string
+  endAt: string
+  /** 摘要或归类置信度（0~1）。 */
+  confidence: number
+  /** 支撑该工作记录的事件/证据数量。 */
+  evidenceCount: number
+  /** 生成该记录时使用的摘要 hash；旧记录为空。 */
+  summaryHash: string | null
   createdAt: string
+}
+
+/** History 10 分钟摘要派生工作记录的持久化输入。 */
+export interface HistoryDerivedWorkRecordInput {
+  segmentId: string
+  content: string
+  app: string | null
+  task: string | null
+  startAt: string
+  endAt: string
+  confidence: number
+  evidenceCount: number
+  summaryHash: string
 }
 
 /** 某天某应用的前台使用时长（秒） */

@@ -20,6 +20,35 @@ export function defaultReportTitle(day: string): string {
   return `${day} 工作日报`
 }
 
+/** Work records before History v2 only had createdAt; keep their one-minute fallback. */
+export function workRecordStart(record: Pick<WorkRecord, 'createdAt'> & Partial<Pick<WorkRecord, 'startAt'>>): string {
+  return record.startAt ?? record.createdAt
+}
+
+export function workRecordEnd(record: Pick<WorkRecord, 'createdAt'> & Partial<Pick<WorkRecord, 'endAt'>>): string {
+  return record.endAt ?? record.createdAt
+}
+
+export interface WorkRecordInterval {
+  start: string
+  end: string
+  startMs: number
+  endMs: number
+}
+
+export function workRecordInterval(record: WorkRecord): WorkRecordInterval {
+  const start = workRecordStart(record)
+  const rawEnd = workRecordEnd(record)
+  const startMs = Number.isFinite(Date.parse(start)) ? Date.parse(start) : 0
+  let endMs = Number.isFinite(Date.parse(rawEnd)) ? Date.parse(rawEnd) : startMs
+  const explicitHistoryInterval = record.derivedBy === 'history'
+  // Legacy records have no real end; preserve the established one-minute
+  // report fallback while History-derived records use the exact interval.
+  if (!explicitHistoryInterval && endMs <= startMs) endMs = startMs + 60_000
+  if (endMs < startMs) endMs = startMs
+  return { start, end: rawEnd, startMs, endMs }
+}
+
 /** HH:mm（从 "YYYY-MM-DDTHH:mm" 取） */
 function hhmm(iso: string): string {
   return iso.length >= 16 ? iso.slice(11, 16) : ''
@@ -27,8 +56,9 @@ function hhmm(iso: string): string {
 
 /** 一段连续活动：某时段用户在做什么（工作记录聚合的展示单元）。 */
 export interface WorkPeriod {
-  start: string // 起始记录的 createdAt
-  end: string // 末条记录的 createdAt
+  start: string // 工作区间起点
+  end: string // 工作区间终点
+  durationSeconds: number
   app: string | null
   /** 该时段代表性描述（组内出现最多的内容，并列取最长） */
   summary: string
@@ -42,21 +72,23 @@ export interface WorkPeriod {
 }
 
 /**
- * 把逐条工作记录聚合成「时段」：相邻记录同应用且时间间隔 ≤ gapMinutes 分钟 → 并入同一段。
+ * 把逐条工作记录聚合成「时段」：相邻记录同应用、同任务且时间间隔 ≤ gapMinutes 分钟 → 并入同一段。
  * 解决「每个时间点各记一条」过碎的问题，改为「某时段在做什么」。纯函数，注入 records。
  */
 export function groupWorkPeriods(records: WorkRecord[], gapMinutes = 10): WorkPeriod[] {
-  const sorted = [...records].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const sorted = [...records]
+    .map((record) => ({ record, interval: workRecordInterval(record) }))
+    .sort((a, b) => a.interval.startMs - b.interval.startMs || a.record.id.localeCompare(b.record.id))
   const periods: WorkPeriod[] = []
-  let cur: WorkRecord[] = []
+  let cur: { record: WorkRecord; interval: WorkRecordInterval }[] = []
 
   const flush = (): void => {
     if (!cur.length) return
     const counts = new Map<string, number>()
-    for (const r of cur) counts.set(r.content, (counts.get(r.content) ?? 0) + 1)
+    for (const { record: r } of cur) counts.set(r.content, (counts.get(r.content) ?? 0) + 1)
     const sourceCounts = new Map<WorkRecordSource, number>()
-    for (const r of cur) sourceCounts.set(r.source, (sourceCounts.get(r.source) ?? 0) + 1)
-    let summary = cur[0].content
+    for (const { record: r } of cur) sourceCounts.set(r.source, (sourceCounts.get(r.source) ?? 0) + 1)
+    let summary = cur[0].record.content
     let best = -1
     for (const [content, n] of counts) {
       if (n > best || (n === best && content.length > summary.length)) {
@@ -65,26 +97,38 @@ export function groupWorkPeriods(records: WorkRecord[], gapMinutes = 10): WorkPe
       }
     }
     periods.push({
-      start: cur[0].createdAt,
-      end: cur[cur.length - 1].createdAt,
-      app: cur[0].app,
+      start: cur[0].interval.start,
+      end: cur.reduce((latest, item) => item.interval.endMs > latest.interval.endMs ? item : latest).interval.end,
+      durationSeconds: Math.max(
+        0,
+        Math.round(
+          (cur.reduce((latest, item) => Math.max(latest, item.interval.endMs), cur[0].interval.startMs) -
+            cur[0].interval.startMs) /
+            1000
+        )
+      ),
+      app: cur[0].record.app,
       summary,
       count: cur.length,
-      activities: [...new Set(cur.map((r) => r.content))],
-      ids: cur.map((r) => r.id),
+      activities: [...new Set(cur.map(({ record: r }) => r.content))],
+      ids: cur.map(({ record: r }) => r.id),
       source: [...sourceCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'ocr'
     })
     cur = []
   }
 
-  for (const r of sorted) {
+  for (const item of sorted) {
+    const interval = item.interval
     if (cur.length) {
       const prev = cur[cur.length - 1]
-      const gapMs = new Date(r.createdAt).getTime() - new Date(prev.createdAt).getTime()
-      const sameApp = (r.app ?? '') === (prev.app ?? '')
-      if (!sameApp || gapMs > gapMinutes * 60_000) flush()
+      const gapMs = interval.startMs - prev.interval.endMs
+      const sameApp = (item.record.app ?? '') === (prev.record.app ?? '')
+      const sameTask =
+        (!item.record.task && !prev.record.task) ||
+        (!!item.record.task && !!prev.record.task && normalizeTaskKey(item.record.task) === normalizeTaskKey(prev.record.task))
+      if (!sameApp || !sameTask || gapMs > gapMinutes * 60_000) flush()
     }
-    cur.push(r)
+    cur.push(item)
   }
   flush()
   return periods
@@ -94,6 +138,14 @@ export function groupWorkPeriods(records: WorkRecord[], gapMinutes = 10): WorkPe
 export function periodLabel(p: WorkPeriod): string {
   const s = hhmm(p.start)
   const e = hhmm(p.end)
+  return s === e ? s : `${s}–${e}`
+}
+
+/** Display a real task interval without converting or inventing timestamps. */
+export function timeRangeLabel(startAt: string | null | undefined, endAt: string | null | undefined): string {
+  if (!startAt || !endAt || !Number.isFinite(Date.parse(startAt)) || !Number.isFinite(Date.parse(endAt))) return ''
+  const s = hhmm(startAt)
+  const e = hhmm(endAt)
   return s === e ? s : `${s}–${e}`
 }
 
@@ -218,21 +270,37 @@ export function normalizeTaskKey(name: string): string {
   return name.normalize('NFKC').replace(/\s+/g, '').toLowerCase()
 }
 
+/** Persist one stable, displayable task label while keeping grouping separate from presentation. */
+export function normalizeTaskLabel(value: unknown, max = 80): string | null {
+  if (typeof value !== 'string') return null
+  const label = value.normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, max)
+  return label || null
+}
+
 /**
- * 任务专注时长：按 task 标签把记录切成连续段（同任务、相邻间隔 ≤gapMinutes），
- * 每段时长 = 末条-首条 + 1 分钟（单条记录也算 1 分钟专注）。返回按累计时长降序。
+ * 任务专注时长：按 task 标签把记录切成连续段（同任务、相邻间隔 ≤gapMinutes）。
+ * History 记录使用真实 startAt/endAt；旧记录才使用兼容性的 1 分钟回退。返回按累计时长降序。
  * 分组按归一键（见 normalizeTaskKey），仅空格/大小写不同的写法合并成一个任务，
  * 展示名取该键下出现最多的原始写法（并列取更长的，空格版更易读）。
  */
+export interface FocusDuration {
+  task: string
+  seconds: number
+  /** Earliest and latest real work-record timestamps contributing to this task. */
+  startAt: string | null
+  endAt: string | null
+}
+
 export function focusDurations(
   records: WorkRecord[],
   gapMinutes = 15
-): { task: string; seconds: number }[] {
+): FocusDuration[] {
   const sorted = records
-    .filter((r) => r.task)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .filter((r) => !!r.task && normalizeTaskKey(r.task).length > 0)
+    .map((record) => ({ record, interval: workRecordInterval(record) }))
+    .sort((a, b) => a.interval.startMs - b.interval.startMs || a.record.id.localeCompare(b.record.id))
   const variants = new Map<string, Map<string, number>>()
-  for (const r of sorted) {
+  for (const { record: r } of sorted) {
     const key = normalizeTaskKey(r.task!)
     const m = variants.get(key) ?? new Map<string, number>()
     m.set(r.task!, (m.get(r.task!) ?? 0) + 1)
@@ -242,32 +310,55 @@ export function focusDurations(
     [...variants.get(key)!.entries()].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)[0][0]
 
   const total = new Map<string, number>()
+  const ranges = new Map<string, { startAt: string | null; endAt: string | null; startMs: number; endMs: number }>()
+  for (const { record: r, interval } of sorted) {
+    const key = normalizeTaskKey(r.task!)
+    const startMs = Date.parse(interval.start)
+    const endMs = Date.parse(interval.end)
+    const current = ranges.get(key) ?? { startAt: null, endAt: null, startMs: Infinity, endMs: -Infinity }
+    if (Number.isFinite(startMs) && startMs < current.startMs) {
+      current.startMs = startMs
+      current.startAt = interval.start
+    }
+    if (Number.isFinite(endMs) && endMs > current.endMs) {
+      current.endMs = endMs
+      current.endAt = interval.end
+    }
+    ranges.set(key, current)
+  }
   let runKey: string | null = null
-  let runStart = ''
-  let runEnd = ''
+  let runStartMs = 0
+  let runEndMs = 0
   const flush = (): void => {
     if (!runKey) return
-    const span = (new Date(runEnd).getTime() - new Date(runStart).getTime()) / 1000 + 60
+    const span = Math.max(0, (runEndMs - runStartMs) / 1000)
     total.set(runKey, (total.get(runKey) ?? 0) + span)
     runKey = null
   }
-  for (const r of sorted) {
+  for (const { record: r, interval } of sorted) {
     const key = normalizeTaskKey(r.task!)
     if (
       runKey === key &&
-      new Date(r.createdAt).getTime() - new Date(runEnd).getTime() <= gapMinutes * 60_000
+      interval.startMs - runEndMs <= gapMinutes * 60_000
     ) {
-      runEnd = r.createdAt
+      if (interval.endMs > runEndMs) {
+        runEndMs = interval.endMs
+      }
       continue
     }
     flush()
     runKey = key
-    runStart = r.createdAt
-    runEnd = r.createdAt
+    runStartMs = interval.startMs
+    runEndMs = interval.endMs
   }
   flush()
   return [...total.entries()]
-    .map(([key, seconds]) => ({ task: displayOf(key), seconds: Math.round(seconds) }))
+    .map(([key, seconds]) => ({
+      task: displayOf(key),
+      seconds: Math.round(seconds),
+      startAt: ranges.get(key)?.startAt ?? null,
+      endAt: ranges.get(key)?.endAt ?? null
+    }))
     .sort((a, b) => b.seconds - a.seconds)
 }
 
@@ -307,7 +398,7 @@ export function buildDailyReportPrompt(
   // 用时段而非逐条喂模型：更贴近「某时段在做什么」，也省 token
   const lines = groupWorkPeriods(m.records).map((p) => {
     const extra = p.activities.length > 1 ? `（含 ${p.activities.length} 项活动）` : ''
-    return `${periodLabel(p)} ${p.app ? `[${p.app}] ` : ''}${p.summary}${extra}`
+    return `${periodLabel(p)} ${p.app ? `[${p.app}] ` : ''}${p.summary}${extra}（${formatDuration(p.durationSeconds)}）`
   })
   const usage = m.usage.slice(0, 10).map((u) => `${u.app}：${formatDuration(u.seconds)}`)
   const text = `# 日期

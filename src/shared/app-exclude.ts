@@ -17,3 +17,28 @@ export function isAppExcluded(
     return x !== '' && (f === x || f.includes(x))
   })
 }
+
+/** Exact, case-insensitive Bundle ID match used by the macOS app picker. */
+export function isBundleIdExcluded(
+  bundleId: string | null | undefined,
+  excludedBundleIds: string[]
+): boolean {
+  const value = bundleId?.trim().toLowerCase()
+  if (!value) return false
+  return excludedBundleIds.some((item) => item.trim().toLowerCase() === value)
+}
+
+/** Include-list counterpart used by History capture. Empty means all apps. */
+export function isAppIncluded(
+  frontApp: string | null | undefined,
+  included: string[]
+): boolean {
+  if (!included.length) return true
+  if (!frontApp) return false
+  const value = frontApp.trim().toLowerCase()
+  if (!value) return false
+  return included.some((item) => {
+    const candidate = item.trim().toLowerCase()
+    return candidate !== '' && (value === candidate || value.includes(candidate))
+  })
+}

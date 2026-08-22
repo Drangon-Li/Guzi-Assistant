@@ -3,6 +3,40 @@
 import type { ReactNode } from 'react'
 import { dayKey } from '@shared/work-report'
 
+/** Compact accessible switch used for binary settings. */
+export function Toggle({
+  checked,
+  onChange,
+  disabled = false,
+  ariaLabel
+}: {
+  checked: boolean
+  onChange: (next: boolean) => void | Promise<void>
+  disabled?: boolean
+  ariaLabel: string
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={() => void onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50 ${
+        checked ? 'bg-brand' : 'bg-slate-300'
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow-sm transition-transform duration-150 ${
+          checked ? 'translate-x-5' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  )
+}
+
 /** 卡片区块：圆角边框容器；页头可带说明文字与右侧操作区。 */
 export function Section({
   title,
@@ -91,12 +125,14 @@ export function BarRow({
   value,
   max,
   valueLabel,
+  detail,
   onDelete
 }: {
   label: string
   value: number
   max: number
   valueLabel: string
+  detail?: string
   onDelete?: () => void
 }): React.JSX.Element {
   return (
@@ -108,7 +144,10 @@ export function BarRow({
           style={{ width: `${Math.max(2, Math.round((value / Math.max(max, 1)) * 100))}%` }}
         />
       </div>
-      <span className="w-24 shrink-0 text-right text-xs text-slate-400">{valueLabel}</span>
+      <span className="w-28 shrink-0 text-right text-xs text-slate-400">
+        <span className="block truncate" title={valueLabel}>{valueLabel}</span>
+        {detail && <span className="block truncate text-[10px] text-slate-300" title={detail}>{detail}</span>}
+      </span>
       {onDelete && (
         <button
           className="invisible shrink-0 px-1 text-xs text-slate-400 group-hover:visible hover:text-red-500"

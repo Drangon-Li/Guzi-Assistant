@@ -11,7 +11,8 @@ import {
   setWatchPaused,
   isWatchActive,
   isWatchPaused,
-  stopWatch
+  stopWatch,
+  shutdownHistoryStore
 } from './screenwatch'
 import { submitExternalFiles } from './capture'
 import {
@@ -187,12 +188,19 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     appState.quitting = true
   })
-  app.on('will-quit', () => {
+  let historyShutdownStarted = false
+  app.on('will-quit', (event) => {
     stopHotkey()
     stopWatch()
     stopDailyBrief()
     stopWellnessReminder()
     stopMcpServer()
+    if (historyShutdownStarted) return
+    historyShutdownStarted = true
+    event.preventDefault()
+    void shutdownHistoryStore()
+      .catch((error) => console.error('[history] shutdown failed:', error))
+      .finally(() => app.quit())
   })
   // 常驻托盘：所有窗口关闭后不退出
   app.on('window-all-closed', () => {})

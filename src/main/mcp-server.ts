@@ -3,13 +3,25 @@
 // 最小 Streamable HTTP 实现：单端点 POST JSON-RPC，即请求即响应（不提供 SSE 流，GET 返回 405）。
 // 安全边界：只绑 127.0.0.1；Bearer token 鉴权（settings.mcpToken，设置页生成/重置，常数时间比较）。
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
-import { timingSafeEqual } from 'crypto'
 import { app } from 'electron'
 import { getSettings, getTask, listReports, listTasks, listWorkRecords, updateTask } from './db'
 import { assistantAdd } from './assistant'
 import { broadcast, debugEvent } from './windows'
 import type { TaskStatus } from '@shared/types'
 import type { ParsedItem } from '@shared/parsing'
+import {
+  clearHistory,
+  deleteHistoryRange,
+  historyRecent,
+  historySearch,
+  historyStatus,
+  historySummarize,
+  pauseHistory,
+  resumeHistory
+} from './screenwatch'
+import type { HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
+import { bearerTokenMatches } from './history/mcp-auth.ts'
+import { workRecordInterval } from '@shared/work-report'
 
 const STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'done', 'overdue', 'ignored']
 
@@ -25,7 +37,7 @@ interface RpcRequest {
 
 // ---------- 工具定义与实现 ----------
 
-const TOOLS = [
+export const TOOLS = [
   {
     name: 'list_tasks',
     description: '列出谷子助手中的任务/日程。默认只返回进行中的（未完成且未忽略）。',
@@ -82,6 +94,70 @@ const TOOLS = [
       type: 'object',
       properties: { day: { type: 'string', description: '日期 YYYY-MM-DD，默认今天' } }
     }
+  },
+  {
+    name: 'history_status',
+    description: '获取 Computer History 采集健康状态、当前 segment、保留截止时间和摘要数量；不返回敏感原文。',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'history_recent',
+    description: '按时间范围查看最近的 6 小时/10 分钟 History 摘要；必要时返回不含原文的 segment 统计。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'ISO 起始时间，可省略（默认最近 48 小时）' },
+        to: { type: 'string', description: 'ISO 结束时间，可省略（默认现在）' },
+        limit: { type: 'integer', minimum: 1, maximum: 120 },
+        include_segments: { type: 'boolean', description: '是否包含摘要缺失时的 segment 聚合统计' }
+      }
+    }
+  },
+  {
+    name: 'history_search',
+    description: '在 History 摘要中按 App、窗口主题、任务线索、活动类型和时间范围搜索；默认不返回原始事件文本。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '搜索词，可为空' },
+        app: { type: 'string', description: 'App 名称过滤，可省略' },
+        from: { type: 'string', description: 'ISO 起始时间，可省略' },
+        to: { type: 'string', description: 'ISO 结束时间，可省略' },
+        limit: { type: 'integer', minimum: 1, maximum: 120 }
+      }
+    }
+  },
+  {
+    name: 'history_summarize',
+    description: '立即运行一次本地/在线 History 摘要轮，并返回本轮统计和最近摘要。',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'history_pause',
+    description: '暂停新的 History JSONL 写入和摘要任务；旧 OCR/legacy 流程不受影响。',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'history_resume',
+    description: '恢复 History JSONL 写入和摘要任务。',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'history_clear',
+    description: '清空全部 Computer History segment、摘要和 History 派生工作记录；旧 OCR/legacy 记录保留。',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'history_delete_range',
+    description: '删除指定时间范围覆盖的 History segment、摘要和派生工作记录；按 10 分钟 segment 粒度删除。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'ISO 起始时间（必填）' },
+        to: { type: 'string', description: 'ISO 结束时间（必填）' }
+      },
+      required: ['from', 'to']
+    }
   }
 ] as const
 
@@ -90,7 +166,24 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function callTool(name: string, args: Record<string, unknown>): unknown {
+function historyOptions(args: Record<string, unknown>): HistoryQueryOptions {
+  return {
+    from: typeof args.from === 'string' ? args.from : undefined,
+    to: typeof args.to === 'string' ? args.to : undefined,
+    limit: typeof args.limit === 'number' ? args.limit : undefined,
+    includeSegments: typeof args.include_segments === 'boolean' ? args.include_segments : undefined
+  }
+}
+
+function historySearchOptions(args: Record<string, unknown>): HistorySearchOptions {
+  return {
+    ...historyOptions(args),
+    query: typeof args.query === 'string' ? args.query : undefined,
+    app: typeof args.app === 'string' ? args.app : undefined
+  }
+}
+
+async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   if (name === 'list_tasks') {
     const filter = typeof args.status === 'string' ? args.status : 'open'
     return listTasks()
@@ -144,13 +237,35 @@ function callTool(name: string, args: Record<string, unknown>): unknown {
   }
   if (name === 'list_work_records') {
     const day = typeof args.day === 'string' && args.day ? args.day : todayKey()
-    return listWorkRecords(day).map((r) => ({ time: r.createdAt.slice(11, 16), content: r.content, app: r.app, task: r.task }))
+    return listWorkRecords(day).map((r) => {
+      const interval = workRecordInterval(r)
+      return {
+        time: interval.start.slice(11, 16),
+        startAt: r.startAt,
+        endAt: r.endAt,
+        durationSeconds: Math.max(0, Math.round((interval.endMs - interval.startMs) / 1000)),
+        content: r.content,
+        app: r.app,
+        task: r.task
+      }
+    })
   }
   if (name === 'get_daily_report') {
     const day = typeof args.day === 'string' && args.day ? args.day : todayKey()
     const reports = listReports().filter((r) => r.day === day)
     if (!reports.length) return { day, report: null, note: '这一天还没有生成日报' }
     return { day, title: reports[0].title, report: reports[0].content }
+  }
+  if (name === 'history_status') return historyStatus()
+  if (name === 'history_recent') return historyRecent(historyOptions(args))
+  if (name === 'history_search') return historySearch(historySearchOptions(args))
+  if (name === 'history_summarize') return historySummarize(historyOptions(args))
+  if (name === 'history_pause') return pauseHistory()
+  if (name === 'history_resume') return resumeHistory()
+  if (name === 'history_clear') return clearHistory()
+  if (name === 'history_delete_range') {
+    if (typeof args.from !== 'string' || typeof args.to !== 'string') throw new Error('from 和 to 必须是 ISO 时间字符串')
+    return deleteHistoryRange(historyOptions(args))
   }
   throw new Error(`未知工具：${name}`)
 }
@@ -165,7 +280,7 @@ function rpcError(id: RpcRequest['id'], code: number, message: string): string {
   return JSON.stringify({ jsonrpc: '2.0', id: id ?? null, error: { code, message } })
 }
 
-function handleRpc(req: RpcRequest): { status: number; body: string | null } {
+async function handleRpc(req: RpcRequest): Promise<{ status: number; body: string | null }> {
   const method = req.method ?? ''
   if (method.startsWith('notifications/')) return { status: 202, body: null }
   if (method === 'initialize') {
@@ -185,7 +300,7 @@ function handleRpc(req: RpcRequest): { status: number; body: string | null } {
     const name = typeof req.params?.name === 'string' ? req.params.name : ''
     const args = (req.params?.arguments ?? {}) as Record<string, unknown>
     try {
-      const out = callTool(name, args)
+      const out = await callTool(name, args)
       return {
         status: 200,
         body: rpcResult(req.id, { content: [{ type: 'text', text: JSON.stringify(out, null, 1) }] })
@@ -206,11 +321,7 @@ function handleRpc(req: RpcRequest): { status: number; body: string | null } {
 
 function tokenOk(req: IncomingMessage): boolean {
   const expect = getSettings().mcpToken
-  if (!expect) return false
-  const got = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')
-  const a = Buffer.from(got)
-  const b = Buffer.from(expect)
-  return a.length === b.length && timingSafeEqual(a, b)
+  return bearerTokenMatches(req.headers.authorization, expect)
 }
 
 function onRequest(req: IncomingMessage, res: ServerResponse): void {
@@ -238,14 +349,20 @@ function onRequest(req: IncomingMessage, res: ServerResponse): void {
       res.end(rpcError(null, -32700, '请求不是合法 JSON'))
       return
     }
-    const { status, body: out } = handleRpc(parsed)
-    if (out === null) {
-      res.writeHead(status)
-      res.end()
-    } else {
-      res.writeHead(status, { 'Content-Type': 'application/json' })
-      res.end(out)
-    }
+    void handleRpc(parsed)
+      .then(({ status, body: out }) => {
+        if (out === null) {
+          res.writeHead(status)
+          res.end()
+        } else {
+          res.writeHead(status, { 'Content-Type': 'application/json' })
+          res.end(out)
+        }
+      })
+      .catch((error) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(rpcError(parsed.id, -32603, error instanceof Error ? error.message : String(error)))
+      })
   })
 }
 

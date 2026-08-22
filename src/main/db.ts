@@ -5,10 +5,14 @@ import { randomUUID } from 'crypto'
 import { loadEnv } from './env'
 import { deleteShot } from './shotvault'
 import { localNow, localNowSec } from '@shared/parsing'
-import { dayKey, normalizeTaskKey } from '@shared/work-report'
+import { dayKey, normalizeTaskKey, normalizeTaskLabel } from '@shared/work-report'
 import { buildFtsQuery } from '@shared/fts-query'
 import { firstNonBlank } from '@shared/env-value'
 import { resolveDirectModelSettings } from '@shared/model-configuration'
+import { normalizeHistoryHost } from '@shared/history'
+import { createSqliteHistorySegmentIndex, type HistorySegmentIndex } from './history/segment-index.ts'
+import { createSqliteHistorySummaryIndex, type HistorySummaryIndex } from './history/summary-index.ts'
+import { migrateWorkRecords } from './db-migrations.ts'
 import type {
   AppSettings,
   AppCategoryOverride,
@@ -25,11 +29,15 @@ import type {
   SourceType,
   TaskRecord,
   TaskStatus,
-  WorkRecordSource
+  HistoryDerivedWorkRecordInput,
+  WorkRecordSource,
+  HistoryAppSelection
 } from '@shared/types'
 
 let db: Database.Database
 let ftsReady = false // #52 FTS5 是否可用；不可用则记忆检索退化为 LIKE
+let historySegmentIndex: HistorySegmentIndex | null = null
+let historySummaryIndex: HistorySummaryIndex | null = null
 
 export function initDb(): void {
   db = new Database(join(app.getPath('userData'), 'eshell.db'))
@@ -85,6 +93,13 @@ export function initDb(): void {
       app TEXT,
       task TEXT,
       evidence_source TEXT NOT NULL DEFAULT 'ocr',
+      segment_id TEXT,
+      start_at TEXT,
+      end_at TEXT,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      evidence_count INTEGER NOT NULL DEFAULT 1,
+      summary_hash TEXT,
+      derived_by TEXT NOT NULL DEFAULT 'legacy',
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS app_usage (
@@ -165,11 +180,10 @@ export function initDb(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_ocr_evidence_occurred ON ocr_evidence(occurred_at);
   `)
-  // 老库迁移：work_records 后加 task/source 列（专注归并与证据来源）、personal_memory 后加 base_content（基本画像）
-  const wrCols = (db.prepare('PRAGMA table_info(work_records)').all() as { name: string }[]).map((c) => c.name)
-  if (!wrCols.includes('task')) db.exec('ALTER TABLE work_records ADD COLUMN task TEXT')
-  if (!wrCols.includes('evidence_source'))
-    db.exec("ALTER TABLE work_records ADD COLUMN evidence_source TEXT NOT NULL DEFAULT 'ocr'")
+  historySegmentIndex = createSqliteHistorySegmentIndex(db)
+  historySummaryIndex = createSqliteHistorySummaryIndex(db)
+  // 老库迁移：work_records 只增不删，保留旧 OCR 记录并标记为 legacy。
+  migrateWorkRecords(db)
   const pmCols = (db.prepare('PRAGMA table_info(personal_memory)').all() as { name: string }[]).map((c) => c.name)
   if (!pmCols.includes('base_content'))
     db.exec("ALTER TABLE personal_memory ADD COLUMN base_content TEXT NOT NULL DEFAULT ''")
@@ -219,6 +233,16 @@ export function initDb(): void {
     ftsReady = false // FTS5/trigram 不可用：searchSources 走 LIKE，索引调用变 no-op
     console.error('[memory] FTS5 初始化失败，退化为 LIKE 检索：', e)
   }
+}
+
+export function getHistorySegmentIndex(): HistorySegmentIndex {
+  if (!historySegmentIndex) throw new Error('database has not been initialized')
+  return historySegmentIndex
+}
+
+export function getHistorySummaryIndex(): HistorySummaryIndex {
+  if (!historySummaryIndex) throw new Error('database has not been initialized')
+  return historySummaryIndex
 }
 
 function indexSourceFts(id: string, excerpt: string, content: string | null): void {
@@ -296,6 +320,14 @@ export function getSettings(): AppSettings {
     screenSenseHybridV2: map.screenSenseHybridV2 !== 'false',
     // 排除名单空 = 不排除（不能像关键词那样回退默认词表）
     screenSenseExcludedApps: parseList(map.screenSenseExcludedApps),
+    historyIncludedApps: parseList(map.historyIncludedApps),
+    historyExcludedApps: parseHistoryAppList(map.historyExcludedApps),
+    historyIncludedHosts: parseList(map.historyIncludedHosts)
+      .map((value) => normalizeHistoryHost(value))
+      .filter((value): value is string => value !== null),
+    historyExcludedHosts: parseList(map.historyExcludedHosts)
+      .map((value) => normalizeHistoryHost(value))
+      .filter((value): value is string => value !== null),
     screenSenseKeepShots: map.screenSenseKeepShots === 'true',
     screenSenseRetentionDays: map.screenSenseRetentionDays != null ? Number(map.screenSenseRetentionDays) : 14,
     screenSensePopup: map.screenSensePopup !== 'false',
@@ -308,7 +340,10 @@ export function getSettings(): AppSettings {
     theme: map.theme === 'light' || map.theme === 'dark' ? map.theme : 'system',
     mcpEnabled: map.mcpEnabled === 'true',
     mcpPort: Number(map.mcpPort) || 38999,
-    mcpToken: map.mcpToken ?? ''
+    mcpToken: map.mcpToken ?? '',
+    historyV2Enabled: map.historyV2Enabled === 'true',
+    historyDerivedWorkEnabled: map.historyDerivedWorkEnabled === 'true',
+    historyCaptureText: map.historyCaptureText === 'true'
   }
 }
 
@@ -320,12 +355,61 @@ function parseList(raw: string | undefined): string[] {
     .filter(Boolean)
 }
 
+function parseHistoryAppList(raw: string | undefined): HistoryAppSelection[] {
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    const seen = new Set<string>()
+    return parsed.flatMap((item): HistoryAppSelection[] => {
+      if (!item || typeof item !== 'object') return []
+      const value = item as Record<string, unknown>
+      const bundleId = typeof value.bundleId === 'string' ? value.bundleId.trim() : ''
+      if (!bundleId || seen.has(bundleId.toLowerCase())) return []
+      seen.add(bundleId.toLowerCase())
+      return [{
+        bundleId,
+        name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : bundleId,
+        path: typeof value.path === 'string' ? value.path.trim() : ''
+      }]
+    })
+  } catch {
+    return []
+  }
+}
+
 export function saveSettings(patch: Partial<AppSettings>): void {
   const stmt = db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
   )
   for (const [k, v] of Object.entries(patch)) {
-    if (v !== undefined) stmt.run(k, String(v))
+    if (v === undefined) continue
+    if (k === 'historyIncludedHosts' || k === 'historyExcludedHosts') {
+      const values = Array.isArray(v)
+        ? v.map((item) => normalizeHistoryHost(item)).filter((item): item is string => item !== null)
+        : []
+      stmt.run(k, values.join(','))
+      continue
+    }
+    if (k === 'historyExcludedApps') {
+      const values = Array.isArray(v)
+        ? v.flatMap((item): HistoryAppSelection[] => {
+            if (!item || typeof item !== 'object') return []
+            const value = item as unknown as Record<string, unknown>
+            const bundleId = typeof value.bundleId === 'string' ? value.bundleId.trim() : ''
+            if (!bundleId) return []
+            return [{
+              bundleId,
+              name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : bundleId,
+              path: typeof value.path === 'string' ? value.path.trim() : ''
+            }]
+          })
+        : []
+      const deduped = [...new Map(values.map((item) => [item.bundleId.toLowerCase(), item])).values()]
+      stmt.run(k, JSON.stringify(deduped))
+      continue
+    }
+    stmt.run(k, String(v))
   }
 }
 
@@ -715,52 +799,228 @@ interface WorkRecordRow {
   app: string | null
   task: string | null
   evidence_source?: string | null
+  derived_by?: string | null
+  segment_id?: string | null
+  start_at?: string | null
+  end_at?: string | null
+  confidence?: number | null
+  evidence_count?: number | null
+  summary_hash?: string | null
   created_at: string
 }
-const rowToWorkRecord = (r: WorkRecordRow): WorkRecord => ({
-  id: r.id,
-  content: r.content,
-  app: r.app,
-  task: r.task,
-  source: r.evidence_source === 'accessibility' ? 'accessibility' : 'ocr',
-  createdAt: r.created_at
-})
 
-export function addWorkRecord(w: {
+function rowToWorkRecord(r: WorkRecordRow): WorkRecord {
+  const createdAt = r.created_at
+  return {
+    id: r.id,
+    content: r.content,
+    app: r.app,
+    task: normalizeTaskLabel(r.task),
+    source: r.evidence_source === 'accessibility' ? 'accessibility' : 'ocr',
+    derivedBy: r.derived_by === 'history' ? 'history' : 'legacy',
+    segmentId: r.segment_id ?? null,
+    startAt: r.start_at ?? createdAt,
+    endAt: r.end_at ?? createdAt,
+    confidence: Math.min(1, Math.max(0, Number(r.confidence) || 0)),
+    evidenceCount: Math.max(0, Math.trunc(Number(r.evidence_count) || 0)),
+    summaryHash: r.summary_hash ?? null,
+    createdAt
+  }
+}
+
+function localDateTimeAtPrecise(value: string, fallback = localNow()): string {
+  const timestampMs = Date.parse(value)
+  if (!Number.isFinite(timestampMs)) return fallback
+  const d = new Date(timestampMs)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function normalizeWorkTimestamp(value: string | undefined, fallback: string): string {
+  if (!value) return fallback
+  // Existing callers use local YYYY-MM-DDTHH:mm values. History summaries use
+  // UTC ISO values, which are converted once at the persistence boundary.
+  return value.endsWith('Z') || /[+-]\d\d:?\d\d$/.test(value)
+    ? localDateTimeAtPrecise(value, fallback)
+    : value.slice(0, 19)
+}
+
+function insertWorkRecord(rec: {
+  id: string
   content: string
   app: string | null
-  task?: string | null
-  source?: WorkRecordSource
-  createdAt?: string
+  task: string | null
+  source: WorkRecordSource
+  derivedBy: 'history' | 'legacy'
+  segmentId: string | null
+  startAt: string
+  endAt: string
+  confidence: number
+  evidenceCount: number
+  summaryHash: string | null
+  createdAt: string
 }): WorkRecord {
-  const rec = {
-    id: randomUUID(),
-    content: w.content.slice(0, 200),
-    app: w.app,
-    task: w.task ?? null,
-    source: w.source ?? 'ocr',
-    createdAt: w.createdAt?.slice(0, 16) || localNow()
-  }
   db.prepare(
-    'INSERT INTO work_records (id, content, app, task, evidence_source, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    `INSERT INTO work_records (
+      id, content, app, task, evidence_source, segment_id, start_at, end_at,
+      confidence, evidence_count, summary_hash, derived_by, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     rec.id,
     rec.content,
     rec.app,
     rec.task,
     rec.source,
+    rec.segmentId,
+    rec.startAt,
+    rec.endAt,
+    rec.confidence,
+    rec.evidenceCount,
+    rec.summaryHash,
+    rec.derivedBy,
     rec.createdAt
   )
   db.prepare(
-    'DELETE FROM work_records WHERE id NOT IN (SELECT id FROM work_records ORDER BY created_at DESC LIMIT ?)'
+    'DELETE FROM work_records WHERE id NOT IN (SELECT id FROM work_records ORDER BY COALESCE(end_at, created_at) DESC LIMIT ?)'
   ).run(WORK_RECORDS_CAP)
-  return rec
+  return rowToWorkRecord({
+    id: rec.id,
+    content: rec.content,
+    app: rec.app,
+    task: rec.task,
+    evidence_source: rec.source,
+    derived_by: rec.derivedBy,
+    segment_id: rec.segmentId,
+    start_at: rec.startAt,
+    end_at: rec.endAt,
+    confidence: rec.confidence,
+    evidence_count: rec.evidenceCount,
+    summary_hash: rec.summaryHash,
+    created_at: rec.createdAt
+  })
+}
+
+export function addWorkRecord(w: {
+  content: string
+  app: string | null
+  task?: string | null
+  source?: WorkRecordSource
+  derivedBy?: 'legacy'
+  startAt?: string
+  endAt?: string
+  confidence?: number
+  evidenceCount?: number
+  segmentId?: string | null
+  summaryHash?: string | null
+  createdAt?: string
+}): WorkRecord {
+  const createdAt = w.createdAt?.slice(0, 19) || localNow()
+  const rec = {
+    id: randomUUID(),
+    content: w.content.slice(0, 200),
+    app: w.app,
+    task: normalizeTaskLabel(w.task),
+    source: w.source ?? 'ocr',
+    derivedBy: w.derivedBy ?? 'legacy' as const,
+    segmentId: w.segmentId ?? null,
+    startAt: normalizeWorkTimestamp(w.startAt, createdAt),
+    endAt: normalizeWorkTimestamp(w.endAt, normalizeWorkTimestamp(w.startAt, createdAt)),
+    confidence: Math.min(1, Math.max(0, Number(w.confidence) || 0.5)),
+    evidenceCount: Math.max(0, Math.trunc(Number(w.evidenceCount) || 1)),
+    summaryHash: w.summaryHash ?? null,
+    createdAt
+  }
+  return insertWorkRecord(rec)
+}
+
+/** Upsert one History-derived record by segment; a changed summary updates in place. */
+export function upsertHistoryWorkRecord(input: HistoryDerivedWorkRecordInput): WorkRecord {
+  const fallback = localNow()
+  const startAt = normalizeWorkTimestamp(input.startAt, fallback)
+  const endAt = normalizeWorkTimestamp(input.endAt, startAt)
+  const content = input.content.slice(0, 200)
+  const app = input.app?.slice(0, 80) ?? null
+  const task = normalizeTaskLabel(input.task)
+  const confidence = Math.min(1, Math.max(0, Number(input.confidence) || 0))
+  const evidenceCount = Math.max(0, Math.trunc(Number(input.evidenceCount) || 0))
+  const existing = db.prepare(
+    "SELECT * FROM work_records WHERE derived_by = 'history' AND segment_id = ? LIMIT 1"
+  ).get(input.segmentId) as WorkRecordRow | undefined
+  if (existing) {
+    const unchanged =
+      existing.content === content &&
+      existing.app === app &&
+      existing.task === task &&
+      existing.start_at === startAt &&
+      existing.end_at === endAt &&
+      Number(existing.confidence) === confidence &&
+      Number(existing.evidence_count) === evidenceCount &&
+      existing.summary_hash === input.summaryHash
+    if (!unchanged) {
+      db.prepare(
+        `UPDATE work_records
+         SET content = ?, app = ?, task = ?, start_at = ?, end_at = ?,
+             confidence = ?, evidence_count = ?, summary_hash = ?, created_at = ?
+         WHERE id = ?`
+      ).run(content, app, task, startAt, endAt, confidence, evidenceCount, input.summaryHash, endAt, existing.id)
+    }
+    return rowToWorkRecord({
+      ...existing,
+      content,
+      app,
+      task,
+      start_at: startAt,
+      end_at: endAt,
+      confidence,
+      evidence_count: evidenceCount,
+      summary_hash: input.summaryHash,
+      created_at: endAt
+    })
+  }
+
+  return insertWorkRecord({
+    id: `history-work-${input.segmentId}`,
+    content,
+    app,
+    task,
+    source: 'accessibility',
+    derivedBy: 'history',
+    segmentId: input.segmentId,
+    startAt,
+    endAt,
+    confidence,
+    evidenceCount,
+    summaryHash: input.summaryHash,
+    createdAt: endAt
+  })
+}
+
+/** Remove only the current derived record; legacy OCR records are untouched. */
+export function removeHistoryWorkRecord(segmentId: string): void {
+  db.prepare("DELETE FROM work_records WHERE derived_by = 'history' AND segment_id = ?").run(segmentId)
+}
+
+/** Remove History-derived records for a set of segments and return actual row ids. */
+export function removeHistoryWorkRecords(segmentIds: string[]): string[] {
+  const ids = [...new Set(segmentIds.filter((id) => typeof id === 'string' && id.length > 0))]
+  if (!ids.length) return []
+  const select = db.prepare("SELECT id FROM work_records WHERE derived_by = 'history' AND segment_id = ?")
+  const remove = db.prepare("DELETE FROM work_records WHERE derived_by = 'history' AND segment_id = ?")
+  const deleted: string[] = []
+  db.transaction((values: string[]) => {
+    for (const segmentId of values) {
+      const rows = select.all(segmentId) as { id: string }[]
+      for (const row of rows) deleted.push(row.id)
+      remove.run(segmentId)
+    }
+  })(ids)
+  return deleted
 }
 
 /** 某天（YYYY-MM-DD）的工作记录，按时间正序。 */
 export function listWorkRecords(day: string): WorkRecord[] {
   const rows = db
-    .prepare('SELECT * FROM work_records WHERE created_at LIKE ? ORDER BY created_at')
+    .prepare('SELECT * FROM work_records WHERE COALESCE(start_at, created_at) LIKE ? ORDER BY COALESCE(start_at, created_at), created_at')
     .all(`${day}%`) as WorkRecordRow[]
   return rows.map(rowToWorkRecord)
 }
@@ -847,7 +1107,19 @@ export function upsertActivitySegment(segment: ActivityHistorySegmentRecord): vo
       trigger_reasons = excluded.trigger_reasons,
       summary = excluded.summary,
       closed = excluded.closed,
-      updated_at = excluded.updated_at`
+      updated_at = excluded.updated_at
+    WHERE activity_segments.bucket_end IS NOT excluded.bucket_end
+      OR activity_segments.first_event_at IS NOT excluded.first_event_at
+      OR activity_segments.last_event_at IS NOT excluded.last_event_at
+      OR activity_segments.event_count IS NOT excluded.event_count
+      OR activity_segments.meaningful_event_count IS NOT excluded.meaningful_event_count
+      OR activity_segments.semantic_complete_count IS NOT excluded.semantic_complete_count
+      OR activity_segments.semantic_partial_count IS NOT excluded.semantic_partial_count
+      OR activity_segments.semantic_empty_count IS NOT excluded.semantic_empty_count
+      OR activity_segments.ocr_evidence_count IS NOT excluded.ocr_evidence_count
+      OR activity_segments.trigger_reasons IS NOT excluded.trigger_reasons
+      OR activity_segments.summary IS NOT excluded.summary
+      OR activity_segments.closed IS NOT excluded.closed`
   ).run(
     segment.id,
     segment.bucketKind,
@@ -895,6 +1167,34 @@ export function listActivitySegments(limit = 40): ActivityHistorySegmentRecord[]
   const rows = db
     .prepare('SELECT * FROM activity_segments ORDER BY bucket_start DESC LIMIT ?')
     .all(limit) as Array<Record<string, unknown>>
+  return rows.map((row) => ({
+    id: String(row.id),
+    bucketKind: String(row.bucket_kind) as '10m' | '6h',
+    bucketStart: String(row.bucket_start),
+    bucketEnd: String(row.bucket_end),
+    firstEventAt: String(row.first_event_at),
+    lastEventAt: String(row.last_event_at),
+    eventCount: Number(row.event_count),
+    meaningfulEventCount: Number(row.meaningful_event_count),
+    semanticCompleteCount: Number(row.semantic_complete_count),
+    semanticPartialCount: Number(row.semantic_partial_count),
+    semanticEmptyCount: Number(row.semantic_empty_count),
+    ocrEvidenceCount: Number(row.ocr_evidence_count),
+    triggerReasons: JSON.parse(String(row.trigger_reasons || '[]')) as string[],
+    summary: String(row.summary),
+    closed: Number(row.closed) === 1,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  }))
+}
+
+/** Aggregate legacy segments for a bounded rollout comparison window. */
+export function listActivitySegmentsSince(fromIso: string, toIso: string): ActivityHistorySegmentRecord[] {
+  const rows = db
+    .prepare(
+      "SELECT * FROM activity_segments WHERE bucket_kind = '10m' AND bucket_end > ? AND bucket_start < ? ORDER BY bucket_start"
+    )
+    .all(fromIso, toIso) as Array<Record<string, unknown>>
   return rows.map((row) => ({
     id: String(row.id),
     bucketKind: String(row.bucket_kind) as '10m' | '6h',
@@ -1089,7 +1389,7 @@ export function listFocusTaskPrefs(): FocusTaskPref[] {
 }
 
 export function addFocusTask(name: string): void {
-  const n = name.trim().slice(0, 60)
+  const n = normalizeTaskLabel(name, 60)
   if (!n) return
   db.prepare(
     'INSERT INTO focus_tasks (name, hidden, custom, created_at) VALUES (?, 0, 1, ?) ON CONFLICT(name) DO UPDATE SET hidden = 0'
@@ -1098,9 +1398,11 @@ export function addFocusTask(name: string): void {
 
 /** 「删除」一个任务：标记隐藏（不进展示、不进模型候选）。 */
 export function hideFocusTask(name: string): void {
+  const n = normalizeTaskLabel(name, 60)
+  if (!n) return
   db.prepare(
     'INSERT INTO focus_tasks (name, hidden, custom, created_at) VALUES (?, 1, 0, ?) ON CONFLICT(name) DO UPDATE SET hidden = 1'
-  ).run(name, localNow())
+  ).run(n, localNow())
 }
 
 /** 模型的任务名候选：近 3 天出现过的任务 + 用户自定义，剔除隐藏，最多 12 个。 */
@@ -1112,7 +1414,7 @@ export function listFocusTaskCandidates(): string[] {
   const derived = (
     db
       .prepare(
-        'SELECT DISTINCT task FROM work_records WHERE task IS NOT NULL AND created_at >= ? ORDER BY created_at DESC'
+        'SELECT DISTINCT task FROM work_records WHERE task IS NOT NULL AND COALESCE(start_at, created_at) >= ? ORDER BY COALESCE(start_at, created_at) DESC'
       )
       .all(sinceKey) as { task: string }[]
   ).map((r) => r.task)
@@ -1136,7 +1438,7 @@ export function listFocusTaskCandidates(): string[] {
 /** 近 N 天工作记录（供个人记忆归纳/活动时间线）。 */
 export function listWorkRecordsSince(sinceDay: string): WorkRecord[] {
   const rows = db
-    .prepare('SELECT * FROM work_records WHERE created_at >= ? ORDER BY created_at')
+    .prepare('SELECT * FROM work_records WHERE COALESCE(start_at, created_at) >= ? ORDER BY COALESCE(start_at, created_at), created_at')
     .all(sinceDay) as WorkRecordRow[]
   return rows.map(rowToWorkRecord)
 }
@@ -1149,7 +1451,7 @@ export function exportRange(fromDay: string, toDay: string): Record<string, unkn
     range: { from: fromDay, to: toDay },
     workRecords: (
       db
-        .prepare('SELECT * FROM work_records WHERE created_at >= ? AND created_at <= ? ORDER BY created_at')
+        .prepare('SELECT * FROM work_records WHERE COALESCE(start_at, created_at) >= ? AND COALESCE(start_at, created_at) <= ? ORDER BY COALESCE(start_at, created_at), created_at')
         .all(fromDay, hi) as WorkRecordRow[]
     ).map(rowToWorkRecord),
     reports: db
@@ -1168,7 +1470,7 @@ export function exportRange(fromDay: string, toDay: string): Record<string, unkn
 
 export function wipeAll(): void {
   db.exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories; DELETE FROM detection_notes; DELETE FROM activity_segments; DELETE FROM ocr_evidence;'
+    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories; DELETE FROM detection_notes; DELETE FROM activity_segments; DELETE FROM ocr_evidence; DELETE FROM history_summaries;'
   )
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   db.pragma('wal_checkpoint(TRUNCATE)')
@@ -1178,7 +1480,7 @@ export function wipeAll(): void {
 /** 清空「记忆」：来源历史(sources+FTS)、屏幕识别历史(detections)、工作记录与个人画像。保留任务/档案/日报。 */
 export function wipeMemory(): void {
   db.exec(
-    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM detection_notes; DELETE FROM activity_segments; DELETE FROM ocr_evidence;'
+    'DELETE FROM sources; DELETE FROM sources_fts; DELETE FROM detections; DELETE FROM work_records; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM detection_notes; DELETE FROM activity_segments; DELETE FROM ocr_evidence; DELETE FROM history_summaries;'
   )
   db.pragma('wal_checkpoint(TRUNCATE)')
   db.exec('VACUUM')

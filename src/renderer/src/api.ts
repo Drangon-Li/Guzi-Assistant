@@ -16,8 +16,18 @@ import type {
   SourceRecord,
   TaskRecord,
   TaskStatus,
-  WorkRecord
+  WorkRecord,
+  HistoryAppSelection
 } from '@shared/types'
+import type {
+  HistoryDeleteResult,
+  HistoryQueryOptions,
+  HistoryRecentResult,
+  HistorySearchOptions,
+  HistorySearchResult,
+  HistoryStatus,
+  HistorySummarizeResult
+} from '@shared/history'
 import type {
   AddedInfo,
   AssistantTurnResult,
@@ -74,6 +84,15 @@ export const api = {
 
   screenScan: () => inv<ScanResult>('screen:scan'),
   screenActivityStatus: () => inv<ScreenActivityStatus>('screen:activity-status'),
+  historyStatus: () => inv<HistoryStatus>('history:status'),
+  historyRecent: (options: HistoryQueryOptions = {}) => inv<HistoryRecentResult>('history:recent', options),
+  historySearch: (options: HistorySearchOptions = {}) => inv<HistorySearchResult>('history:search', options),
+  historySummarize: (options: HistoryQueryOptions = {}) => inv<HistorySummarizeResult>('history:summarize', options),
+  historyPause: () => inv<HistoryStatus>('history:pause'),
+  historyResume: () => inv<HistoryStatus>('history:resume'),
+  historyClear: () => inv<HistoryDeleteResult>('history:clear'),
+  historyDeleteRange: (options: HistoryQueryOptions) => inv<HistoryDeleteResult>('history:delete-range', options),
+  historyPickApps: () => inv<HistoryAppSelection[] | null>('history:pick-apps'),
   suggestionAccept: (payload: { item: ParsedItem; sourceText: string }) =>
     inv<AddedInfo>('suggestion:accept', payload),
   acceptLocal: (payload: { item: ParsedItem; sourceText: string; detectionId?: string }) =>

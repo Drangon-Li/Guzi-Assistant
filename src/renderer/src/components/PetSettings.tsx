@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { Toggle } from './ui'
 
 const SCALE_OPTIONS = [
   { label: '迷你', value: 0.3 },
@@ -29,11 +30,10 @@ export default function PetSettings(): React.JSX.Element {
     <div className="flex flex-col gap-3 text-sm">
       <label className="flex items-center justify-between gap-4">
         <span className="text-slate-500">显示桌宠</span>
-        <input
-          type="checkbox"
+        <Toggle
           checked={enabled}
-          onChange={(e) => {
-            const v = e.target.checked
+          ariaLabel="显示桌宠"
+          onChange={(v) => {
             setEnabled(v)
             void api.petSetEnabled(v)
           }}
@@ -59,11 +59,10 @@ export default function PetSettings(): React.JSX.Element {
       </label>
       <label className="flex items-center justify-between gap-4">
         <span className="text-slate-500">暂停（变暗冻结）</span>
-        <input
-          type="checkbox"
+        <Toggle
           checked={paused}
-          onChange={(e) => {
-            const v = e.target.checked
+          ariaLabel="暂停桌宠"
+          onChange={(v) => {
             setPaused(v)
             void api.petSetPaused(v)
           }}
@@ -76,11 +75,10 @@ export default function PetSettings(): React.JSX.Element {
             处理中 / 发现日程 / 久坐提醒（连续使用 50 分钟）等主动气泡
           </span>
         </span>
-        <input
-          type="checkbox"
+        <Toggle
           checked={bubbles}
-          onChange={(e) => {
-            const v = e.target.checked
+          ariaLabel="气泡提醒"
+          onChange={(v) => {
             setBubbles(v)
             void api.petSetBubbles(v)
           }}

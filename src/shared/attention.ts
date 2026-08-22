@@ -13,6 +13,7 @@ import type {
   AppUsageEntry,
   WorkRecord
 } from './types'
+import { normalizeTaskKey, workRecordInterval } from './work-report.ts'
 
 /** 大众平均屏幕注意力持续时长基准（秒），Mark et al. CHI 2016。 */
 export const ATTENTION_BASELINE_SEC = 47
@@ -150,8 +151,8 @@ export interface FocusRun {
 }
 
 /**
- * 专注段：工作记录中专注类应用的连续段（相邻间隔 ≤ gapMinutes），
- * 段时长 = 末条-首条 + 1 分钟（单条也算 1 分钟，与 focusDurations 口径一致）。
+ * 专注段：工作记录中专注类应用的连续段（相邻间隔 ≤ gapMinutes）。
+ * History 记录使用真实 startAt/endAt；旧记录才保留一条记录约 1 分钟的兼容口径。
  */
 export function productiveRuns(
   records: WorkRecord[],
@@ -160,27 +161,35 @@ export function productiveRuns(
 ): FocusRun[] {
   const sorted = records
     .filter((r) => r.app && cat(r.app) === 'productive')
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map((record) => ({ record, interval: workRecordInterval(record) }))
+    .sort((a, b) => a.interval.startMs - b.interval.startMs || a.record.id.localeCompare(b.record.id))
   const runs: FocusRun[] = []
   let start = ''
   let end = ''
+  let startMs = 0
+  let endMs = 0
   const flush = (): void => {
     if (!start) return
     runs.push({
       start,
       end,
-      seconds: Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000 + 60)
+      seconds: Math.max(0, Math.round((endMs - startMs) / 1000))
     })
     start = ''
   }
-  for (const r of sorted) {
-    if (start && new Date(r.createdAt).getTime() - new Date(end).getTime() <= gapMinutes * 60_000) {
-      end = r.createdAt
+  for (const { interval } of sorted) {
+    if (start && interval.startMs - endMs <= gapMinutes * 60_000) {
+      if (interval.endMs > endMs) {
+        end = interval.end
+        endMs = interval.endMs
+      }
       continue
     }
     flush()
-    start = r.createdAt
-    end = r.createdAt
+    start = interval.start
+    end = interval.end
+    startMs = interval.startMs
+    endMs = interval.endMs
   }
   flush()
   return runs
@@ -207,9 +216,9 @@ export function longestRunSeconds(runs: FocusRun[]): number {
  */
 export function taskSwitchCount(records: WorkRecord[]): number {
   const tasks = records
-    .filter((r) => r.task)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .map((r) => r.task)
+    .filter((r) => !!r.task && normalizeTaskKey(r.task).length > 0)
+    .sort((a, b) => workRecordInterval(a).startMs - workRecordInterval(b).startMs)
+    .map((r) => normalizeTaskKey(r.task!))
   let n = 0
   for (let i = 1; i < tasks.length; i++) if (tasks[i] !== tasks[i - 1]) n++
   return n
