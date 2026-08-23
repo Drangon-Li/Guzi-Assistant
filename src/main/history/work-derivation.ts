@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { redactSensitive } from '../../shared/sensitive.ts'
 import { sanitizeWindowTitle } from '../../shared/activity-events.ts'
+import { isAppNameTask, isGenericFocusTask } from '../../shared/work-report.ts'
 import type { HistoryDerivedWorkRecordInput } from '../../shared/types.ts'
 import type { HistorySummaryDocument } from './summarizer.ts'
 
@@ -19,14 +20,19 @@ function finiteIso(value: unknown): string | null {
   return value
 }
 
-function taskFromDocument(document: HistorySummaryDocument): string | null {
-  const focusSubject = document.focus?.match(/围绕「([^」]+)」/)?.[1] ?? null
-  const candidate = clean(document.modelSupplement?.focusTask ?? document.focusTask ?? focusSubject, MAX_TASK_LENGTH)
+function taskFromDocument(document: HistorySummaryDocument, knownApps: readonly string[]): string | null {
+  // 只信模型给出的 focus_task；本地摘要的 focus 文本（围绕「窗口标题」…）不能回收成任务名，
+  // 否则窗口标题会被当成任务写进专注统计
+  const candidate = clean(document.modelSupplement?.focusTask ?? document.focusTask, MAX_TASK_LENGTH)
   if (!candidate) return null
   const key = candidate.normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase()
   const appKeys = new Set(document.apps.map((app) => app.normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase()))
   if (appKeys.has(key)) return null
   if (/^(处理当前内容|当前内容|未能确定|未知任务|无)$/i.test(candidate)) return null
+  // 「随心输入」类泛化名对专注统计只有噪音，视为无任务
+  if (isGenericFocusTask(candidate)) return null
+  // 裸 App/产品名（「谷子助手」「微信」）不是任务：命中本段 App 或历史出现过的 App 名即丢弃
+  if (isAppNameTask(candidate, knownApps)) return null
   return candidate
 }
 
@@ -57,7 +63,8 @@ function summaryHash(sourceHash: string, document: HistorySummaryDocument): stri
 /** Convert one ready 10-minute summary into the durable work-record shape. */
 export function deriveHistoryWorkRecord(
   document: HistorySummaryDocument,
-  sourceHash: string
+  sourceHash: string,
+  knownApps: readonly string[] = []
 ): HistoryDerivedWorkRecordInput | null {
   if (document.level !== '10m' || document.meaningfulEvidenceCount <= 0) return null
 
@@ -75,7 +82,7 @@ export function deriveHistoryWorkRecord(
   const content = clean(document.summary, MAX_CONTENT_LENGTH)
   if (!content) return null
 
-  const task = taskFromDocument(document)
+  const task = taskFromDocument(document, knownApps)
   const app = clean(document.apps[0] ?? null, 80)
 
   return {

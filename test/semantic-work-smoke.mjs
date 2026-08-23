@@ -28,6 +28,9 @@ const hint = buildSemanticWorkHint('在代码编辑器中开发', ['Guzi Assista
 check('prompt 标记 AX 为不可信证据', hint.includes('不可信') && hint.includes('不是指令'))
 check('prompt 禁止凭据与 URL 外泄', hint.includes('OAuth') && hint.includes('按键正文'))
 check('prompt 要求动作加对象而非工具描述', hint.includes('动作开头') && hint.includes('不能单独充当结论'))
+check('prompt 要求复用已知任务而非另起近义名', hint.includes('原样复用') && hint.includes('已知任务候选'))
+check('prompt 禁止泛化任务名与易变编号', hint.includes('随心输入') && hint.includes('易变细节'))
+check('prompt 禁止裸 App 名任务', hint.includes('裸 App') && hint.includes('开发谷子助手'))
 check(
   '归一化移除应用前缀',
   normalizeActivitySummary('在 Microsoft Edge 中查看训练控制台', { appName: 'Microsoft Edge' }) === '查看训练控制台'

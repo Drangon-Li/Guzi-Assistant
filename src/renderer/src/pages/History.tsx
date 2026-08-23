@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AppSettings, HistoryAppSelection } from '@shared/types'
 import {
-  normalizeHistoryHost,
   type HistoryActivityStat,
   type HistoryDeleteResult,
   type HistoryRecentResult,
@@ -191,14 +190,8 @@ export default function History(): React.JSX.Element {
   const [range, setRange] = useState(initialRange)
   const [rangeDraft, setRangeDraft] = useState(initialRange)
   const [preset, setPreset] = useState<Preset>('all')
-  const [queryDraft, setQueryDraft] = useState('')
-  const [appDraft, setAppDraft] = useState('')
-  const [query, setQuery] = useState('')
-  const [app, setApp] = useState('')
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [excludedApps, setExcludedApps] = useState<HistoryAppSelection[]>([])
-  const [includedHostDraft, setIncludedHostDraft] = useState('')
-  const [excludedHostDraft, setExcludedHostDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -225,10 +218,7 @@ export default function History(): React.JSX.Element {
     setLoading(true)
     setError(null)
     try {
-      const options = { from, to, limit: 80, includeSegments: true }
-      const next = query || app
-        ? await api.historySearch({ ...options, query, app })
-        : await api.historyRecent(options)
+      const next = await api.historyRecent({ from, to, limit: 80, includeSegments: true })
       setResult(next)
       await loadStatus()
     } catch (reason) {
@@ -236,14 +226,12 @@ export default function History(): React.JSX.Element {
     } finally {
       setLoading(false)
     }
-  }, [app, loadStatus, query, range.from, range.to])
+  }, [loadStatus, range.from, range.to])
 
   useEffect(() => {
     void api.getSettings().then((next) => {
       setSettings(next)
       setExcludedApps(next.historyExcludedApps ?? [])
-      setIncludedHostDraft((next.historyIncludedHosts ?? []).join('、'))
-      setExcludedHostDraft((next.historyExcludedHosts ?? []).join('、'))
     })
     void loadHistory()
     const timer = window.setInterval(() => {
@@ -274,12 +262,6 @@ export default function History(): React.JSX.Element {
     setPreset(next)
     setRangeDraft(nextRange)
     setRange(nextRange)
-  }
-
-  const submitSearch = (event: React.FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    setQuery(queryDraft.trim())
-    setApp(appDraft.trim())
   }
 
   const togglePause = async (): Promise<void> => {
@@ -396,31 +378,6 @@ export default function History(): React.JSX.Element {
     await saveExcludedApps(next, '已移除历史 App 黑名单项')
   }
 
-  const parseHostList = (value: string): string[] => [...new Set(
-    value
-      .split(/[,，、;；\s]+/)
-      .map((item) => normalizeHistoryHost(item))
-      .filter((item): item is string => item !== null)
-  )]
-
-  const saveIncludedHosts = async (): Promise<void> => {
-    const list = parseHostList(includedHostDraft)
-    const ok = await api.saveSettings({ historyIncludedHosts: list })
-    if (ok) {
-      setSettings((current) => current ? { ...current, historyIncludedHosts: list } : current)
-      setNotice(list.length ? '已保存网站 include 名单' : '已清空网站 include 名单')
-    } else setError('保存网站 include 名单失败')
-  }
-
-  const saveExcludedHosts = async (): Promise<void> => {
-    const list = parseHostList(excludedHostDraft)
-    const ok = await api.saveSettings({ historyExcludedHosts: list })
-    if (ok) {
-      setSettings((current) => current ? { ...current, historyExcludedHosts: list } : current)
-      setNotice(list.length ? '已保存网站排除名单' : '已清空网站排除名单')
-    } else setError('保存网站排除名单失败')
-  }
-
   const dayGroups = useMemo(() => {
     const groups = new Map<string, HistorySummaryView[]>()
     for (const item of result?.tenMinute ?? []) {
@@ -467,7 +424,7 @@ export default function History(): React.JSX.Element {
               ['all', '48 小时']
             ]}
           />
-          <form className="flex flex-wrap items-center gap-2 text-xs" onSubmit={submitSearch}>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
             <input
               type="datetime-local"
               value={rangeDraft.from}
@@ -484,22 +441,7 @@ export default function History(): React.JSX.Element {
             <button type="button" onClick={applyRange} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
               应用范围
             </button>
-            <input
-              value={queryDraft}
-              onChange={(event) => setQueryDraft(event.target.value)}
-              placeholder="搜索任务线索或窗口主题"
-              className="min-w-48 rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
-            />
-            <input
-              value={appDraft}
-              onChange={(event) => setAppDraft(event.target.value)}
-              placeholder="仅显示 App"
-              className="w-32 rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
-            />
-            <button type="submit" className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark">
-              筛选
-            </button>
-          </form>
+          </div>
         </div>
         {settings && (
           <div className="mt-4 border-t border-slate-100 pt-3">
@@ -524,31 +466,6 @@ export default function History(): React.JSX.Element {
             ) : (
               <p className="mt-2 text-[11px] text-slate-400">尚未排除任何 App。</p>
             )}
-            <label className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-              <span className="shrink-0 text-slate-500">只采集网站 host</span>
-              <input
-                value={includedHostDraft}
-                onChange={(event) => setIncludedHostDraft(event.target.value)}
-                placeholder="如：docs.example.com，留空 = 不限网站"
-                className="min-w-64 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
-              />
-              <button type="button" onClick={() => void saveIncludedHosts()} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
-                保存网站 include
-              </button>
-            </label>
-            <label className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-              <span className="shrink-0 text-slate-500">采集排除网站 host</span>
-              <input
-                value={excludedHostDraft}
-                onChange={(event) => setExcludedHostDraft(event.target.value)}
-                placeholder="如：private.example.com"
-                className="min-w-64 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
-              />
-              <button type="button" onClick={() => void saveExcludedHosts()} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
-                保存网站排除
-              </button>
-            </label>
-            <p className="mt-1.5 text-[11px] text-slate-400">网站规则只比较 http/https 的 host，可匹配子域名；完整 URL、路径和查询参数会被拒绝，也不会保存。没有 host 的普通 App 事件不受网站 include 影响。</p>
           </div>
         )}
       </Section>
@@ -590,14 +507,22 @@ export default function History(): React.JSX.Element {
       ) : (
         <>
           <Section title="6 小时摘要" desc="汇总 10 分钟工作焦点和进展，不重新读取原始事件。">
-            {result?.sixHour.length ? result.sixHour.map((item) => <SummaryCard key={item.id} item={item} />) : <ResultEmpty enabled={enabled} />}
+            {result?.sixHour.length ? (
+              // 只露出约 2 个摘要块的高度，其余滚动查看，避免一口气撑满整页
+              <div className="max-h-[22rem] overflow-y-auto">
+                {result.sixHour.map((item) => <SummaryCard key={item.id} item={item} />)}
+              </div>
+            ) : <ResultEmpty enabled={enabled} />}
           </Section>
 
           <Section title="10 分钟活动块" desc="优先展示这一时段的主要工作与进展；App、事件类型和来源仅作为可展开证据。">
             {dayGroups.length ? dayGroups.map(([day, items]) => (
               <div key={day}>
                 <h3 className="border-b border-slate-100 py-2 text-xs font-medium text-slate-500">{day === 'unknown' ? '未知日期' : formatDate(`${day}T12:00:00`)}</h3>
-                {items.map((item) => <SummaryCard key={item.id} item={item} compact />)}
+                {/* 每天只露出约 2 个活动块的高度，其余在块内滚动 */}
+                <div className="max-h-[17rem] overflow-y-auto">
+                  {items.map((item) => <SummaryCard key={item.id} item={item} compact />)}
+                </div>
               </div>
             )) : <ResultEmpty enabled={enabled} />}
           </Section>

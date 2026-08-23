@@ -87,13 +87,6 @@ function eventToAccelerator(e: KeyboardEvent): string | null {
   return [...mods, key].join('+')
 }
 
-function splitList(s: string): string[] {
-  return s
-    .split(/[,，、;；\s]+/)
-    .map((x) => x.trim())
-    .filter(Boolean)
-}
-
 
 export default function Settings({ onProfileChange }: Props): React.JSX.Element {
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -683,6 +676,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                 />
               </label>
               {activityStatus && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer select-none text-xs text-slate-400">
+                    运行状态详情（调试用，一般无需查看）
+                  </summary>
                 <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400">
                   <span>
                     观察器：
@@ -750,6 +747,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                     <span className="col-span-2 text-amber-600">Collector：{activityStatus.collectorDetail}</span>
                   )}
                 </div>
+                </details>
               )}
             </div>
             <div>
@@ -894,23 +892,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                   <p className="text-xs leading-5 text-slate-400">
                     事件驱动开启时，此间隔只检查是否需要扫描，不会每轮都截图。连续 60 秒无键鼠输入、锁屏或睡眠时不计应用时长。可在菜单栏随时暂停，暂停会取消尚未完成的云端解析。
                   </p>
-                  <label className="mt-1 flex flex-col gap-1 text-sm">
-                    <span className="text-slate-500">不监控的应用（逗号或顿号分隔）</span>
-                    <input
-                      className={input}
-                      placeholder="如：1Password、微信、网银"
-                      defaultValue={settings.screenSenseExcludedApps.join('、')}
-                      onBlur={async (e) => {
-                        const list = splitList(e.target.value)
-                        setSettings({ ...settings, screenSenseExcludedApps: list })
-                        await api.saveSettings({ screenSenseExcludedApps: list })
-                        flash('已保存应用排除名单')
-                      }}
-                    />
-                    <span className="text-xs text-slate-400">
-                      这些应用在前台时不截图、不保存窗口标题；应用使用时长仍按名称统计。中英文名称可都填（如 微信 / WeChat）。
-                    </span>
-                  </label>
 
                   <div className="mt-2 border-t border-slate-100 pt-3">
                     <label className="flex items-center justify-between gap-4 text-sm">

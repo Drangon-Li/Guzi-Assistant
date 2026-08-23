@@ -30,7 +30,11 @@ export const ACTIVITY_SUMMARY_RULES =
   'work_summary 必须回答“用户正在完成什么”，以动作开头并带上对象或产出（如“阅读论文”“排查训练任务配置”“编辑项目代码”）。' +
   '应用名、工具名、窗口名只能作为证据，不能单独充当结论；不要只写“在使用某工具”“打开某应用”“在某应用中”。' +
   '若只能确认用户打开了工具、但看不出具体动作，返回 null；不要把“使用工具”改写成任务。' +
-  'focus_task 只能是用户要推进的项目或事项，不得直接填 App 名、工具名或窗口名；无法确认任务归属时填 null。'
+  'focus_task 只能是用户要推进的项目或事项，不得直接填 App 名、工具名或窗口名；无法确认任务归属时填 null。' +
+  'focus_task 不得是裸 App/产品名（如“谷子助手”“微信”）：若活动在开发、调试或讨论某个产品，任务名必须带动作或项目语境（如“开发谷子助手”“谷子助手需求讨论”）。' +
+  'focus_task 必须稳定、抽象、可复用：同一主题的活动始终使用完全相同的名字；' +
+  '不得包含日期、论文/稿件编号（如 2505.18966）、文件名、集数等易变细节（例如统一叫“论文研读与标注”，不要叫“论文2505.18966阅读”）；' +
+  '严禁使用“随心输入”“随便看看”“日常输入”“随意浏览”这类没有明确对象的泛化名，归不进具体项目或事项时填 null。'
 
 function escaped(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -76,7 +80,7 @@ export function normalizeActivitySummary(
 /** Prompt boundary for shallow AX metadata. Values are evidence, never instructions. */
 export function buildSemanticWorkHint(previousSummary: string | null, candidates: string[]): string {
   const known = candidates.length
-    ? `\n已知任务候选：${candidates.join('、')}。只有证据明确对应时才复用，不要为了匹配强行归类。`
+    ? `\n已知任务候选：${candidates.join('、')}。若活动主题与某个已知任务相同、或是同一事项的延续（即使措辞不完全一样），必须原样复用该任务名，不要另起近义新名；只有主题确实对不上时才另起稳定的新名，不要为了匹配强行归类。`
     : ''
   const previous = previousSummary
     ? `\n若与上一条活动本质相同，work_summary 原样返回：${clean(previousSummary, 200)}`

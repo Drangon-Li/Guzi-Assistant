@@ -98,15 +98,15 @@ export default function Reports(): React.JSX.Element {
   const dayReports = reports.filter((r) => r.day === day)
 
   // 任务专注：本地聚合 + 用户偏好（隐藏剔除、自定义补零显示）
-  // 匹配按归一键——展示名可能随数据变化取到不同变体，用原始串比会漏掉隐藏/去重
+  // 隐藏匹配命中归并组内任一写法——展示名可能随数据变化取到不同变体，只比展示串会漏隐藏
   const hidden = new Set(taskPrefs.filter((p) => p.hidden).map((p) => normalizeTaskKey(p.name)))
-  const durations = focusDurations(records).filter((d) => !hidden.has(normalizeTaskKey(d.task)))
-  const shownKeys = new Set(durations.map((d) => normalizeTaskKey(d.task)))
+  const durations = focusDurations(records).filter((d) => !d.taskKeys.some((k) => hidden.has(k)))
+  const shownKeys = new Set(durations.flatMap((d) => d.taskKeys))
   const focusList = [
     ...durations,
     ...taskPrefs
       .filter((p) => p.custom && !p.hidden && !shownKeys.has(normalizeTaskKey(p.name)))
-      .map((p) => ({ task: p.name, seconds: 0, startAt: null, endAt: null }))
+      .map((p) => ({ task: p.name, seconds: 0, startAt: null, endAt: null, taskKeys: [normalizeTaskKey(p.name)] }))
   ]
   const maxFocus = Math.max(...focusList.map((f) => f.seconds), 1)
   const maxUsage = usage.length ? usage[0].seconds : 1

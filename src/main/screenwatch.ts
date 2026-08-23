@@ -17,6 +17,7 @@ import {
   getSettings,
   getSource,
   listFocusTaskCandidates,
+  listKnownAppNames,
   localDateTimeAt,
   setDetectionStatus,
   findDuplicateTitle,
@@ -31,7 +32,7 @@ import {
   upsertActivitySegment
 } from './db'
 import { applyReportSchedule } from './report-scheduler'
-import { dayKey, normalizeTaskKey, normalizeTaskLabel } from '@shared/work-report'
+import { dayKey, isAppNameTask, isGenericFocusTask, normalizeTaskKey, normalizeTaskLabel } from '@shared/work-report'
 import { broadcast, debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
@@ -108,7 +109,7 @@ function legacyWorkSummaryHint(): string {
 // ① 示例不用用户的真实任务名 ② 复用已知任务须屏幕内容明确对应 ③ 描述只依据屏幕可见内容
 function workSummaryHint(prevSummary: string, taskCandidates: string[]): string {
   const cand = taskCandidates.length
-    ? `已知任务列表：${taskCandidates.join('、')}。仅当屏幕内容与某个已知任务明确对应（出现该任务的关键词、文件名或主题）时才复用其名称；对应不上就按屏幕内容起贴切的新名，不要为了复用而硬套。`
+    ? `已知任务列表：${taskCandidates.join('、')}。若屏幕内容与某个已知任务主题相同、或是同一事项的延续（即使措辞不完全一样），必须原样复用该任务名，不要另起近义新名（例如都叫「论文研读与标注」，不要新造「论文2505.18966阅读」）；确实对不上才按屏幕内容起稳定的新名，不要为了复用而硬套。`
     : ''
   const base =
     '另外，在返回的 JSON 中额外加两个顶层字段：' +
@@ -233,7 +234,11 @@ function maybeAddWorkRecord(
   if (source === 'accessibility' && historyDerivedWorkActive()) return
   const normalizedSummary = normalizeActivitySummary(summary, { appName: frontApp })
   if (!normalizedSummary) return
-  const normalizedTask = normalizeTaskLabel(task)
+  // 泛化名（「随心输入」之类）对专注统计只有噪音，落库前直接丢弃任务标签；
+  // 裸 App/产品名（「谷子助手」「微信」）同样不是任务
+  const labeledTask = normalizeTaskLabel(task)
+  const normalizedTask =
+    isGenericFocusTask(labeledTask) || isAppNameTask(labeledTask, listKnownAppNames()) ? null : labeledTask
   const taskKey = normalizeTaskKey(normalizedTask ?? '')
   const appKey = normalizeTaskKey(frontApp ?? '')
   const now = Date.now()
@@ -1236,9 +1241,10 @@ function ensureHistorySummarizer(store: HistorySegmentStore): HistorySummarizer 
       store,
       summaryIndex: getHistorySummaryIndex(),
       onlineEnabled: historySummaryOnlineEnabled,
+      focusTaskCandidates: listFocusTaskCandidates,
       onTenMinuteSummary: (document, sourceHash) => {
         if (historyMutationPending > 0 || !historyDerivedWorkActive()) return
-        const derived = deriveHistoryWorkRecord(document, sourceHash)
+        const derived = deriveHistoryWorkRecord(document, sourceHash, listKnownAppNames())
         const segmentId = document.sourceSegmentId ?? document.sourceSegmentIds[0] ?? document.id
         try {
           if (derived) upsertHistoryWorkRecord(derived)

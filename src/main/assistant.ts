@@ -13,9 +13,9 @@ import { broadcast } from './windows'
 import { applyExternalPetReaction } from './pet/controller'
 import { callModel } from './parser'
 import {
-  applyCandidatePatch,
   buildAssistantInstructions,
   parseAssistantOutput,
+  resolveAddPicks,
   type AddedInfo,
   type AssistantTurnResult,
   type CandidateContext,
@@ -122,21 +122,18 @@ export async function assistantChat(payload: {
     )
     const env = parseAssistantOutput(output)
 
+    // add 的序号先指上一轮展示的候选，越界时回落到本轮新生成的候选——
+    // 「明天提醒我干 XX」这类明确的创建请求没有上一轮候选，靠回落实现当轮直接入库
     let added: AddedInfo[] = []
-    if (env.add.length && payload.candidates) {
-      const items = payload.candidates.items
-      const picks = env.add
-        .map((a) => {
-          const item = items[a.candidate - 1]
-          if (!item) return null
-          return {
-            item: a.patch ? applyCandidatePatch(item, a.patch) : item,
-            candidate: a.candidate,
-            force: a.force
-          }
-        })
-        .filter((p): p is { item: ParsedItem; candidate: number; force: boolean } => p !== null)
-      if (picks.length) added = addCandidates(payload.candidates.sourceText, picks)
+    if (env.add.length) {
+      const picks = resolveAddPicks(env.add, payload.candidates?.items ?? null, env.candidates)
+      if (picks.length) {
+        const sourceText =
+          payload.candidates?.sourceText ??
+          [...payload.history].reverse().find((m) => m.role === 'user')?.content ??
+          ''
+        added = addCandidates(sourceText, picks)
+      }
     }
 
     // 口头指令操作已有任务（「XX 做完了标记完成」「把 XX 忽略」）：校验 id 真实存在再执行；

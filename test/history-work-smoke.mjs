@@ -55,6 +55,14 @@ check('工作记录 task 使用摘要的稳定 focusTask，而不是第一条线
   deriveHistoryWorkRecord({ ...document, focusTask: '开发谷子助手', taskClues: ['窗口标题：work-derivation.ts'] }, 'source-hash-1')?.task === '开发谷子助手')
 check('无法确认任务时不把泛化焦点写入 task',
   deriveHistoryWorkRecord({ ...document, focusTask: null, focus: '处理当前内容', taskClues: ['窗口标题'] }, 'source-hash-1')?.task === null)
+check('本地摘要的「围绕」焦点文本不再回收成任务名',
+  deriveHistoryWorkRecord({ ...document, focusTask: null, focus: '围绕「work-derivation.ts」处理当前内容' }, 'source-hash-1')?.task === null)
+check('裸产品名不是任务（自身产品名内置拒绝）',
+  deriveHistoryWorkRecord({ ...document, focusTask: '谷子助手' }, 'source-hash-1')?.task === null)
+check('裸 App 名不是任务（已知 App 列表匹配）',
+  deriveHistoryWorkRecord({ ...document, focusTask: 'ChatGPT' }, 'source-hash-1', ['ChatGPT'])?.task === null)
+check('带动作的产品任务名不受影响',
+  deriveHistoryWorkRecord({ ...document, focusTask: '开发谷子助手' }, 'source-hash-1', ['ChatGPT'])?.task === '开发谷子助手')
 check('同一 segment/source hash 计算稳定',
   derived?.summaryHash === deriveHistoryWorkRecord(document, 'source-hash-1')?.summaryHash)
 check('摘要内容变化会产生新的 hash',
@@ -159,6 +167,7 @@ const summarizer = new HistorySummarizer({
 })
 await summarizer.process(Date.parse('2026-08-22T10:20:00.000Z'))
 check('摘要器在 10 分钟摘要完成后触发派生回调', callbackDocument?.level === '10m' && typeof callbackHash === 'string')
+check('本地摘要不再把窗口标题当作 focusTask', callbackDocument?.focusTask === null)
 await summarizer.close()
 
 const screenwatch = readFileSync(new URL('../src/main/screenwatch.ts', import.meta.url), 'utf8')
