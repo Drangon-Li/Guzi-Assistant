@@ -8,6 +8,8 @@ import {
   groupWorkPeriods,
   periodLabel,
   focusDurations,
+  isAppNameTask,
+  isGenericFocusTask,
   normalizeTaskKey,
   normalizeTaskLabel,
   timeRangeLabel,
@@ -161,6 +163,7 @@ check('无 task 的记录不参与', focusDurations([{ ...fr('09:00', null) }]).
 check('去空格', normalizeTaskKey('评审 EMNLP 论文') === normalizeTaskKey('评审EMNLP论文'))
 check('全角折半角', normalizeTaskKey('评审ＥＭＮＬＰ论文') === normalizeTaskKey('评审EMNLP论文'))
 check('大小写归一', normalizeTaskKey('emnlp') === normalizeTaskKey('EMNLP'))
+check('去标点', normalizeTaskKey('论文阅读：2505.18966') === normalizeTaskKey('论文阅读 2505.18966'))
 check('不同任务不误合', normalizeTaskKey('写论文') !== normalizeTaskKey('读论文'))
 check('持久化任务标签统一全角与空白', normalizeTaskLabel('  评审ＥＭＮＬＰ  论文  ') === '评审EMNLP 论文')
 
@@ -172,6 +175,27 @@ const fdMerge = focusDurations([
 check('空格变体合并为一个任务', fdMerge.length === 1)
 check('合并后按跨度桥接而非各算 1 分钟', fdMerge[0].seconds === 360)
 check('展示取更易读的空格写法', fdMerge[0].task === '评审 EMNLP 论文')
+
+// ---- focusDurations：措辞漂移二级归并（包含关系 / 仅数字编号不同）----
+const fdDrift = focusDurations([
+  fr('09:00', '论文研读'),
+  fr('09:05', '论文研读与标注'),
+  fr('09:10', '论文阅读'),
+  fr('09:12', '论文2505.18966阅读') // 数字词干相同 → 与「论文阅读」合并
+])
+check('包含关系的措辞漂移合并', fdDrift.filter((d) => d.task.includes('论文研读')).length === 1)
+check('仅数字编号不同的写法合并', fdDrift.filter((d) => d.task.includes('阅读')).length === 1)
+check('归并组暴露全部写法键', fdDrift.every((d) => Array.isArray(d.taskKeys) && d.taskKeys.length > 0))
+
+// ---- focusDurations：泛化名（随心输入等）不参与统计 ----
+const fdGeneric = focusDurations([fr('09:00', '随心输入'), fr('09:05', '写论文')])
+check('泛化名不进入专注统计', fdGeneric.length === 1 && fdGeneric[0].task === '写论文')
+check('isGenericFocusTask 折叠写法差异', isGenericFocusTask(' 随心 输入 ') && isGenericFocusTask('随便看看') && !isGenericFocusTask('写论文'))
+
+// ---- isAppNameTask：裸 App/产品名不是任务 ----
+check('自身产品名内置拒绝', isAppNameTask('谷子助手') && isAppNameTask(' GuziAssistant ') && isAppNameTask('Gooz'))
+check('命中已知 App 名', isAppNameTask('微信', ['微信', 'ChatGPT']) && !isAppNameTask('写论文', ['微信']))
+check('带动作的产品任务名不受影响', !isAppNameTask('开发谷子助手') && !isAppNameTask('微信需求讨论', ['微信']))
 
 // ---- daySegmentOf ----
 check('5 点=清晨', daySegmentOf('2026-07-02T05:00').label === '清晨')

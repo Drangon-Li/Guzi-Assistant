@@ -27,10 +27,11 @@ export function Toggle({
         checked ? 'bg-brand' : 'bg-slate-300'
       }`}
     >
+      {/* 轨道 36×20、滑块 16×16、左右各留 2px：选中态 translate-x-4 使两侧边距对称（原 translate-x-5 会让滑块溢出右缘 2px） */}
       <span
         aria-hidden="true"
         className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow-sm transition-transform duration-150 ${
-          checked ? 'translate-x-5' : 'translate-x-0'
+          checked ? 'translate-x-4' : 'translate-x-0'
         }`}
       />
     </button>

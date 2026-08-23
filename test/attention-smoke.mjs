@@ -11,6 +11,7 @@ import {
   hourlySwitches,
   longestRunSeconds,
   productiveRuns,
+  productiveRunsFromSwitches,
   shortDwellShare
 } from '../src/shared/attention.ts'
 
@@ -106,6 +107,42 @@ check(
   shortDwellShare([sw('09:00'), sw('09:01'), sw('09:30')]) === 0.5
 )
 check('切换不足 → null', shortDwellShare([sw('09:00')]) === null)
+
+// ---- productiveRunsFromSwitches：前台切换口径的专注段 ----
+const psw = (t, to) => ({ ts: `2026-07-02T${t}:00`, fromApp: null, toApp: to })
+const swNow = Date.parse('2026-07-02T10:00:00')
+{
+  // Code 20min → 微信 5min → Code 35min：短暂中性插断 ≤10min 桥接成一段
+  const r = productiveRunsFromSwitches(
+    [psw('09:00', 'Code'), psw('09:20', '微信'), psw('09:25', 'Code')],
+    cat,
+    10,
+    swNow
+  )
+  check('切换口径：插断桥接成一段', r.length === 1 && r[0].seconds === 3600)
+  check('切换口径：深度块 1 个', deepBlockCount(r) === 1)
+}
+{
+  // 长分心区间切段
+  const r = productiveRunsFromSwitches(
+    [psw('09:00', 'Code'), psw('09:30', 'bilibili'), psw('09:50', 'Code')],
+    cat,
+    10,
+    swNow
+  )
+  check('切换口径：长分心断开两段', r.length === 2 && r[0].seconds === 1800 && r[1].seconds === 600)
+}
+{
+  const r = productiveRunsFromSwitches([psw('09:00', '微信'), psw('09:30', 'bilibili')], cat, 10, swNow)
+  check('切换口径：无专注应用无段', r.length === 0)
+}
+{
+  // 用户覆盖后微信变专注
+  const r = productiveRunsFromSwitches([psw('09:00', '微信')], (a) => categoryOf(a, ov), 10, swNow)
+  check('切换口径：分类覆盖生效', r.length === 1 && r[0].seconds === 3600)
+}
+check('切换口径：空切换 → 空段', productiveRunsFromSwitches([], cat).length === 0)
+check('谷子学术默认专注类', categoryOf('谷子学术', noOv) === 'productive')
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

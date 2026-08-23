@@ -18,7 +18,7 @@ import {
   focusScore,
   hourlySwitches,
   longestRunSeconds,
-  productiveRuns,
+  productiveRunsFromSwitches,
   shortDwellShare,
   taskSwitchCount
 } from '@shared/attention'
@@ -53,7 +53,7 @@ export default function Analysis(): React.JSX.Element {
   const [usage, setUsage] = useState<AppUsageEntry[]>([])
   const [switches, setSwitches] = useState<AppSwitchRecord[]>([])
   const [overrides, setOverrides] = useState<AppCategoryOverride[]>([])
-  const [trendRecords, setTrendRecords] = useState<WorkRecord[]>([])
+  const [trendSwitches, setTrendSwitches] = useState<AppSwitchRecord[]>([])
   const [trendUsage, setTrendUsage] = useState<(AppUsageEntry & { day: string })[]>([])
   const [usageYear, setUsageYear] = useState<(AppUsageEntry & { day: string })[]>([])
   // 页内双视角：当日（概览/碎片化/分类/任务专注）与回顾（热力/趋势/日报回看），
@@ -63,7 +63,8 @@ export default function Analysis(): React.JSX.Element {
   const loadDay = useCallback((d: string) => {
     void api.listWorkRecords(d).then(setRecords)
     void api.appUsageSummary(d).then(setUsage)
-    void api.appSwitchesSince(d).then((rows) => setSwitches(rows.filter((s) => s.ts.startsWith(d))))
+    // 保留全天之后的切换记录：深度工作段需要次日第一个切换作为当日最后一个区间的收尾边界
+    void api.appSwitchesSince(d).then(setSwitches)
   }, [])
 
   useEffect(() => {
@@ -74,7 +75,7 @@ export default function Analysis(): React.JSX.Element {
     const weekAgo = lastNDays(7)[0]
     const today = dayKey(new Date())
     void api.appCategoryOverrides().then(setOverrides)
-    void api.workRecordsSince(weekAgo).then(setTrendRecords)
+    void api.appSwitchesSince(weekAgo).then(setTrendSwitches)
     void api.appUsageRange(weekAgo, today).then(setTrendUsage)
     void api.appUsageRange(dayKey(new Date(Date.now() - 364 * 86_400_000)), today).then(setUsageYear)
   }, [])
@@ -85,25 +86,30 @@ export default function Analysis(): React.JSX.Element {
   }, [overrides])
 
   // ---- 当日指标 ----
-  const runs = productiveRuns(records, cat)
+  // 专注段用前台应用切换口径（不依赖模型归类）；碎片化指标仍用当日切换子集
+  const daySwitches = useMemo(() => switches.filter((s) => s.ts.startsWith(day)), [switches, day])
+  const runs = useMemo(
+    () => productiveRunsFromSwitches(switches, cat).filter((r) => r.start.startsWith(day)),
+    [switches, cat, day]
+  )
   const deepSec = deepWorkSeconds(runs)
   const score = focusScore(usage, cat)
   const activeSec = usage.reduce((n, u) => n + u.seconds, 0)
-  const avgSpan = avgAttentionSpanSec(activeSec, switches.length)
+  const avgSpan = avgAttentionSpanSec(activeSec, daySwitches.length)
   const longest = longestRunSeconds(runs)
   const blocks = deepBlockCount(runs)
-  const byHour = hourlySwitches(switches)
-  const shortShare = shortDwellShare(switches)
+  const byHour = hourlySwitches(daySwitches)
+  const shortShare = shortDwellShare(daySwitches)
   const busiestHour = byHour.some((n) => n > 0) ? byHour.indexOf(Math.max(...byHour)) : null
 
   // ---- 近 7 天趋势（固定为最近 7 天，不随 DayNav 变） ----
   const trendDays = lastNDays(7)
   const trend = trendDays.map((d) => {
-    const dayRecs = trendRecords.filter((r) => r.startAt.startsWith(d))
+    const dayRuns = productiveRunsFromSwitches(trendSwitches, cat).filter((r) => r.start.startsWith(d))
     const dayUsage = trendUsage.filter((u) => u.day === d)
     return {
       day: d,
-      deep: deepWorkSeconds(productiveRuns(dayRecs, cat)),
+      deep: deepWorkSeconds(dayRuns),
       score: focusScore(dayUsage, cat)
     }
   })

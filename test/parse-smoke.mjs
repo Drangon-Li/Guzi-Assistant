@@ -1,5 +1,5 @@
 // 纯函数单测：模型输出解析（畸形/越界输入的防御）。运行：npm run test:parse
-import { parseModelOutput, parseAssistantOutput, applyCandidatePatch, normalizeItem } from '../src/shared/parsing.ts'
+import { parseModelOutput, parseAssistantOutput, applyCandidatePatch, normalizeItem, resolveAddPicks } from '../src/shared/parsing.ts'
 
 let failed = 0
 function check(name, ok) {
@@ -56,6 +56,32 @@ check(
   opsEnv.ops.length === 2 && opsEnv.ops[0].action === 'done' && opsEnv.ops[1].id === 'y'
 )
 check('无 ops 字段 → 空数组', parseAssistantOutput('{"reply":"r"}').ops.length === 0)
+
+// ---- resolveAddPicks：add 序号先指上一轮候选，越界回落本轮候选 ----
+{
+  const prev = [normalizeItem({ title: '旧候选' })]
+  const curr = [normalizeItem({ title: '明天提醒我交周报', due_time: '2026-08-24T23:59' })]
+  check(
+    '同轮创建：无上一轮候选时回落到本轮候选',
+    (() => {
+      const picks = resolveAddPicks([{ candidate: 1, patch: null, force: false }], null, curr)
+      return picks.length === 1 && picks[0].item.title === '明天提醒我交周报' && picks[0].item.due_time === '2026-08-24T23:59'
+    })()
+  )
+  check(
+    '确认旧候选：序号命中上一轮列表时优先用上一轮',
+    resolveAddPicks([{ candidate: 1, patch: null, force: false }], prev, curr)[0].item.title === '旧候选'
+  )
+  check(
+    '序号越过上一轮时回落本轮',
+    resolveAddPicks([{ candidate: 2, patch: null, force: false }], prev, [curr[0], normalizeItem({ title: '第二项' })])[0].item.title === '第二项'
+  )
+  check(
+    'patch 应用到回落的候选上',
+    resolveAddPicks([{ candidate: 1, patch: { due_time: '2026-08-25T09:00' }, force: false }], null, curr)[0].item.due_time === '2026-08-25T09:00'
+  )
+  check('全部越界 → 空', resolveAddPicks([{ candidate: 5, patch: null, force: false }], prev, curr).length === 0)
+}
 
 // ---- applyCandidatePatch ----
 const base = normalizeItem({ title: '原标题', due_time: '2026-06-20T09:00', priority: 'low' })

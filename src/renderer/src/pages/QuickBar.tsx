@@ -93,8 +93,17 @@ export default function QuickBar(): React.JSX.Element {
             a.duplicate ? `「${a.title}」已存在，未重复添加` : `✓ 已加入「${a.title}」`
           )
         if (res.ops.length) reply.ops = res.ops
-        if (res.candidates?.length)
-          reply.candidates = { ctx: { sourceText: q, items: res.candidates }, added: {} }
+        if (res.candidates?.length) {
+          // 同轮直接创建的（无上一轮候选上下文），add 序号指向本轮候选：卡片直接标已加入，避免重复点
+          const preAdded: Record<number, 'added' | 'duplicate'> = {}
+          if (!ctx) {
+            for (const a of res.added) {
+              if (a.candidate >= 1 && a.candidate <= res.candidates.length)
+                preAdded[a.candidate - 1] = a.duplicate ? 'duplicate' : 'added'
+            }
+          }
+          reply.candidates = { ctx: { sourceText: q, items: res.candidates }, added: preAdded }
+        }
       }
       setMsgs((m) => [...m, reply])
     } catch (e) {

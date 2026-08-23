@@ -213,7 +213,8 @@ ${EXTRACT_RULES}
 ## add（用户确认候选时才填）
 当用户明确表示要加入某个候选（如"加第一个""第二个吧，时间改到周五下午"）时填写：[{"candidate":候选序号,"patch":{要修改的字段}或null,"force":布尔，可省略}]。
 用户消息本身就是明确的添加请求（"帮我记 XX""提醒我 XX""加个日程 XX"）且信息足够时，**同一轮**把该事项放进 candidates 并直接放进 add（不必等下一轮确认），reply 里确认已加入；信息不全（缺时间且看不出）再询问。
-- candidate 是下方「当前候选列表」的序号，从 1 开始
+- 用户明确表示明知重复仍要添加 → 该项带 "force": true
+- candidate 从 1 开始：确认已有候选时指下方「当前候选列表」的序号；同一轮直接加入新事项时，指你本轮 candidates 数组里该事项的序号
 - patch 只包含要修改的字段，可用：title/start_time/due_time/location/priority/item_type/notes；时间字段格式 YYYY-MM-DDTHH:mm
 - 想加入的候选 duplicate_of 非空、且用户没有明确表示"仍要加/再加一条"时 → 不要放进 add，在 reply 里说明它与哪条已有任务重复并询问是否仍要添加
 - 用户明确表示明知重复仍要添加 → 该项带 "force": true
@@ -431,4 +432,31 @@ export function applyCandidatePatch(item: ParsedItem, patch: Record<string, unkn
     next.notes = patch.notes.filter((n): n is string => typeof n === 'string').slice(0, 10)
   }
   return next
+}
+
+export interface AddPick {
+  item: ParsedItem
+  candidate: number
+  force: boolean
+}
+
+/**
+ * 解析 add 指令的 candidate 序号：优先指上一轮展示给用户的候选列表（previous），
+ * 序号越界时回落到模型本轮新生成的候选（current）——「提醒我明天干 XX」这类
+ * 明确的创建请求没有上一轮候选，模型会把新事项放进本轮 candidates 并当轮直接 add。
+ */
+export function resolveAddPicks(
+  add: readonly AddInstruction[],
+  previous: readonly ParsedItem[] | null,
+  current: readonly ParsedItem[]
+): AddPick[] {
+  const picks: AddPick[] = []
+  for (const a of add) {
+    const fromPrevious = previous?.[a.candidate - 1]
+    const fromCurrent = current[a.candidate - 1]
+    const item = fromPrevious ?? fromCurrent
+    if (!item) continue
+    picks.push({ item: a.patch ? applyCandidatePatch(item, a.patch) : item, candidate: a.candidate, force: a.force })
+  }
+  return picks
 }

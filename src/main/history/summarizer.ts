@@ -115,6 +115,8 @@ export interface HistorySummarizerOptions {
   modelCall?: SummaryModelCall
   /** Return false when no authenticated/direct model endpoint is configured. */
   onlineEnabled?: () => boolean
+  /** 已知任务名候选（10 分钟摘要的 focus_task 复用，避免同一任务被拆成多个近义名）。 */
+  focusTaskCandidates?: () => string[]
   retryBaseMs?: number
   retryMaxMs?: number
 }
@@ -325,7 +327,9 @@ function narrativeFor(
   const { progress, outcome } = progressFor(events)
   const prefix = level === '6h' ? '这一时段主要' : '主要'
   return {
-    focusTask: subject,
+    // 本地规则只能看到窗口标题/线索，产不出稳定任务名；focusTask 一律交给模型补充，
+    // 否则窗口标题（「微信 (窗口)」、用户名等）会被当成任务写进专注统计
+    focusTask: null,
     focus,
     progress,
     outcome,
@@ -678,6 +682,7 @@ export class HistorySummarizer {
   private readonly now: () => number
   private readonly modelCall: SummaryModelCall
   private readonly onlineEnabled: () => boolean
+  private readonly focusTaskCandidates: () => string[]
   private readonly retryBaseMs: number
   private readonly retryMaxMs: number
   private active: Promise<SummaryRunResult> | null = null
@@ -692,6 +697,7 @@ export class HistorySummarizer {
     this.now = options.now ?? Date.now
     this.modelCall = options.modelCall ?? defaultModelCall
     this.onlineEnabled = options.onlineEnabled ?? (() => true)
+    this.focusTaskCandidates = options.focusTaskCandidates ?? (() => [])
     this.retryBaseMs = Math.max(1_000, options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS)
     this.retryMaxMs = Math.max(this.retryBaseMs, options.retryMaxMs ?? DEFAULT_RETRY_MAX_MS)
   }
@@ -942,7 +948,7 @@ export class HistorySummarizer {
       observedData: document.observedData
     }
     const raw = await this.modelCall(
-      level === '10m' ? buildTenMinuteSummaryPrompt() : buildSixHourSummaryPrompt(),
+      level === '10m' ? buildTenMinuteSummaryPrompt(this.focusTaskCandidates()) : buildSixHourSummaryPrompt(),
       buildSummaryInput(level, inputDocument),
       controller.signal
     )

@@ -82,7 +82,9 @@ const PRODUCTIVE_PATTERNS = [
   'texshop',
   'texstudio',
   'texifier',
-  'flomo'
+  'flomo',
+  // 学术阅读器（自家产品）
+  '谷子学术'
 ]
 const DISTRACTING_PATTERNS = [
   'bilibili',
@@ -151,8 +153,54 @@ export interface FocusRun {
 }
 
 /**
+ * 专注段（前台应用切换口径）：toApp 的连续前台区间中，专注类应用、相邻间隙 ≤ gapMinutes 归并为一段
+ * （短暂切去回消息不中断深度工作）。最后一个区间以 nowMs 收尾；锁屏会切到 loginwindow（中性）天然断段。
+ * 比工作记录口径稳：不依赖模型归类是否成功——阅读、看资料这类低交互活动也常没有工作记录。
+ * 已知取舍：离开电脑但未锁屏时，前台区间会继续计时（app_usage 有空闲检测，切换事件没有）。
+ */
+export function productiveRunsFromSwitches(
+  switches: AppSwitchRecord[],
+  cat: (app: string) => AppCategory,
+  gapMinutes = 10,
+  nowMs = Date.now()
+): FocusRun[] {
+  const sorted = [...switches].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+  const runs: FocusRun[] = []
+  let start = ''
+  let end = ''
+  let startMs = 0
+  let endMs = 0
+  const flush = (): void => {
+    if (!start) return
+    runs.push({ start, end, seconds: Math.max(0, Math.round((endMs - startMs) / 1000)) })
+    start = ''
+  }
+  for (let i = 0; i < sorted.length; i++) {
+    const intervalStartMs = Date.parse(sorted[i].ts)
+    const intervalEndMs = i + 1 < sorted.length ? Date.parse(sorted[i + 1].ts) : nowMs
+    if (!Number.isFinite(intervalStartMs) || !Number.isFinite(intervalEndMs) || intervalEndMs <= intervalStartMs) continue
+    if (cat(sorted[i].toApp) !== 'productive') continue
+    if (start && intervalStartMs - endMs <= gapMinutes * 60_000) {
+      if (intervalEndMs > endMs) {
+        end = i + 1 < sorted.length ? sorted[i + 1].ts : new Date(nowMs).toISOString()
+        endMs = intervalEndMs
+      }
+      continue
+    }
+    flush()
+    start = sorted[i].ts
+    end = i + 1 < sorted.length ? sorted[i + 1].ts : new Date(nowMs).toISOString()
+    startMs = intervalStartMs
+    endMs = intervalEndMs
+  }
+  flush()
+  return runs
+}
+
+/**
  * 专注段：工作记录中专注类应用的连续段（相邻间隔 ≤ gapMinutes）。
  * History 记录使用真实 startAt/endAt；旧记录才保留一条记录约 1 分钟的兼容口径。
+ * 注意：依赖模型归类成功才有记录，低交互活动（阅读）覆盖率低——深度工作统计请用 productiveRunsFromSwitches。
  */
 export function productiveRuns(
   records: WorkRecord[],

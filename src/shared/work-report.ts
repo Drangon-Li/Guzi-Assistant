@@ -261,13 +261,106 @@ ${taskTitles.join('\n') || '（无）'}`
 }
 
 /**
- * 任务归一键：折叠模型对同一任务偶发的空格/全半角/大小写差异
- * （「评审EMNLP论文」「评审 EMNLP 论文」「评审ＥＭＮＬＰ论文」视为同一任务）。
- * NFKC 折全角→半角，去掉全部空白（中英混排时模型加不加空格不稳定），小写化英文。
+ * 任务归一键：折叠模型对同一任务偶发的空格/全半角/大小写/标点差异
+ * （「评审EMNLP论文」「评审 EMNLP 论文」「评审：ＥＭＮＬＰ论文」视为同一任务）。
+ * NFKC 折全角→半角，去掉全部空白与标点（中英混排时模型加不加空格/标点不稳定），小写化英文。
  * 仅作分组/匹配用，展示仍取原始写法（见 focusDurations 的 displayOf）。
  */
 export function normalizeTaskKey(name: string): string {
-  return name.normalize('NFKC').replace(/\s+/g, '').toLowerCase()
+  return name.normalize('NFKC').replace(/[\s\p{P}\p{S}]+/gu, '').toLowerCase()
+}
+
+/**
+ * 模型偶发给出的「垃圾桶」任务名：没有明确项目/对象的泛化归类（实测「随心输入」曾吞掉大半记录）。
+ * 命中即视为无任务——这些名字对专注统计只有噪音。
+ */
+const GENERIC_FOCUS_TASK_KEYS = new Set(
+  [
+    '随心输入',
+    '随意输入',
+    '随便输入',
+    '自由输入',
+    '日常输入',
+    '随意浏览',
+    '随便看看',
+    '随便浏览',
+    '日常浏览',
+    '上网冲浪',
+    '闲聊',
+    '摸鱼',
+    '其他',
+    '杂项',
+    '未分类'
+  ].map((name) => normalizeTaskKey(name))
+)
+
+/** 判断模型给的任务名是否是无明确对象的泛化名（归一键比较，折叠写法差异）。 */
+export function isGenericFocusTask(name: string | null | undefined): boolean {
+  if (!name) return false
+  return GENERIC_FOCUS_TASK_KEYS.has(normalizeTaskKey(name))
+}
+
+/**
+ * 自身产品的全部历史/内部名称（与 app_usage 的自身排除清单一致）：
+ * 这些名字永远是被使用的工具，不是用户要推进的任务。
+ */
+const SELF_PRODUCT_NAME_KEYS = new Set(
+  ['Electron', 'GuziAssistant', 'Guzi Assistant', 'EShell', 'Gooz', '谷子助手', '纸壳助手'].map((name) =>
+    normalizeTaskKey(name)
+  )
+)
+
+/**
+ * 任务名不得是裸 App/产品名（如「谷子助手」「微信」——模型看到内容提到某产品时容易直接拿来当任务）。
+ * 命中自身产品名或已知 App 名（归一键精确匹配，不影响「开发谷子助手」这类带动作的合法任务名）即视为无任务。
+ */
+export function isAppNameTask(name: string | null | undefined, knownApps: readonly string[] = []): boolean {
+  if (!name) return false
+  const key = normalizeTaskKey(name)
+  if (!key) return false
+  if (SELF_PRODUCT_NAME_KEYS.has(key)) return true
+  return knownApps.some((app) => normalizeTaskKey(app) === key)
+}
+
+/**
+ * 二级归并：模型对同一任务的措辞漂移不止空格/大小写，还会多出限定词或编号
+ * （「论文研读」vs「论文研读与标注」、「论文阅读」vs「论文2505.18966阅读」）。
+ * 规则保守两条：① 一个键包含另一个键且短键 ≥4 字符；② 去掉数字后两键相同且 ≥4 字符。
+ * 返回 原始归一键 → 归并键 的映射（归并键取组内最长者，更具体）。
+ */
+export function mergeTaskKeys(keys: string[]): Map<string, string> {
+  const parent = new Map<string, string>(keys.map((k) => [k, k]))
+  const find = (k: string): string => {
+    let root = k
+    while (parent.get(root) !== root) root = parent.get(root)!
+    parent.set(k, root)
+    return root
+  }
+  const union = (a: string, b: string): void => {
+    parent.set(find(a), find(b))
+  }
+  const stem = (k: string): string => k.replace(/\d+/g, '')
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      const [a, b] = keys[i].length <= keys[j].length ? [keys[i], keys[j]] : [keys[j], keys[i]]
+      if (a.length >= 4 && b.includes(a)) union(a, b)
+      else {
+        const s = stem(a)
+        if (s.length >= 4 && s === stem(b)) union(a, b)
+      }
+    }
+  }
+  const groups = new Map<string, string[]>()
+  for (const k of keys) {
+    const root = find(k)
+    groups.set(root, [...(groups.get(root) ?? []), k])
+  }
+  const out = new Map<string, string>()
+  for (const members of groups.values()) {
+    const canonical = [...members].sort((a, b) => b.length - a.length || a.localeCompare(b))[0]
+    for (const m of members) out.set(m, canonical)
+  }
+  return out
 }
 
 /** Persist one stable, displayable task label while keeping grouping separate from presentation. */
@@ -280,7 +373,9 @@ export function normalizeTaskLabel(value: unknown, max = 80): string | null {
 /**
  * 任务专注时长：按 task 标签把记录切成连续段（同任务、相邻间隔 ≤gapMinutes）。
  * History 记录使用真实 startAt/endAt；旧记录才使用兼容性的 1 分钟回退。返回按累计时长降序。
- * 分组按归一键（见 normalizeTaskKey），仅空格/大小写不同的写法合并成一个任务，
+ * 分组按归一键（见 normalizeTaskKey）再做二级归并（见 mergeTaskKeys）：
+ * 空格/标点/大小写差异直接合并，措辞漂移（包含关系、仅数字编号不同）也合并成一个任务；
+ * 「随心输入」类泛化名（见 isGenericFocusTask）不参与统计。
  * 展示名取该键下出现最多的原始写法（并列取更长的，空格版更易读）。
  */
 export interface FocusDuration {
@@ -289,6 +384,8 @@ export interface FocusDuration {
   /** Earliest and latest real work-record timestamps contributing to this task. */
   startAt: string | null
   endAt: string | null
+  /** 该任务归并组内全部写法的归一键（隐藏匹配用：组内任一写法被隐藏即整组隐藏）。 */
+  taskKeys: string[]
 }
 
 export function focusDurations(
@@ -296,12 +393,14 @@ export function focusDurations(
   gapMinutes = 15
 ): FocusDuration[] {
   const sorted = records
-    .filter((r) => !!r.task && normalizeTaskKey(r.task).length > 0)
+    .filter((r) => !!r.task && normalizeTaskKey(r.task).length > 0 && !isGenericFocusTask(r.task))
     .map((record) => ({ record, interval: workRecordInterval(record) }))
     .sort((a, b) => a.interval.startMs - b.interval.startMs || a.record.id.localeCompare(b.record.id))
+  const canonicalKey = mergeTaskKeys([...new Set(sorted.map(({ record: r }) => normalizeTaskKey(r.task!)))])
+  const keyOf = (name: string): string => canonicalKey.get(normalizeTaskKey(name)) ?? normalizeTaskKey(name)
   const variants = new Map<string, Map<string, number>>()
   for (const { record: r } of sorted) {
-    const key = normalizeTaskKey(r.task!)
+    const key = keyOf(r.task!)
     const m = variants.get(key) ?? new Map<string, number>()
     m.set(r.task!, (m.get(r.task!) ?? 0) + 1)
     variants.set(key, m)
@@ -312,7 +411,7 @@ export function focusDurations(
   const total = new Map<string, number>()
   const ranges = new Map<string, { startAt: string | null; endAt: string | null; startMs: number; endMs: number }>()
   for (const { record: r, interval } of sorted) {
-    const key = normalizeTaskKey(r.task!)
+    const key = keyOf(r.task!)
     const startMs = Date.parse(interval.start)
     const endMs = Date.parse(interval.end)
     const current = ranges.get(key) ?? { startAt: null, endAt: null, startMs: Infinity, endMs: -Infinity }
@@ -336,7 +435,7 @@ export function focusDurations(
     runKey = null
   }
   for (const { record: r, interval } of sorted) {
-    const key = normalizeTaskKey(r.task!)
+    const key = keyOf(r.task!)
     if (
       runKey === key &&
       interval.startMs - runEndMs <= gapMinutes * 60_000
@@ -357,7 +456,8 @@ export function focusDurations(
       task: displayOf(key),
       seconds: Math.round(seconds),
       startAt: ranges.get(key)?.startAt ?? null,
-      endAt: ranges.get(key)?.endAt ?? null
+      endAt: ranges.get(key)?.endAt ?? null,
+      taskKeys: [...(variants.get(key)?.keys() ?? [])].map((name) => normalizeTaskKey(name))
     }))
     .sort((a, b) => b.seconds - a.seconds)
 }

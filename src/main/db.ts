@@ -12,7 +12,7 @@ import { resolveDirectModelSettings } from '@shared/model-configuration'
 import { normalizeHistoryHost } from '@shared/history'
 import { createSqliteHistorySegmentIndex, type HistorySegmentIndex } from './history/segment-index.ts'
 import { createSqliteHistorySummaryIndex, type HistorySummaryIndex } from './history/summary-index.ts'
-import { migrateWorkRecords } from './db-migrations.ts'
+import { migrateWorkRecords, scrubInvalidTaskNames } from './db-migrations.ts'
 import type {
   AppSettings,
   AppCategoryOverride,
@@ -184,6 +184,8 @@ export function initDb(): void {
   historySummaryIndex = createSqliteHistorySummaryIndex(db)
   // 老库迁移：work_records 只增不删，保留旧 OCR 记录并标记为 legacy。
   migrateWorkRecords(db)
+  // 老数据清理：裸 App 名/泛化名/窗口标题残片的 task 标签置空（不进统计、不进模型候选）
+  scrubInvalidTaskNames(db)
   const pmCols = (db.prepare('PRAGMA table_info(personal_memory)').all() as { name: string }[]).map((c) => c.name)
   if (!pmCols.includes('base_content'))
     db.exec("ALTER TABLE personal_memory ADD COLUMN base_content TEXT NOT NULL DEFAULT ''")
@@ -1433,6 +1435,15 @@ export function listFocusTaskCandidates(): string[] {
     if (out.length >= 12) break
   }
   return out
+}
+
+/** 历史出现过的全部前台 App 名（app_usage + work_records），用于拒绝「裸 App 名」任务。 */
+export function listKnownAppNames(): string[] {
+  const names = new Set<string>()
+  for (const row of db.prepare('SELECT DISTINCT app FROM app_usage').all() as { app: string }[]) names.add(row.app)
+  for (const row of db.prepare('SELECT DISTINCT app FROM work_records WHERE app IS NOT NULL').all() as { app: string }[])
+    names.add(row.app)
+  return [...names]
 }
 
 /** 近 N 天工作记录（供个人记忆归纳/活动时间线）。 */

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
-import { migrateWorkRecords } from '../src/main/db-migrations.ts'
+import { migrateWorkRecords, scrubInvalidTaskNames } from '../src/main/db-migrations.ts'
 
 const db = new Database(':memory:')
 try {
@@ -49,6 +49,28 @@ try {
   assert.equal(db.prepare('SELECT count(*) AS n FROM work_records').get().n, 2)
   console.log('✓ old work_records schema migrates additively and preserves legacy rows')
   console.log('✓ History segment uniqueness and repeated migration are stable')
+
+  // ---- scrubInvalidTaskNames：裸 App 名/泛化名/窗口标题残片的 task 置空 ----
+  db.exec(`CREATE TABLE app_usage (app TEXT, day TEXT, seconds INTEGER)`)
+  db.prepare(`INSERT INTO app_usage (app, day, seconds) VALUES ('微信', '2026-08-23', 100)`).run()
+  const insert = db.prepare(`INSERT INTO work_records (id, content, app, task, created_at) VALUES (?, ?, ?, ?, '2026-08-23T10:00:00')`)
+  insert.run('scrub-self', 'x', 'ChatGPT', '谷子助手') // 自身产品名
+  insert.run('scrub-app', 'x', 'Code', '微信') // 已知 App 名
+  insert.run('scrub-window', 'x', 'Code', '微信 (窗口)') // 窗口标题残片
+  insert.run('scrub-generic', 'x', 'Code', '随心输入') // 泛化名
+  insert.run('keep-legit', 'x', 'Code', '开发谷子助手') // 带动作的合法任务名
+  insert.run('keep-normal', 'x', 'Code', '论文研读与标注')
+  scrubInvalidTaskNames(db)
+  const taskOf = (id) => db.prepare('SELECT task FROM work_records WHERE id = ?').get(id).task
+  assert.equal(taskOf('scrub-self'), null)
+  assert.equal(taskOf('scrub-app'), null)
+  assert.equal(taskOf('scrub-window'), null)
+  assert.equal(taskOf('scrub-generic'), null)
+  assert.equal(taskOf('keep-legit'), '开发谷子助手')
+  assert.equal(taskOf('keep-normal'), '论文研读与标注')
+  scrubInvalidTaskNames(db) // 幂等：重复执行无副作用
+  assert.equal(taskOf('keep-legit'), '开发谷子助手')
+  console.log('✓ 裸 App 名/泛化名/窗口标题残片的 task 标签被置空且幂等')
   console.log('\nHistory migration checks passed')
 } finally {
   db.close()
