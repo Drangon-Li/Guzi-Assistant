@@ -39,6 +39,8 @@ import { applyMcpSettings, stopMcpServer } from './mcp-server'
 import { scheduleStartupUpdateCheck } from './updater'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { startWellnessReminder, stopWellnessReminder } from './wellness-reminder'
+import { applyTaskReminderSchedule, stopTaskReminder } from './task-reminder'
+import { applyClipWatchSettings, stopClipWatch } from './clipwatch'
 import { installAppMenu } from './app-menu'
 import { cpSync, existsSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
@@ -177,6 +179,8 @@ if (!app.requestSingleInstanceLock()) {
     applyMcpSettings() // 对外 MCP 服务（默认关，设置页开启）
     startDailyBrief()
     startWellnessReminder()
+    applyTaskReminderSchedule() // 设置里关掉时连提醒窗都不建
+    applyClipWatchSettings()
     if (app.isPackaged) scheduleStartupUpdateCheck() // dev 实例天天重启，别拿开发机刷清单
   })
 
@@ -194,6 +198,8 @@ if (!app.requestSingleInstanceLock()) {
     stopWatch()
     stopDailyBrief()
     stopWellnessReminder()
+    stopTaskReminder()
+    stopClipWatch()
     stopMcpServer()
     if (historyShutdownStarted) return
     historyShutdownStarted = true

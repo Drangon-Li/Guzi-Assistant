@@ -2,6 +2,7 @@ import { unlink } from 'fs/promises'
 import { app, nativeImage, powerMonitor, systemPreferences } from 'electron'
 import { join } from 'path'
 import { captureScreenSilently, excerptOf, HINTS } from './capture'
+import { shouldTodoScan, todoScanAppKind } from '@shared/todo-scan'
 import { ocrImageDetailed } from './ocr'
 import { parseToItemsRaw } from './parser'
 import {
@@ -88,7 +89,7 @@ function emptySummary(error: string | null): ParseSummary {
   return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
 }
 
-interface DetectHit {
+export interface DetectHit {
   extraction: LocalExtraction
   item: ParsedItem
 }
@@ -400,7 +401,7 @@ function stopSemanticWorkClassifier(): void {
 }
 
 /** 云端 ParsedItem → LocalExtraction（供 addDetection / 卡片显示）。 */
-function parsedToExtraction(it: ParsedItem): LocalExtraction {
+export function parsedToExtraction(it: ParsedItem): LocalExtraction {
   const iso = it.due_time ?? it.start_time
   return {
     title: it.title,
@@ -413,43 +414,65 @@ function parsedToExtraction(it: ParsedItem): LocalExtraction {
   }
 }
 
-// ---------- 多任务卡片队列：一帧识别出多个待办时逐张弹、逐张确认 ----------
-interface QueuedCard {
+// ---------- 检测卡：一条走单卡，多条走批量清单卡 ----------
+// 早期是逐张弹、逐张确认；一屏识别出 5 条要点 5 次，实测很烦，改成一张卡列全部、勾选后一次入库。
+interface DetectedCard {
   suggestion: Record<string, unknown> // localSuggestion 载荷（卡显示 + 接受）
   detectionId: string
 }
-let cardQueue: QueuedCard[] = []
-let activeQueuedId: string | null = null // 当前显示的队列卡 detectionId；null=队列空闲
 
-/** 入队一批卡并弹首张。新扫描整批替换旧队列（watchTick 受 isPreviewVisible 门控不会并发，手动扫描即重扫）。 */
-function enqueueCards(cards: QueuedCard[]): void {
-  if (!cards.length) return
-  const total = cards.length
-  cards.forEach((c, i) => {
-    c.suggestion.queueIndex = i + 1
-    c.suggestion.queueTotal = total
-  })
-  cardQueue = cards.slice()
-  activeQueuedId = null
-  showNextQueued()
+/** 把云端候选记进「记忆」历史，并挑出该弹卡的那些。屏幕感知与剪贴板自动捕获共用。
+ *  onNewDetection 供屏幕路径存证据图；剪贴板路径没有截图，不传即可。 */
+export function buildDetectionCards(input: {
+  hits: DetectHit[]
+  sourceText: string
+  app: string | null
+  popup: boolean
+  onNewDetection?: () => void
+}): DetectedCard[] {
+  // 清单场景：一次识别出多条且其中至少一条解出了具体时间 → 这份列表不是噪声，整份都值得展示
+  // （无时间的条目照样列出但不预勾）。单条候选仍然只有强信号才弹。
+  const listMode = input.hits.length >= 2 && input.hits.some(({ extraction }) => extraction.strong)
+  const cards: DetectedCard[] = []
+  for (const { extraction, item } of input.hits) {
+    debugEvent(
+      'detect',
+      `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'} ${extraction.strong ? '[强]' : '[弱]'}`
+    )
+    // 被动留存 + 长期去重：跨状态按 标题+时间 去重；已记录过的内容不再重复抓取/弹窗
+    const { detection, isNew } = addDetection({
+      title: extraction.title,
+      timeIso: extraction.isoTime,
+      deadline: extraction.deadline,
+      sourceText: input.sourceText,
+      hits: extraction.hits,
+      app: input.app
+    })
+    if (!isNew) {
+      debugEvent('record', '已存在，不重复抓取')
+      continue
+    }
+    debugEvent('record', '已记入「记忆」历史（新）')
+    input.onNewDetection?.()
+    if ((!extraction.strong && !listMode) || !input.popup) {
+      debugEvent('popup', '不弹卡（弱信号或弹窗关），留在记忆历史')
+      continue
+    }
+    cards.push({
+      suggestion: { ...extraction, item, sourceText: input.sourceText, detectionId: detection.id },
+      detectionId: detection.id
+    })
+  }
+  return cards
 }
 
-/** 弹队列下一张；空则归位。 */
-function showNextQueued(): void {
-  const card = cardQueue.shift()
-  if (!card) {
-    activeQueuedId = null
+export function showDetectedCards(cards: DetectedCard[]): void {
+  if (!cards.length) return
+  if (cards.length === 1) {
+    showPreview({ localSuggestion: cards[0].suggestion })
     return
   }
-  activeQueuedId = card.detectionId
-  showPreview({ localSuggestion: card.suggestion })
-}
-
-/** 预览卡关闭（同意/拒绝/闲置/AI 解析后最终都走 preview:hide）→ 若是队列卡则弹下一张。 */
-export function onPreviewHidden(): void {
-  if (activeQueuedId === null) return
-  activeQueuedId = null
-  showNextQueued()
+  showPreview({ localBatch: { items: cards.map((card) => card.suggestion) } })
 }
 
 /** 由 OCR 框拼解析用文字；若像聊天界面（#54），前置「谁说的」转写作归属信号，保留全文。 */
@@ -527,7 +550,7 @@ export async function scanOnce(): Promise<ScanResult> {
         return { status: 'empty', message: '未发现可添加的日程' }
       }
       if (screenSenseKeepShots) saveShotTempFromPng(textHash(text), png) // 整帧一张证据图
-      const cards: QueuedCard[] = hits.map(({ extraction, item }) => {
+      const cards: DetectedCard[] = hits.map(({ extraction, item }) => {
         debugEvent('detect', `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'}`)
         const { detection } = addDetection({
           title: extraction.title,
@@ -542,7 +565,7 @@ export async function scanOnce(): Promise<ScanResult> {
           detectionId: detection.id
         }
       })
-      enqueueCards(cards) // 逐张弹（首张立即，后续随用户确认推进）
+      showDetectedCards(cards) // 一条走单卡，多条汇成一张清单卡
       applyExternalPetSay(hits.length > 1 ? `发现 ${hits.length} 个日程~` : '发现一个日程~', 'waiting')
       return {
         status: 'suggested',
@@ -605,12 +628,12 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
 }
 
 /** 检测历史条目 → ParsedItem（「记忆」页同意一条检测时重建入库载荷）。 */
-function buildLocalItem(e: LocalExtraction): ParsedItem {
+export function buildLocalItem(e: LocalExtraction, reason = '屏幕识别'): ParsedItem {
   return {
     title: e.title,
     item_type: 'other',
     belongs_to_user: e.belongsToUser,
-    belonging_reason: '屏幕识别',
+    belonging_reason: reason,
     user_role: 'unclear',
     start_time: e.deadline ? null : e.isoTime,
     due_time: e.deadline ? e.isoTime : null,
@@ -633,6 +656,24 @@ export function acceptLocal(payload: {
   const info = acceptSuggestion({ item: payload.item, sourceText: payload.sourceText })
   if (payload.detectionId) setDetectionStatus(payload.detectionId, 'accepted')
   return info
+}
+
+/** 批量同意清单卡上勾选的多条：逐条走 acceptLocal 的入库 + 查重路径，汇总结果。 */
+export function acceptLocalBatch(payload: {
+  entries: { item: ParsedItem; sourceText: string; detectionId?: string }[]
+}): { added: number; duplicates: number; titles: string[] } {
+  let added = 0
+  let duplicates = 0
+  const titles: string[] = []
+  for (const entry of payload.entries) {
+    const info = acceptLocal(entry)
+    if (info.duplicate) duplicates += 1
+    else {
+      added += 1
+      titles.push(info.title)
+    }
+  }
+  return { added, duplicates, titles }
 }
 
 /** 从「记忆」历史里同意一条检测 → 入库并标记 accepted。 */
@@ -675,6 +716,7 @@ let ticking = false
 let watchAbort: AbortController | null = null
 let lastHash: bigint | null = null
 let lastTextHash = ''
+let lastTodoScanAtMs: number | null = null // 待办识别通道的独立节流（与全局 OCR 冷却分开计）
 let lastDebugApp: string | null | undefined = undefined // 调试日志：仅前台 App 变化时记一次，避免刷屏
 let lastSwitchApp: string | null = null // 切换事件：上一次采样的前台应用（own-app/idle 轮不更新）
 // 订阅到期/额度用尽的云端退避：期间保留本地采样（时长/切换不花钱），跳过截图/OCR/上云；
@@ -779,7 +821,7 @@ function privacyForContext(context: {
 }
 
 /** 云端解析可用性：已登录（网关）或已配直连 API，且完成档案设置。未就绪时监控静默跳过，不白跑截图/OCR。 */
-function cloudReady(): boolean {
+export function cloudReady(): boolean {
   const { functionsBase, token } = getSession()
   const { apiBase, apiKey } = getSettings()
   if (!((functionsBase && token) || (apiBase && apiKey))) return false
@@ -822,7 +864,9 @@ async function watchTick(): Promise<void> {
       screenSenseVlmConfirm,
       screenSenseEventDriven,
       screenSenseFallbackIntervalSec,
-      screenSenseHybridV2
+      screenSenseHybridV2,
+      todoScanEnabled,
+      todoScanIntervalSec
     } = getSettings()
     // 自动采集必须先拿到前台上下文；失败时 fail-closed，不执行截图。
     const context = await getFrontmostContext()
@@ -871,8 +915,18 @@ async function watchTick(): Promise<void> {
     const semanticState = getHybridSemanticState()
     const screenAllowed =
       process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('screen') === 'granted'
+    // 待办识别独立通道：内容型 App 前台且到间隔时，语义完整也看一次正文。
+    // 与 screenSensePopup 解耦——popup 关的语义是「只进记忆不弹卡」，识别照跑。
+    const todoScanDue = shouldTodoScan({
+      enabled: todoScanEnabled,
+      appKind: todoScanAppKind(frontApp, context.bundleId),
+      nowMs: Date.now(),
+      lastTodoScanAtMs,
+      intervalSec: todoScanIntervalSec
+    })
     const trigger = decideOcrTrigger({
       hybridEnabled: screenSenseHybridV2,
+      todoScanDue,
       semantic: semanticState.assessment,
       nowMs: Date.now(),
       active: powerMonitor.getSystemIdleTime() < IDLE_SKIP_SEC,
@@ -900,6 +954,7 @@ async function watchTick(): Promise<void> {
     }
     markActivityScan(decision.reason === 'observer_unavailable' ? 'event' : (decision.reason as ActivityScanReason))
     const triggerReason = trigger.reason as OcrTriggerReason
+    if (triggerReason === 'todo_scan') lastTodoScanAtMs = Date.now()
     markOcrFallback(triggerReason)
     debugEvent('ocr-trigger', `按需 OCR：${trigger.reason}（semantic=${semanticState.assessment.score}）`)
 
@@ -973,41 +1028,19 @@ async function watchTick(): Promise<void> {
     }
 
     let savedShot = false
-    const cards: QueuedCard[] = []
-    for (const { extraction, item } of hits) {
-      debugEvent(
-        'detect',
-        `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'} ${extraction.strong ? '[强]' : '[弱]'}`
-      )
-      // 被动留存 + 长期去重：跨状态按 标题+时间 去重；已记录过的内容不再重复抓取/弹窗
-      const { detection, isNew } = addDetection({
-        title: extraction.title,
-        timeIso: extraction.isoTime,
-        deadline: extraction.deadline,
-        sourceText: text,
-        hits: extraction.hits,
-        app: frontApp
-      })
-      if (!isNew) {
-        debugEvent('record', '已存在，不重复抓取')
-        continue
-      }
-      debugEvent('record', '已记入「记忆」历史（新）')
+    const cards = buildDetectionCards({
+      hits,
+      sourceText: text,
+      app: frontApp,
+      popup: screenSensePopup,
       // 截图持久化（#52/#53）：趁 png 还在存整帧证据图（一张）
-      if (screenSenseKeepShots && png && !savedShot) {
-        saveShotTempFromPng(th, png)
-        savedShot = true
+      onNewDetection: () => {
+        if (screenSenseKeepShots && png && !savedShot) {
+          saveShotTempFromPng(th, png)
+          savedShot = true
+        }
       }
-      // 少量主动：仅强信号 + 弹窗开关开才进弹卡队列
-      if (!extraction.strong || !screenSensePopup) {
-        debugEvent('popup', '不弹卡（弱信号或弹窗关），留在记忆历史')
-        continue
-      }
-      cards.push({
-        suggestion: { ...extraction, item, sourceText: text, detectionId: detection.id },
-        detectionId: detection.id
-      })
-    }
+    })
     if (!cards.length) return
     // 新鲜度门：仍在同一 App 才弹（切走了就只留历史）
     const freshContext = await getFrontmostContext()
@@ -1016,8 +1049,8 @@ async function watchTick(): Promise<void> {
       debugEvent('popup', '已切走 App，不弹')
       return
     }
-    debugEvent('popup', `弹出检测卡：${cards.length} 张`)
-    enqueueCards(cards)
+    debugEvent('popup', cards.length > 1 ? `弹出清单卡：${cards.length} 条` : '弹出检测卡')
+    showDetectedCards(cards)
     applyExternalPetSay(cards.length > 1 ? `发现 ${cards.length} 个日程~` : '发现一个日程~', 'waiting')
   } catch (e) {
     if (signal.aborted) return

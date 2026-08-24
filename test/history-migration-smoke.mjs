@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
-import { migrateWorkRecords, scrubInvalidTaskNames } from '../src/main/db-migrations.ts'
+import { migrateTaskReminders, migrateWorkRecords, scrubInvalidTaskNames } from '../src/main/db-migrations.ts'
 
 const db = new Database(':memory:')
 try {
@@ -49,6 +49,33 @@ try {
   assert.equal(db.prepare('SELECT count(*) AS n FROM work_records').get().n, 2)
   console.log('✓ old work_records schema migrates additively and preserves legacy rows')
   console.log('✓ History segment uniqueness and repeated migration are stable')
+
+  // ---- migrateTaskReminders：tasks 加提醒三列，纯加列且可重复执行 ----
+  db.exec(`
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      belongs_to_user TEXT NOT NULL,
+      status TEXT NOT NULL,
+      start_time TEXT,
+      due_time TEXT,
+      created_at TEXT NOT NULL
+    );
+    INSERT INTO tasks (id, title, belongs_to_user, status, due_time, created_at)
+      VALUES ('old-1', '旧任务', 'yes', 'scheduled', '2026-08-25T10:00', '2026-08-22T10:00:00');
+  `)
+  migrateTaskReminders(db)
+  const taskColumns = new Set(db.prepare('PRAGMA table_info(tasks)').all().map((row) => row.name))
+  for (const name of ['remind_offset_min', 'reminded_at', 'snoozed_until'])
+    assert.ok(taskColumns.has(name), `missing reminder column: ${name}`)
+  const oldTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get('old-1')
+  assert.equal(oldTask.remind_offset_min, null, '旧任务默认跟随全局提前量')
+  assert.equal(oldTask.reminded_at, null)
+  assert.equal(oldTask.snoozed_until, null)
+  assert.equal(oldTask.title, '旧任务', '加列不动既有数据')
+  migrateTaskReminders(db) // 幂等：重复执行不报错、不丢数据
+  assert.equal(db.prepare('SELECT count(*) AS n FROM tasks').get().n, 1)
+  console.log('✓ tasks 提醒列加列迁移可重复执行且保留旧行')
 
   // ---- scrubInvalidTaskNames：裸 App 名/泛化名/窗口标题残片的 task 置空 ----
   db.exec(`CREATE TABLE app_usage (app TEXT, day TEXT, seconds INTEGER)`)

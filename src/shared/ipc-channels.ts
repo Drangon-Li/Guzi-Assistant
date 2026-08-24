@@ -7,6 +7,7 @@ export const INVOKE_CHANNELS = [
   'profile:save',
   'settings:get',
   'settings:save',
+  'model:probe',
   'auth:set-session',
   'capture:clipboard',
   'capture:files',
@@ -41,11 +42,17 @@ export const INVOKE_CHANNELS = [
   'history:pick-apps',
   'suggestion:accept',
   'suggestion:accept-local',
+  'suggestion:accept-batch',
   'detections:list',
   'detections:accept',
   'detections:dismiss',
   'detections:note',
   'subscription:remind',
+  'reminder:done',
+  'reminder:snooze',
+  'reminder:close',
+  'reminder:resize',
+  'reminder:open-schedule',
   'work-records:list',
   'work-records:since',
   'work-records:delete',
@@ -96,6 +103,7 @@ export const EVENT_CHANNELS = [
   'guzi-assistant:pet-chat-drop',
   'guzi-assistant:reports-updated',
   'guzi-assistant:quickbar-show',
+  'guzi-assistant:reminder',
   'guzi-assistant:theme'
 ] as const
 

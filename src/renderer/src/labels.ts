@@ -171,3 +171,17 @@ export function summaryToast(s: ParseSummary): string {
     s.autoAdded ? `，其中 ${s.autoAdded} 个已自动加入日程` : '，已进入待确认'
   }${s.duplicates ? `；另跳过 ${s.duplicates} 个重复任务` : ''}`
 }
+
+/** 任务级提醒提前量下拉。'' = 跟随全局默认；-1 = 该任务不提醒。 */
+export const REMIND_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: '跟随默认' },
+  { value: '0', label: '到点提醒' },
+  { value: '5', label: '提前 5 分钟' },
+  { value: '15', label: '提前 15 分钟' },
+  { value: '30', label: '提前 30 分钟' },
+  { value: '60', label: '提前 1 小时' },
+  { value: '-1', label: '不提醒' }
+]
+
+export const remindToInput = (value: number | null): string => (value == null ? '' : String(value))
+export const remindFromInput = (value: string): number | null => (value === '' ? null : Number(value))

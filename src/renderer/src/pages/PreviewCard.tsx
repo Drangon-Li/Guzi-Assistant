@@ -14,19 +14,25 @@ type State =
   | { phase: 'error'; message: string }
   | { phase: 'empty'; message: string }
   | { phase: 'suggestion'; item: ParsedItem; sourceText: string; hits: string[] }
-  | {
-      phase: 'local'
-      local: LocalExtraction & {
-        item: ParsedItem
-        sourceText: string
-        detectionId?: string
-        queueIndex?: number // 多任务队列：第几张
-        queueTotal?: number // 多任务队列：共几张
-      }
-    }
+  | { phase: 'local'; local: BatchItem }
+  | { phase: 'batch'; items: BatchItem[] }
   | { phase: 'done'; message: string }
 
+/** 清单卡上的一条候选（一屏识别出多条待办时用） */
+type BatchItem = LocalExtraction & {
+  item: ParsedItem
+  sourceText: string
+  detectionId?: string
+  /** 剪贴板来源的卡不自动忽略——用户刚主动复制，不该 5 秒就当他拒绝了 */
+  noAutoHide?: boolean
+}
+
 const AUTO_SECONDS = 3
+
+/** 清单卡默认勾选：解出了具体时间、且不是明确别人的事 → 预勾。
+ *  没时间的条目也列出来，但要用户自己勾——它们是靠同批里的强信号才被带出来的。 */
+const pickedByDefault = (item: BatchItem): boolean =>
+  item.item.belongs_to_user !== 'no' && !!item.isoTime
 
 export default function PreviewCard(): React.JSX.Element | null {
   const [state, setState] = useState<State>({ phase: 'idle' })
@@ -46,6 +52,8 @@ export default function PreviewCard(): React.JSX.Element | null {
   // 检测卡/建议卡倒计时自动忽略：进度条走满 = 拒绝（检测精度有限，沉默即否）；悬停/填备注时暂停
   const [hovering, setHovering] = useState(false)
   const [remainMs, setRemainMs] = useState<number | null>(null)
+  // 清单卡勾选集：按下标记，不按标题——清单里出现同名条目时按标题会让两条互相勾连
+  const [picked, setPicked] = useState<Set<number>>(new Set())
 
   // 关闭前先播放淡出动画，再执行真正的隐藏 */
   const fadeOut = (action: () => void): void => {
@@ -97,6 +105,45 @@ export default function PreviewCard(): React.JSX.Element | null {
   }
 
   const close = (): void => fadeOut(() => void api.previewHide())
+
+  const toggle = (index: number): void =>
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+
+  // 清单卡 →「加入选中」：勾选的逐条入库（主进程复用单条的查重路径）
+  const acceptBatch = async (): Promise<void> => {
+    if (state.phase !== 'batch') return
+    const entries = state.items
+      .filter((_, index) => picked.has(index))
+      .map(({ item, sourceText, detectionId }) => ({ item, sourceText, detectionId }))
+    if (!entries.length) return
+    setState({ phase: 'loading', message: '正在加入…' })
+    try {
+      const r = await api.acceptLocalBatch({ entries })
+      setState({
+        phase: 'done',
+        message: r.duplicates
+          ? `✓ 已加入 ${r.added} 条（${r.duplicates} 条重复已跳过）`
+          : `✓ 已加入 ${r.added} 条`
+      })
+    } catch (e) {
+      setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
+  // 忽略整份清单：全部标 dismissed，之后同内容不再重复弹（与单卡 ✕ 同语义）
+  const dismissBatch = (): void => {
+    if (state.phase !== 'batch') return
+    const ids = state.items.map((item) => item.detectionId).filter((id): id is string => !!id)
+    fadeOut(() => {
+      for (const id of ids) void api.dismissDetection(id)
+      void api.previewHide()
+    })
+  }
 
   // 检测候选 →「同意」：直接入库（已是云端解析结果）
   const acceptLocalNow = async (): Promise<void> => {
@@ -150,17 +197,13 @@ export default function PreviewCard(): React.JSX.Element | null {
       setClosing(false)
       setSeq((n) => n + 1)
       setPetMode(!!(payload as { petMode?: boolean }).petMode)
-      const ls = (
-        payload as {
-          localSuggestion?: LocalExtraction & {
-            item: ParsedItem
-            sourceText: string
-            detectionId?: string
-            queueIndex?: number
-            queueTotal?: number
-          }
-        }
-      ).localSuggestion
+      const batch = (payload as { localBatch?: { items: BatchItem[] } }).localBatch
+      if (batch?.items.length) {
+        setState({ phase: 'batch', items: batch.items })
+        setPicked(new Set(batch.items.map((item, index) => (pickedByDefault(item) ? index : -1)).filter((i) => i >= 0)))
+        return
+      }
+      const ls = (payload as { localSuggestion?: BatchItem }).localSuggestion
       if (ls) {
         setState({ phase: 'local', local: ls })
         return
@@ -218,12 +261,13 @@ export default function PreviewCard(): React.JSX.Element | null {
     return undefined
   }, [state, autoHideSec])
 
-  // 新检测卡/建议卡弹出（含多任务队列切下一张）：重置自动忽略倒计时；其余阶段无倒计时
+  // 新检测卡/建议卡弹出：重置自动忽略倒计时。清单卡和剪贴板卡不倒计时
   useEffect(() => {
-    if ((state.phase === 'local' || state.phase === 'suggestion') && autoHideSec > 0)
+    const noAutoHide = state.phase === 'local' && state.local.noAutoHide
+    if ((state.phase === 'local' || state.phase === 'suggestion') && autoHideSec > 0 && !noAutoHide)
       setRemainMs(autoHideSec * 1000)
     else setRemainMs(null)
-  }, [seq, state.phase, autoHideSec])
+  }, [seq, state.phase, autoHideSec, state])
 
   // 倒计时步进 + 走满自动忽略（= 拒绝：标记 dismissed，之后同内容不再重复弹）
   const countdownPaused = hovering || noteOpen || closing
@@ -275,6 +319,9 @@ export default function PreviewCard(): React.JSX.Element | null {
                   // 拒绝本地检测：标记已忽略，之后同内容不再重复弹（修「拒绝后仍重复抓取」）
                   if (state.phase === 'local' && state.local.detectionId)
                     void api.dismissDetection(state.local.detectionId)
+                  if (state.phase === 'batch')
+                    for (const item of state.items)
+                      if (item.detectionId) void api.dismissDetection(item.detectionId)
                   void api.previewHide()
                 }
               })
@@ -444,11 +491,6 @@ export default function PreviewCard(): React.JSX.Element | null {
               <span className="min-w-0 flex-1 text-sm leading-5 font-medium">
                 {state.local.title}
               </span>
-              {state.local.queueTotal != null && state.local.queueTotal > 1 && (
-                <span className="mt-0.5 shrink-0 text-[10px] text-slate-400">
-                  {state.local.queueIndex}/{state.local.queueTotal}
-                </span>
-              )}
             </div>
             <div className="text-xs text-slate-500">
               {state.local.isoTime ? fmtTime(state.local.isoTime) : '未识别到具体时间'}
@@ -500,6 +542,52 @@ export default function PreviewCard(): React.JSX.Element | null {
                 onClick={() => void acceptLocalNow()}
               >
                 同意
+              </button>
+            </div>
+          </>
+        )}
+
+        {state.phase === 'batch' && (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-600">
+                识别到清单
+              </span>
+              <span className="text-xs text-slate-500">共 {state.items.length} 条，勾选后一次加入</span>
+            </div>
+            <ul className="-mx-1 max-h-52 overflow-y-auto">
+              {state.items.map((item, index) => (
+                <li key={index}>
+                  <label className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-3.5 shrink-0 accent-brand"
+                      checked={picked.has(index)}
+                      onChange={() => toggle(index)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs leading-5">{item.title}</span>
+                      <span className="block text-[11px] text-slate-400">
+                        {item.isoTime ? fmtTime(item.isoTime) : '未识别到具体时间'}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-end gap-2">
+              <button
+                className="mr-auto rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                onClick={dismissBatch}
+              >
+                全部忽略
+              </button>
+              <button
+                className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-40"
+                disabled={picked.size === 0}
+                onClick={() => void acceptBatch()}
+              >
+                加入选中的 {picked.size} 条
               </button>
             </div>
           </>

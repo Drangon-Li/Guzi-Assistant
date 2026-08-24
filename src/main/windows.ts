@@ -61,11 +61,16 @@ export function toggleMainWindow(): void {
   }
 }
 
+const PREVIEW_W = 320
+const PREVIEW_H = 240
+/** 清单卡要列出多条候选，240 高会把列表和按钮裁掉 */
+const PREVIEW_BATCH_H = 420
+
 export function getPreviewWindow(): BrowserWindow {
   if (previewWin && !previewWin.isDestroyed()) return previewWin
   previewWin = new BrowserWindow({
-    width: 320,
-    height: 240,
+    width: PREVIEW_W,
+    height: PREVIEW_H,
     frame: false,
     transparent: true,
     resizable: false,
@@ -87,6 +92,8 @@ export function getPreviewWindow(): BrowserWindow {
 /** 弹出预览/通知卡，不抢焦点。桌宠可见时贴到桌宠图标旁（气泡感），否则回退右下角默认位置。 */
 export function showPreview(payload: unknown): void {
   const win = getPreviewWindow()
+  const batch = !!(payload as { localBatch?: unknown } | null)?.localBatch
+  win.setSize(PREVIEW_W, batch ? PREVIEW_BATCH_H : PREVIEW_H)
   const petMode = positionPreview(win)
   const enriched =
     payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>), petMode } : payload
@@ -98,11 +105,16 @@ export function showPreview(payload: unknown): void {
   else send()
 }
 
-/** 定位通知卡；返回是否已贴到桌宠旁（true=桌宠模式，渲染层据此隐藏冗余品牌行）。 */
+/** 定位通知卡；返回是否已贴到桌宠旁（true=桌宠模式，渲染层据此隐藏冗余品牌行）。
+ *  高度取窗口当前实际高度——清单卡比普通卡高，写死 240 会让它贴错位置。 */
 function positionPreview(win: BrowserWindow): boolean {
-  if (anchorWindowNearPet(win, 320, 240)) return true // 桌宠可见：贴图标旁
+  const height = win.getBounds().height
+  if (anchorWindowNearPet(win, PREVIEW_W, height)) return true // 桌宠可见：贴图标旁
   const { workArea } = screen.getPrimaryDisplay()
-  win.setPosition(workArea.x + workArea.width - 336, workArea.y + workArea.height - 256)
+  win.setPosition(
+    workArea.x + workArea.width - PREVIEW_W - 16,
+    workArea.y + workArea.height - height - 16
+  )
   return false
 }
 

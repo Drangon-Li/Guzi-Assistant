@@ -12,7 +12,7 @@ import { resolveDirectModelSettings } from '@shared/model-configuration'
 import { normalizeHistoryHost } from '@shared/history'
 import { createSqliteHistorySegmentIndex, type HistorySegmentIndex } from './history/segment-index.ts'
 import { createSqliteHistorySummaryIndex, type HistorySummaryIndex } from './history/summary-index.ts'
-import { migrateWorkRecords, scrubInvalidTaskNames } from './db-migrations.ts'
+import { migrateTaskReminders, migrateWorkRecords, scrubInvalidTaskNames } from './db-migrations.ts'
 import type {
   AppSettings,
   AppCategoryOverride,
@@ -184,6 +184,8 @@ export function initDb(): void {
   historySummaryIndex = createSqliteHistorySummaryIndex(db)
   // 老库迁移：work_records 只增不删，保留旧 OCR 记录并标记为 legacy。
   migrateWorkRecords(db)
+  // 老库迁移：tasks 加提醒三列（纯加列，旧客户端 SELECT * 忽略即可）
+  migrateTaskReminders(db)
   // 老数据清理：裸 App 名/泛化名/窗口标题残片的 task 标签置空（不进统计、不进模型候选）
   scrubInvalidTaskNames(db)
   const pmCols = (db.prepare('PRAGMA table_info(personal_memory)').all() as { name: string }[]).map((c) => c.name)
@@ -343,6 +345,20 @@ export function getSettings(): AppSettings {
     mcpEnabled: map.mcpEnabled === 'true',
     mcpPort: Number(map.mcpPort) || 38999,
     mcpToken: map.mcpToken ?? '',
+    taskReminderEnabled: map.taskReminderEnabled !== 'false',
+    taskReminderOffsetMin:
+      map.taskReminderOffsetMin != null
+        ? Math.min(1440, Math.max(0, Number(map.taskReminderOffsetMin) || 0))
+        : 5,
+    useCustomModel: map.useCustomModel === 'true',
+    modelVision: map.modelVision ?? '',
+    modelChat: map.modelChat ?? '',
+    clipWatchEnabled: map.clipWatchEnabled !== 'false',
+    todoScanEnabled: map.todoScanEnabled !== 'false',
+    todoScanIntervalSec:
+      map.todoScanIntervalSec != null
+        ? Math.min(600, Math.max(60, Number(map.todoScanIntervalSec) || 180))
+        : 180,
     historyV2Enabled: map.historyV2Enabled === 'true',
     historyDerivedWorkEnabled: map.historyDerivedWorkEnabled === 'true',
     historyCaptureText: map.historyCaptureText === 'true'
@@ -544,6 +560,9 @@ interface TaskRow {
   duplicate_of: string | null
   status: string
   feedback: string | null
+  remind_offset_min: number | null
+  reminded_at: string | null
+  snoozed_until: string | null
   created_at: string
   updated_at: string
 }
@@ -568,27 +587,42 @@ function rowToTask(r: TaskRow): TaskRecord {
     duplicateOf: r.duplicate_of,
     status: r.status as TaskStatus,
     feedback: r.feedback,
+    remindOffsetMin: r.remind_offset_min,
+    remindedAt: r.reminded_at,
+    snoozedUntil: r.snoozed_until,
     createdAt: r.created_at,
     updatedAt: r.updated_at
   }
 }
 
-export function createTask(
-  t: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'>
-): TaskRecord {
+/** 提醒三字段是簿记状态，捕获链路的调用方不必关心，缺省即 null。 */
+type NewTask = Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt' | 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'> &
+  Partial<Pick<TaskRecord, 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'>>
+
+export function createTask(t: NewTask): TaskRecord {
   const now = localNow()
-  const rec: TaskRecord = { ...t, id: randomUUID(), createdAt: now, updatedAt: now }
+  const rec: TaskRecord = {
+    ...t,
+    remindOffsetMin: t.remindOffsetMin ?? null,
+    remindedAt: t.remindedAt ?? null,
+    snoozedUntil: t.snoozedUntil ?? null,
+    id: randomUUID(),
+    createdAt: now,
+    updatedAt: now
+  }
   db.prepare(`
     INSERT INTO tasks (
       id, source_id, title, item_type, belongs_to_user, belonging_reason, user_role,
       start_time, due_time, location, priority, confidence, suggested_action,
-      evidence, notes, duplicate_of, status, feedback, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      evidence, notes, duplicate_of, status, feedback,
+      remind_offset_min, reminded_at, snoozed_until, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     rec.id, rec.sourceId, rec.title, rec.itemType, rec.belongsToUser, rec.belongingReason,
     rec.userRole, rec.startTime, rec.dueTime, rec.location, rec.priority, rec.confidence,
     rec.suggestedAction, JSON.stringify(rec.evidence), JSON.stringify(rec.notes), rec.duplicateOf,
-    rec.status, rec.feedback, rec.createdAt, rec.updatedAt
+    rec.status, rec.feedback, rec.remindOffsetMin, rec.remindedAt, rec.snoozedUntil,
+    rec.createdAt, rec.updatedAt
   )
   return rec
 }
@@ -649,7 +683,33 @@ const TASK_EDITABLE: Record<string, string> = {
   status: 'status',
   feedback: 'feedback',
   notes: 'notes',
-  belongsToUser: 'belongs_to_user' // #15：允许用户改判归属（驱动个性化学习）
+  belongsToUser: 'belongs_to_user', // #15：允许用户改判归属（驱动个性化学习）
+  remindOffsetMin: 'remind_offset_min'
+}
+// reminded_at / snoozed_until 不进 TASK_EDITABLE：只由提醒子系统经下面两个专用函数写。
+const REMIND_RESET_KEYS = ['startTime', 'dueTime', 'remindOffsetMin'] as const
+
+/** 提醒候选：窄查询，让 30 秒 tick 不必读全表，也不触发 markOverdue 的写库。 */
+export function listReminderCandidates(): TaskRecord[] {
+  const rows = db
+    .prepare(`
+      SELECT * FROM tasks
+      WHERE belongs_to_user = 'yes'
+        AND status IN ('not_started', 'scheduled', 'in_progress', 'overdue')
+        AND (start_time IS NOT NULL OR due_time IS NOT NULL)
+    `)
+    .all() as TaskRow[]
+  return rows.map(rowToTask)
+}
+
+/** 记下已提醒的目标时刻（幂等键）。不清 snoozed_until——稍后的幂等靠 reminded_at === snoozed_until。 */
+export function markTaskReminded(id: string, targetIso: string): void {
+  db.prepare('UPDATE tasks SET reminded_at = ? WHERE id = ?').run(targetIso, id)
+}
+
+/** 稍后提醒到 untilIso。再次稍后时覆盖为更晚的时刻，幂等键自然失配、会重新兑现。 */
+export function setTaskSnooze(id: string, untilIso: string): void {
+  db.prepare('UPDATE tasks SET snoozed_until = ? WHERE id = ?').run(untilIso, id)
 }
 
 /** 单条任务（归属纠偏学习要读 title/belongingReason） */
@@ -669,6 +729,19 @@ export function updateTask(id: string, patch: Partial<TaskRecord>): void {
     }
   }
   if (!sets.length) return
+  // 改了时间或提前量 → 复位提醒状态，让新时刻重新提醒一次；
+  // 不复位的话旧的 snoozed_until 会一直挡着，新时刻永远提醒不出来。
+  if (REMIND_RESET_KEYS.some((k) => k in patch)) {
+    const cur = db
+      .prepare('SELECT start_time, due_time, remind_offset_min FROM tasks WHERE id = ?')
+      .get(id) as { start_time: string | null; due_time: string | null; remind_offset_min: number | null } | undefined
+    const changed =
+      !!cur &&
+      (('startTime' in patch && (patch.startTime ?? null) !== cur.start_time) ||
+        ('dueTime' in patch && (patch.dueTime ?? null) !== cur.due_time) ||
+        ('remindOffsetMin' in patch && (patch.remindOffsetMin ?? null) !== cur.remind_offset_min))
+    if (changed) sets.push('reminded_at = NULL', 'snoozed_until = NULL')
+  }
   sets.push('updated_at = ?')
   values.push(localNow(), id)
   db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`).run(...values)

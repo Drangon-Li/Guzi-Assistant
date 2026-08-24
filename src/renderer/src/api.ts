@@ -19,6 +19,7 @@ import type {
   WorkRecord,
   HistoryAppSelection
 } from '@shared/types'
+import type { ModelProbeResult } from '@shared/model-configuration'
 import type {
   HistoryDeleteResult,
   HistoryQueryOptions,
@@ -55,6 +56,8 @@ export const api = {
 
   getSettings: () => inv<AppSettings>('settings:get'),
   /** 返回 false 表示快捷键注册失败（被其他应用占用） */
+  probeModel: (apiBase: string, apiKey: string) =>
+    inv<ModelProbeResult>('model:probe', apiBase, apiKey),
   saveSettings: (patch: Partial<AppSettings>) => inv<boolean>('settings:save', patch),
 
   listTasks: () => inv<TaskRecord[]>('tasks:list'),
@@ -97,6 +100,9 @@ export const api = {
     inv<AddedInfo>('suggestion:accept', payload),
   acceptLocal: (payload: { item: ParsedItem; sourceText: string; detectionId?: string }) =>
     inv<AddedInfo>('suggestion:accept-local', payload),
+  acceptLocalBatch: (payload: {
+    entries: { item: ParsedItem; sourceText: string; detectionId?: string }[]
+  }) => inv<{ added: number; duplicates: number; titles: string[] }>('suggestion:accept-batch', payload),
   listDetections: () => inv<DetectionRecord[]>('detections:list'),
   acceptDetection: (id: string) => inv<AddedInfo | null>('detections:accept', id),
   dismissDetection: (id: string) => inv<void>('detections:dismiss', id),
@@ -104,6 +110,11 @@ export const api = {
     inv<void>('detections:note', p),
   remindRenew: (kind: 'trial' | 'paid', days: number) =>
     inv<void>('subscription:remind', kind, days),
+  reminderDone: (taskId: string) => inv<void>('reminder:done', taskId),
+  reminderSnooze: (taskId: string, minutes: number) => inv<void>('reminder:snooze', taskId, minutes),
+  reminderClose: () => inv<void>('reminder:close'),
+  reminderResize: (height: number) => inv<void>('reminder:resize', height),
+  reminderOpenSchedule: () => inv<void>('reminder:open-schedule'),
 
   listWorkRecords: (day: string) => inv<WorkRecord[]>('work-records:list', day),
   workRecordsSince: (sinceDay: string) => inv<WorkRecord[]>('work-records:since', sinceDay),
