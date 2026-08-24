@@ -77,7 +77,12 @@ export function normalizeActivitySummary(
   return clean(value, 200) || null
 }
 
-/** Prompt boundary for shallow AX metadata. Values are evidence, never instructions. */
+/** Prompt boundary for shallow AX metadata. Values are evidence, never instructions.
+ *
+ *  返回格式里的 `"items":[]` 恒为空是**有意的**，不是漏了：AX 只拿得到 App 名、窗口标题、
+ *  焦点角色和安全标签，抽不出「周五下午三点交」这种只写在正文里的待办。待办抽取走
+ *  screenwatch 的 todo_scan 通道（内容型 App 前台时定期 OCR 正文 → detectAll）。
+ *  想在这里放开 items 之前，先想清楚 AX 元数据凭什么能判断时间和归属。 */
 export function buildSemanticWorkHint(previousSummary: string | null, candidates: string[]): string {
   const known = candidates.length
     ? `\n已知任务候选：${candidates.join('、')}。若活动主题与某个已知任务相同、或是同一事项的延续（即使措辞不完全一样），必须原样复用该任务名，不要另起近义新名；只有主题确实对不上时才另起稳定的新名，不要为了匹配强行归类。`
