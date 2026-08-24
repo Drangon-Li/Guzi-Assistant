@@ -54,25 +54,25 @@ import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/pars
 import { setHotkey, setNamedHotkey, setScreenshotHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
+import { applyScreenSenseSettings, scanOnce, screenActivityStatus } from './screenwatch'
 import {
   acceptDetection,
   acceptLocal,
-  acceptSuggestion,
-  applyScreenSenseSettings,
   acceptLocalBatch,
-  dismissDetection,
-  scanOnce,
-  screenActivityStatus,
-  historyStatus,
-  historyRecent,
-  historySearch,
-  historySummarize,
-  pauseHistory,
-  resumeHistory,
+  acceptSuggestion,
+  dismissDetection
+} from './detection-cards'
+import {
+  acquireHistoryMutationBarrier,
   clearHistory,
   deleteHistoryRange,
-  acquireHistoryMutationBarrier
-} from './screenwatch'
+  historyRecent,
+  historySearch,
+  historyStatus,
+  historySummarize,
+  pauseHistory,
+  resumeHistory
+} from './history/service.ts'
 import { pickHistoryApps } from './history/app-picker.ts'
 import { invalidateActivityHistoryPersistenceCache } from './activity-tracker'
 import { setSession } from './session'

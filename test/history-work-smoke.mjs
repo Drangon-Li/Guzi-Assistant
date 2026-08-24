@@ -170,12 +170,13 @@ check('摘要器在 10 分钟摘要完成后触发派生回调', callbackDocumen
 check('本地摘要不再把窗口标题当作 focusTask', callbackDocument?.focusTask === null)
 await summarizer.close()
 
-const screenwatch = readFileSync(new URL('../src/main/screenwatch.ts', import.meta.url), 'utf8')
+const historyService = readFileSync(new URL('../src/main/history/service.ts', import.meta.url), 'utf8')
+const workRecords = readFileSync(new URL('../src/main/work-records.ts', import.meta.url), 'utf8')
 const db = readFileSync(new URL('../src/main/db.ts', import.meta.url), 'utf8')
 check('两个派生开关按 AND 关系独立回滚',
-  /historyV2Enabled && settings\.historyDerivedWorkEnabled/.test(screenwatch) && /historyDerivedWorkEnabled !== undefined/.test(readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')))
-check('旧 OCR 路径明确标记 legacy', /derivedBy: 'legacy'/.test(screenwatch) && /DEFAULT 'legacy'/.test(db))
-check('语义不足的 hard fallback 保留旧 OCR 记录', /hard_fallback_incomplete/.test(screenwatch))
+  /historyV2Enabled && settings\.historyDerivedWorkEnabled/.test(historyService) && /historyDerivedWorkEnabled !== undefined/.test(readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')))
+check('旧 OCR 路径明确标记 legacy', /derivedBy: 'legacy'/.test(workRecords) && /DEFAULT 'legacy'/.test(db))
+check('语义不足的 hard fallback 保留旧 OCR 记录', /hard_fallback_incomplete/.test(workRecords))
 check('work_records 迁移包含 History 追溯字段',
   /segment_id TEXT/.test(db) && /start_at TEXT/.test(db) && /end_at TEXT/.test(db) && /summary_hash TEXT/.test(db) && /derived_by TEXT/.test(db))
 

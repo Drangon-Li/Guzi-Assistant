@@ -23,17 +23,16 @@ import { CLIP_LIMITS, decideClipboardFastPath, decideClipboardParse } from '@sha
 import { HINTS } from './capture'
 import { getSettings } from './db'
 import { ensureNativeHelperBinary } from './native-helper-cache'
-import { parseToItems } from './parser'
+import { cloudReady, parseToItems } from './parser'
 import { applyExternalPetSay } from './pet/controller'
 import {
   buildDetectionCards,
   buildLocalItem,
-  cloudReady,
-  isWatchPaused,
   parsedToExtraction,
   showDetectedCards,
   type DetectHit
-} from './screenwatch'
+} from './detection-cards'
+import { isWatchPaused } from './screenwatch'
 import { debugEvent, debugIsOpen } from './windows'
 
 const execFileAsync = promisify(execFile)

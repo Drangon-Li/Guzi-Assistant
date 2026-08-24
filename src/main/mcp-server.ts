@@ -18,7 +18,7 @@ import {
   historySummarize,
   pauseHistory,
   resumeHistory
-} from './screenwatch'
+} from './history/service.ts'
 import type { HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
 import { bearerTokenMatches } from './history/mcp-auth.ts'
 import { workRecordInterval } from '@shared/work-report'
