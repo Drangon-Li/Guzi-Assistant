@@ -19,6 +19,9 @@ let lastReaction: PetReaction = 'idle'
 let sayTimer: ReturnType<typeof setTimeout> | null = null
 let sayToken = 0
 let processingBubble = false // 当前气泡是否为「正在处理中～」：处理结束时只清自己的，别误清后来的消息
+// 常驻气泡（任务提醒）：不自动消失，且不被状态气泡/处理中气泡顶掉。
+// 存下原文是为了聆听结束后能把它放回来——聆听是用户主动按的，允许临时覆盖。
+let persistent: { message: string; reaction: PetReaction } | null = null
 
 // 桌宠停用或暂停时，事件不打扰（暂停 = 冻结安静；停用 = 隐藏）。
 function quiet(): boolean {
@@ -36,6 +39,7 @@ export function applyExternalPetReaction(reaction: PetReaction, opts: { showMess
 /** 显示一句气泡，到时清除。reaction 直接随气泡传入（决定气泡色调），不读全局态——避免并发事件串色。 */
 export function applyExternalPetSay(message: string, reaction?: PetReaction, opts: { durationMs?: number } = {}): void {
   if (quiet() || !getPetPrefs().bubbles) return
+  if (persistent) return // 提醒气泡优先级最高，普通状态气泡不顶掉它
   if (reaction) lastReaction = reaction
   processingBubble = false
   setPetBubble(message, reaction ?? lastReaction)
@@ -51,6 +55,7 @@ export function applyExternalPetSay(message: string, reaction?: PetReaction, opt
 export function setPetScanning(on: boolean): void {
   if (on && quiet()) return
   setPetScanningWin(on)
+  if (persistent) return // 提醒气泡挂着时只切光环，不动气泡
   if (on && getPetPrefs().bubbles) {
     if (sayTimer) clearTimeout(sayTimer)
     sayToken++ // 使在途的自动清除失效，处理期间气泡常驻
@@ -75,7 +80,30 @@ export function setPetListening(on: boolean): void {
   if (sayTimer) clearTimeout(sayTimer)
   sayToken++ // 使在途的气泡自动清除失效，防止把聆听气泡按住期间提前清掉
   processingBubble = false
+  // 聆听是用户主动按出来的，允许临时盖过提醒气泡；松开后把提醒放回来，别把提醒吞了
+  if (!on && persistent) {
+    setPetBubble(persistent.message, persistent.reaction)
+    return
+  }
   setPetBubble(on ? '听到啦！语音功能即将上线～' : null, 'waiting')
+}
+
+/** 常驻气泡：任务提醒专用，不自动消失，由 clearPetPersistentSay 显式清。
+ *  遵守「气泡提醒」总开关——用户关了就是不想桌宠说话；提醒卡窗与系统通知不受影响。 */
+export function applyPetPersistentSay(message: string, reaction: PetReaction = 'waiting'): void {
+  if (quiet() || !getPetPrefs().bubbles) return
+  if (sayTimer) clearTimeout(sayTimer)
+  sayToken++ // 让在途的自动清除失效，否则 4.2 秒后会把提醒气泡清掉
+  processingBubble = false
+  persistent = { message, reaction }
+  lastReaction = reaction
+  setPetBubble(message, reaction)
+}
+
+export function clearPetPersistentSay(): void {
+  if (!persistent) return
+  persistent = null
+  if (!listeningOn) setPetBubble(null)
 }
 
 /** 全局快捷键：开/关说话（聆听）模式——与长按桌宠等效，但按一下切换而非按住。 */
@@ -86,11 +114,17 @@ export function togglePetListening(): void {
 /** 设置页「气泡提醒」总开关。 */
 export function setPetBubblesEnabled(on: boolean): void {
   savePetPrefs({ bubbles: on })
-  if (!on) setPetBubble(null) // 关掉时清掉当前挂着的气泡
+  // 关掉时连常驻提醒气泡一起清：留着它会永久堵住后续的状态气泡，而它自己也显示不出来。
+  // 提醒本身不丢——提醒卡窗和系统通知不受这个开关影响。
+  if (!on) {
+    persistent = null
+    setPetBubble(null)
+  }
 }
 
 export function setPetPausedState(paused: boolean): void {
   savePetPrefs({ paused })
+  if (paused) persistent = null // 同 setPetBubblesEnabled：显示不出来就别堵着后续气泡
   setPetPaused(paused)
 }
 export function getPetPausedState(): boolean {
@@ -102,7 +136,10 @@ export function setPetScaleValue(scale: PetScaleValue): void {
 export function setPetEnabled(enabled: boolean): void {
   savePetPrefs({ enabled })
   if (enabled) showPet()
-  else hidePet()
+  else {
+    persistent = null
+    hidePet()
+  }
 }
 
 export { showPet, hidePet, resetPetPosition, isPetVisible }
