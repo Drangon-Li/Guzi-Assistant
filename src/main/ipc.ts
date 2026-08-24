@@ -29,6 +29,7 @@ import {
   saveProfile,
   saveSettings,
   setPersonalMemory,
+  setTaskSnooze,
   updateTask,
   wipeAll,
   wipeMemory
@@ -46,7 +47,7 @@ import {
   submitScreenshot,
   takeScreenshot
 } from './capture'
-import { parseToItems } from './parser'
+import { parseToItems, probeModelEndpoint } from './parser'
 import { assistantAdd, assistantChat } from './assistant'
 import { exportTaskIcs } from './export'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
@@ -58,8 +59,8 @@ import {
   acceptLocal,
   acceptSuggestion,
   applyScreenSenseSettings,
+  acceptLocalBatch,
   dismissDetection,
-  onPreviewHidden,
   scanOnce,
   screenActivityStatus,
   historyStatus,
@@ -81,6 +82,7 @@ import { broadcast, broadcastTheme, focusMain, hidePreview, showPreview } from '
 import {
   applyExternalPetReaction,
   applyExternalPetSay,
+  clearPetPersistentSay,
   setPetBubblesEnabled,
   setPetEnabled,
   setPetScaleValue,
@@ -88,6 +90,10 @@ import {
   resetPetPosition
 } from './pet/controller'
 import { getPetPrefs } from './pet/state'
+import { hideReminderWindow, resizeReminder } from './reminder-window'
+import { applyTaskReminderSchedule } from './task-reminder'
+import { applyClipWatchSettings } from './clipwatch'
+import { localIso } from '@shared/task-reminder'
 import { hidePetChat } from './pet/pet-chat-window'
 import { hideQuickBar, resizeQuickBar } from './quickbar'
 import { applyMcpSettings } from './mcp-server'
@@ -135,6 +141,10 @@ export function registerIpc(): void {
   ipcMain.handle('theme:get', () => nativeTheme.shouldUseDarkColors)
   // 系统外观变化（设置为「跟随系统」时）：广播给所有渲染窗口切 .dark（桌宠由 pet-window 自己的 nativeTheme 监听重渲染）
   nativeTheme.on('updated', () => broadcastTheme())
+  // 设置页「检测连接」：用表单里的现值探测，不必先保存
+  ipcMain.handle('model:probe', (_e, apiBase: string, apiKey: string) =>
+    probeModelEndpoint(String(apiBase ?? ''), String(apiKey ?? ''))
+  )
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {
     let ok = true
     if (
@@ -153,6 +163,18 @@ export function registerIpc(): void {
       patch.screenSenseIntervalSec = Number.isFinite(value)
         ? Math.min(60, Math.max(1, Math.round(value)))
         : 5
+    }
+    if (patch.taskReminderOffsetMin !== undefined) {
+      const value = Number(patch.taskReminderOffsetMin)
+      patch.taskReminderOffsetMin = Number.isFinite(value)
+        ? Math.min(1440, Math.max(0, Math.round(value)))
+        : 5
+    }
+    if (patch.todoScanIntervalSec !== undefined) {
+      const value = Number(patch.todoScanIntervalSec)
+      patch.todoScanIntervalSec = Number.isFinite(value)
+        ? Math.min(600, Math.max(60, Math.round(value)))
+        : 180
     }
     // 快捷键先注册成功再落库，避免把无效组合持久化导致下次启动无快捷键
     if (patch.hotkey !== undefined) {
@@ -194,6 +216,8 @@ export function registerIpc(): void {
       patch.dailyReportTime !== undefined
     )
       applyScreenSenseSettings()
+    if (patch.taskReminderEnabled !== undefined) applyTaskReminderSchedule()
+    if (patch.clipWatchEnabled !== undefined) applyClipWatchSettings()
     if (patch.mcpEnabled !== undefined || patch.mcpPort !== undefined || patch.mcpToken !== undefined)
       applyMcpSettings()
     broadcast('guzi-assistant:settings-updated')
@@ -212,12 +236,32 @@ export function registerIpc(): void {
   ipcMain.handle('preview:cancel', (_e, captureId: string) => {
     cancelPending(captureId)
     hidePreview()
-    onPreviewHidden() // 队列卡：当前关掉 → 弹下一张
   })
   ipcMain.handle('preview:hide', () => {
     clearPendings()
     hidePreview()
-    onPreviewHidden() // 队列卡：当前关掉 → 弹下一张
+  })
+
+  // ---------- 任务提醒卡 ----------
+  // 提醒的幂等键（reminded_at）在触发时就已写入，所以「知道了」不需要再写任何东西。
+  const closeReminder = (): void => {
+    hideReminderWindow()
+    clearPetPersistentSay()
+  }
+  ipcMain.handle('reminder:done', (_e, taskId: string) => {
+    updateTask(taskId, { status: 'done' })
+    applyExternalPetReaction('success')
+    broadcast('guzi-assistant:tasks-updated')
+  })
+  ipcMain.handle('reminder:snooze', (_e, taskId: string, minutes: number) => {
+    const safe = Math.min(24 * 60, Math.max(1, Math.round(minutes)))
+    setTaskSnooze(taskId, localIso(Date.now() + safe * 60_000))
+  })
+  ipcMain.handle('reminder:close', () => closeReminder())
+  ipcMain.handle('reminder:resize', (_e, height: number) => resizeReminder(Number(height) || 0))
+  ipcMain.handle('reminder:open-schedule', () => {
+    closeReminder()
+    focusMain('schedule')
   })
 
   ipcMain.handle('tasks:list', () => listTasks())
@@ -332,6 +376,11 @@ export function registerIpc(): void {
   ipcMain.handle(
     'suggestion:accept-local',
     (_e, p: { item: ParsedItem; sourceText: string; detectionId?: string }) => acceptLocal(p)
+  )
+  ipcMain.handle(
+    'suggestion:accept-batch',
+    (_e, p: { entries: { item: ParsedItem; sourceText: string; detectionId?: string }[] }) =>
+      acceptLocalBatch(p)
   )
   // 检测回看（日程页「待确认」区）：错过/自动隐藏的弹卡在这里兜底处理；拉取前先清过期项
   ipcMain.handle('detections:list', () => {

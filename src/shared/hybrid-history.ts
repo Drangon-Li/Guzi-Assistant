@@ -63,6 +63,7 @@ export interface HybridActivitySegment extends ActivitySegment {
 
 export type OcrTriggerReason =
   | 'manual'
+  | 'todo_scan'
   | 'legacy_event'
   | 'legacy_hard_fallback'
   | 'partial_high_value'
@@ -87,6 +88,9 @@ export interface OcrTriggerInput {
   hardFallback: boolean
   manual?: boolean
   globalCooldownMs?: number
+  /** 待办识别专用通道：内容型 App 前台且已到间隔。语义完整也要看一次正文，
+   *  否则待办永远抽不出来——App 名和窗口标题里没有「周五下午三点交」。 */
+  todoScanDue?: boolean
 }
 
 export interface OcrTriggerDecision {
@@ -191,6 +195,9 @@ export function decideOcrTrigger(input: OcrTriggerInput): OcrTriggerDecision {
     : 45_000
   if (input.lastOcrAtMs != null && input.nowMs - input.lastOcrAtMs < cooldownMs)
     return { run: false, reason: 'rate_limited' }
+  // 隐私/闲置/权限/限流四道门之后、语义短路之前：待办识别独立放行。
+  // 放在 cooldown 之后是有意的——todo-scan 间隔（默认 180s）远大于全局冷却（45s），不冲突。
+  if (input.todoScanDue) return { run: true, reason: 'todo_scan' }
   if (input.semantic.semanticLevel === 'complete') return { run: false, reason: 'complete' }
 
   // restartCount=0 with a healthy collector means Accessibility is simply not

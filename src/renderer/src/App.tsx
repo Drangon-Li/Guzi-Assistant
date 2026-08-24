@@ -16,6 +16,7 @@ import Home from './pages/Home'
 import Account from './pages/Account'
 import Settings from './pages/Settings'
 import PreviewCard from './pages/PreviewCard'
+import ReminderCard from './pages/ReminderCard'
 import Debug from './pages/Debug'
 import PetChat from './pages/PetChat'
 import QuickBar from './pages/QuickBar'
@@ -47,6 +48,7 @@ const NAV: { key: Page; label: string; icon: () => React.JSX.Element }[] = [
 
 export default function App(): React.JSX.Element {
   if (window.location.hash.includes('/preview')) return <PreviewCard />
+  if (window.location.hash.includes('/reminder')) return <ReminderCard />
   if (window.location.hash.includes('/debug')) return <Debug />
   if (window.location.hash.includes('/petchat')) return <PetChat />
   if (window.location.hash.includes('/quickbar')) return <QuickBar />

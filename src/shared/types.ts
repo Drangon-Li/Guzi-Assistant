@@ -97,8 +97,32 @@ export interface TaskRecord {
   duplicateOf: string | null
   status: TaskStatus
   feedback: string | null
+  /** 提醒提前量（分钟）；null = 跟随全局默认，负数 = 该任务关闭提醒 */
+  remindOffsetMin: number | null
+  /** 已提醒过的目标时刻（本地 ISO），提醒幂等键；改任务时间/提前量时复位 */
+  remindedAt: string | null
+  /** 稍后提醒到的时刻（本地 ISO） */
+  snoozedUntil: string | null
   createdAt: string
   updatedAt: string
+}
+
+/** 提醒卡上的一条任务（主进程按 DueReminder + TaskRecord 组装） */
+export interface ReminderCardItem {
+  taskId: string
+  title: string
+  /** 事件真正发生的时刻（本地 ISO） */
+  eventIso: string
+  kind: 'ahead' | 'ontime' | 'catchup' | 'snooze'
+  location: string | null
+  notes: string[]
+  priority: Priority
+}
+
+export interface ReminderPayload {
+  items: ReminderCardItem[]
+  /** 本轮超出单次展示上限、只在日程页可见的条数 */
+  overflow: number
 }
 
 /** 预览卡上展示的待提交内容 */
@@ -192,6 +216,22 @@ export interface AppSettings {
   mcpPort: number
   /** MCP Bearer token（设置页生成/重置；空 = 未生成，服务不会启动） */
   mcpToken: string
+  /** 任务提醒总开关：到点/提前弹置顶提醒卡 + 桌宠气泡 + 系统通知。默认 true */
+  taskReminderEnabled: boolean
+  /** 任务提醒的全局默认提前量（分钟），0-1440；任务级 remindOffsetMin 可覆盖。默认 5 */
+  taskReminderOffsetMin: number
+  /** 用自己的 API 驱动解析，优先于内置托管服务（登录状态下也生效）。默认 false */
+  useCustomModel: boolean
+  /** 读图用的模型（含截图/图片的解析）；留空回落到 model。纯文本模型跑不了这类请求 */
+  modelVision: string
+  /** 助手对话用的模型；留空回落到 model */
+  modelChat: string
+  /** 剪贴板自动捕获：复制到疑似日程的内容时主动提示（macOS 15.4+ 的 detectPatterns 门控）。默认 true */
+  clipWatchEnabled: boolean
+  /** 待办识别专用扫描：内容型 App 前台时定期看一次屏幕文字抓待办（语义完整也不跳过）。默认 true */
+  todoScanEnabled: boolean
+  /** 待办识别扫描的最小间隔（秒），60-600。默认 180 */
+  todoScanIntervalSec: number
   /** Computer History 2.0 原始事件双写；默认关闭，第一阶段不改变旧派生链路。 */
   historyV2Enabled: boolean
   /** Computer History 2.0 从 10 分钟摘要派生工作记录；需与 historyV2Enabled 同时开启。 */

@@ -66,6 +66,26 @@ check('observer 连续失败不恢复周期截图', !decideOcrTrigger({ ...base,
 check('secure/privacy 永不 OCR', !decideOcrTrigger({ ...base, semantic: assessSemanticCompleteness({ privacyState: 'secure' }), hardFallback: true }).run)
 check('legacy 开关保留旧事件触发', decideOcrTrigger({ ...base, hybridEnabled: false, highValueEvent: false }).reason === 'legacy_event')
 
+// ---- 待办识别独立触发通道 ----
+const completeCtx = { ...base, semantic: complete }
+check('语义完整默认不 OCR（原行为不变）', decideOcrTrigger(completeCtx).reason === 'complete')
+check('语义完整 + todoScanDue → 放行', decideOcrTrigger({ ...completeCtx, todoScanDue: true }).run === true)
+check('todo_scan 有独立 reason', decideOcrTrigger({ ...completeCtx, todoScanDue: true }).reason === 'todo_scan')
+check('todoScanDue=false 不影响原判定', decideOcrTrigger({ ...completeCtx, todoScanDue: false }).reason === 'complete')
+// 四道门必须仍然拦得住 todo_scan——它只跳过语义短路，不跳过隐私和限流
+check(
+  'todo_scan 不能绕过隐私门',
+  !decideOcrTrigger({ ...completeCtx, todoScanDue: true, semantic: assessSemanticCompleteness({ privacyState: 'private' }) }).run
+)
+check('todo_scan 不能绕过 secure 门', !decideOcrTrigger({ ...completeCtx, todoScanDue: true, semantic: assessSemanticCompleteness({ privacyState: 'secure' }) }).run)
+check('todo_scan 不能绕过闲置门', !decideOcrTrigger({ ...completeCtx, todoScanDue: true, active: false }).run)
+check('todo_scan 不能绕过屏幕权限门', !decideOcrTrigger({ ...completeCtx, todoScanDue: true, screenAllowed: false }).run)
+check('todo_scan 不能绕过全局限频', !decideOcrTrigger({ ...completeCtx, todoScanDue: true, lastOcrAtMs: 90_001 }).run)
+check(
+  'todo_scan 不能绕过 observer 连续失败限流',
+  !decideOcrTrigger({ ...completeCtx, todoScanDue: true, observerHealthy: false, observerFailureCount: 2 }).run
+)
+
 const segment = {
   id: 'activity-10m-test',
   bucket: { kind: '10m', startMs: 0, endMs: 600_000, startIso: '1970-01-01T00:00:00.000Z', endIso: '1970-01-01T00:10:00.000Z' },

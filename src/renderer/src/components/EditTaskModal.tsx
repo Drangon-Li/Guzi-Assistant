@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ItemType, Priority, TaskRecord } from '@shared/types'
 import Modal from './Modal'
-import { TYPE_LABELS } from '../labels'
+import { REMIND_OPTIONS, remindFromInput, remindToInput, TYPE_LABELS } from '../labels'
 
 interface Props {
   task: TaskRecord
@@ -27,6 +27,7 @@ export default function EditTaskModal({
   const [dueTime, setDueTime] = useState(task.dueTime ?? '')
   const [location, setLocation] = useState(task.location ?? '')
   const [priority, setPriority] = useState<Priority>(task.priority)
+  const [remind, setRemind] = useState(remindToInput(task.remindOffsetMin))
 
   const save = (): void => {
     if (!title.trim()) return
@@ -36,7 +37,8 @@ export default function EditTaskModal({
       startTime: startTime || null,
       dueTime: dueTime || null,
       location: location.trim() || null,
-      priority
+      priority,
+      remindOffsetMin: remindFromInput(remind)
     })
   }
 
@@ -99,10 +101,22 @@ export default function EditTaskModal({
               />
             </label>
           </div>
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-500">地点</span>
-            <input className={input} value={location} onChange={(e) => setLocation(e.target.value)} />
-          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-slate-500">地点</span>
+              <input className={input} value={location} onChange={(e) => setLocation(e.target.value)} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-slate-500">提醒</span>
+              <select className={input} value={remind} onChange={(e) => setRemind(e.target.value)}>
+                {REMIND_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button

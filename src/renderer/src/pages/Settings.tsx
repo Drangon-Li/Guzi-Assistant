@@ -10,6 +10,7 @@ import type { HistoryStatus } from '@shared/history'
 import { api } from '../api'
 import { CONFIRM_MODES, formatHotkey } from '../labels'
 import PetSettings from '../components/PetSettings'
+import CustomModelSettings from '../components/CustomModelSettings'
 import FeedbackSection from '../components/FeedbackSection'
 import { Section, Toggle } from '../components/ui'
 
@@ -245,6 +246,70 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
         </div>
       </Section>
 
+      <Section title="任务提醒" desc="到点前弹置顶提醒卡 + 桌宠气泡 + 系统通知；不点不消失。">
+        <div className="flex flex-col gap-3">
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span>开启任务提醒</span>
+            <Toggle
+              checked={settings.taskReminderEnabled}
+              ariaLabel="开启任务提醒"
+              onChange={async (next) => {
+                setSettings({ ...settings, taskReminderEnabled: next })
+                await api.saveSettings({ taskReminderEnabled: next })
+                flash(next ? '任务到点会主动提醒' : '已关闭任务提醒')
+              }}
+            />
+          </label>
+          {settings.taskReminderEnabled && (
+            <label className="flex items-center gap-3 pl-1 text-sm">
+              <span className="text-slate-500">默认提前</span>
+              <input
+                type="number"
+                min={0}
+                max={1440}
+                className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                value={settings.taskReminderOffsetMin}
+                onChange={(e) =>
+                  setSettings({ ...settings, taskReminderOffsetMin: Number(e.target.value) })
+                }
+                onBlur={async (e) => {
+                  const v = Math.min(1440, Math.max(0, Number(e.target.value) || 0))
+                  setSettings({ ...settings, taskReminderOffsetMin: v })
+                  await api.saveSettings({ taskReminderOffsetMin: v })
+                  flash(v ? `任务开始前 ${v} 分钟提醒` : '到点时提醒')
+                }}
+              />
+              <span className="text-xs text-slate-400">分钟，0 = 到点才提醒；单个任务可在详情里单独设</span>
+            </label>
+          )}
+        </div>
+      </Section>
+
+      <Section title="剪贴板自动捕获" desc="复制到疑似日程的内容时主动提示。前三道门都不读正文：只在系统判定「像日程」时才第一次读取，密码管理器打了标记的内容一个字都不碰。">
+        <div className="flex flex-col gap-3">
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span>
+              自动感知剪贴板
+              <span className="ml-2 text-xs text-slate-400">
+                需要 macOS 15.4 及以上；{formatHotkey(settings.hotkey)} 手动捕获始终可用
+              </span>
+            </span>
+            <Toggle
+              checked={settings.clipWatchEnabled}
+              ariaLabel="自动感知剪贴板"
+              onChange={async (next) => {
+                setSettings({ ...settings, clipWatchEnabled: next })
+                await api.saveSettings({ clipWatchEnabled: next })
+                flash(next ? '复制到日程会主动提示' : '已关闭剪贴板自动感知')
+              }}
+            />
+          </label>
+          <p className="pl-1 text-xs text-slate-400">
+            排除名单与屏幕感知共用：名单里的 App 复制出来的内容不会被解析。
+          </p>
+        </div>
+      </Section>
+
       <Section title="确认模式">
         <div className="flex flex-col gap-2">
           {CONFIRM_MODES.map((m) => (
@@ -319,6 +384,10 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
           />
           <span className="text-xs text-slate-400">秒，0 = 不自动收起</span>
         </label>
+      </Section>
+
+      <Section title="自定义模型" desc="用自己的 API 驱动谷子助手的解析与对话，替代内置托管服务。">
+        <CustomModelSettings />
       </Section>
 
       <Section title="桌宠">
@@ -748,6 +817,48 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
                   )}
                 </div>
                 </details>
+              )}
+            </div>
+            <div className="flex flex-col gap-3">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span>
+                  待办自动识别
+                  <span className="ml-2 text-xs text-slate-400">
+                    在聊天 / 邮件 / 浏览器 / 文档 / 日历里定期看一次屏幕文字抓待办，会消耗积分
+                  </span>
+                </span>
+                <Toggle
+                  checked={settings.todoScanEnabled}
+                  ariaLabel="待办自动识别"
+                  onChange={async (next) => {
+                    setSettings({ ...settings, todoScanEnabled: next })
+                    await api.saveSettings({ todoScanEnabled: next })
+                    flash(next ? '会自动识别屏幕上的待办' : '已关闭待办自动识别')
+                  }}
+                />
+              </label>
+              {settings.todoScanEnabled && (
+                <label className="flex items-center gap-3 pl-1 text-sm">
+                  <span className="text-slate-500">最短识别间隔</span>
+                  <input
+                    type="number"
+                    min={60}
+                    max={600}
+                    step={30}
+                    className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                    value={settings.todoScanIntervalSec}
+                    onChange={(e) =>
+                      setSettings({ ...settings, todoScanIntervalSec: Number(e.target.value) })
+                    }
+                    onBlur={async (e) => {
+                      const v = Math.min(600, Math.max(60, Number(e.target.value) || 180))
+                      setSettings({ ...settings, todoScanIntervalSec: v })
+                      await api.saveSettings({ todoScanIntervalSec: v })
+                      flash(`最短 ${v} 秒识别一次待办`)
+                    }}
+                  />
+                  <span className="text-xs text-slate-400">秒，60-600；屏幕没变化时不会真的调用</span>
+                </label>
               )}
             </div>
             <div>

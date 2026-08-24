@@ -7,6 +7,9 @@ import {
   countdownLabel,
   fmtTime,
   PRIORITY_LABELS,
+  REMIND_OPTIONS,
+  remindFromInput,
+  remindToInput,
   ROLE_LABELS,
   STATUS_LABELS,
   TYPE_LABELS
@@ -44,6 +47,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
   const [priority, setPriority] = useState<Priority>(task.priority)
   const [status, setStatus] = useState<TaskStatus>(task.status)
   const [notesText, setNotesText] = useState(task.notes.join('\n'))
+  const [remind, setRemind] = useState(remindToInput(task.remindOffsetMin))
 
   const startEdit = (): void => {
     setTitle(current.title)
@@ -54,6 +58,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
     setPriority(current.priority)
     setStatus(EDIT_STATUSES.includes(current.status) ? current.status : 'scheduled')
     setNotesText(current.notes.join('\n'))
+    setRemind(remindToInput(current.remindOffsetMin))
     setEditing(true)
   }
 
@@ -67,6 +72,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
       location: location.trim() || null,
       priority,
       status,
+      remindOffsetMin: remindFromInput(remind),
       notes: notesText
         .split('\n')
         .map((s) => s.trim())
@@ -150,6 +156,16 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                     <option value="medium">中</option>
                     <option value="low">低</option>
                     <option value="unknown">未定</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-slate-400">提醒</span>
+                  <select className={input} value={remind} onChange={(e) => setRemind(e.target.value)}>
+                    {REMIND_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label className="col-span-2 flex flex-col gap-1">

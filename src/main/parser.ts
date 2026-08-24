@@ -8,12 +8,19 @@ import {
   type ResponsesOutput
 } from '@shared/parsing'
 import { belongingPriorFromProfile } from '@shared/belonging-hints'
-import { responsesEndpoint } from '@shared/model-configuration'
+import {
+  modelForAction,
+  modelsEndpoint,
+  parseModelList,
+  responsesEndpoint,
+  type ModelAction,
+  type ModelProbeResult
+} from '@shared/model-configuration'
 import { getSession } from './session'
 
 export type { ParsedItem }
 
-type ParseAction = 'parse_text' | 'parse_vision'
+type ParseAction = ModelAction
 
 /** 走托管 parse 网关（#39/#70）：带 Supabase 登录 token，由 Edge Function 扣积分 + 转发我方模型。 */
 async function viaGateway(
@@ -51,21 +58,44 @@ async function viaGateway(
 async function viaDirect(
   instructions: string,
   input: unknown[],
+  action: ParseAction,
   signal: AbortSignal
 ): Promise<ResponsesOutput> {
-  const { apiBase, apiKey, model } = getSettings()
-  if (!apiBase || !apiKey) throw new Error('请先登录以使用解析服务')
-  let res: Response
-  try {
-    res = await fetch(responsesEndpoint(apiBase), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, instructions, input, reasoning: { effort: 'low' } }),
-      signal
-    })
-  } catch (e) {
-    if (signal.aborted) throw new Error('解析超时（120 秒），请重试')
-    throw new Error(`解析服务无法访问：${e instanceof Error ? e.message : String(e)}`)
+  const settings = getSettings()
+  const { apiBase, apiKey, useCustomModel } = settings
+  const model = modelForAction(action, settings)
+  if (!apiBase || !apiKey)
+    throw new Error(
+      useCustomModel ? '自定义模型未配置完整，请在设置 → 助手里填写 API 地址与 Key' : '请先登录以使用解析服务'
+    )
+
+  const send = async (body: Record<string, unknown>): Promise<Response> => {
+    try {
+      return await fetch(responsesEndpoint(apiBase), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal
+      })
+    } catch (e) {
+      if (signal.aborted) throw new Error('解析超时（120 秒），请重试')
+      throw new Error(`解析服务无法访问：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  const plain = { model, instructions, input }
+  // 抽取只要一段结构化 JSON，推理纯属浪费：同一请求实测 effort=none 比默认快 6 倍
+  // （8.5s → 1.4s，925 输出 token 里 803 是推理），解析结果一致。
+  // 对话保留 low —— 那里的思考对回答质量有实际帮助。
+  const effort = action === 'chat' ? 'low' : 'none'
+  let res = await send({ ...plain, reasoning: { effort } })
+  if (res.status === 400) {
+    // BYOK 可以指向任意服务，非推理模型会因为不认识 reasoning 参数直接 400。
+    // 只在报错确实指向这个参数时退一步重试，不做无差别兜底。
+    const detail = await res.text()
+    if (!/reasoning|effort/i.test(detail))
+      throw new Error(`解析服务返回 400：${detail.slice(0, 300)}`)
+    res = await send(plain)
   }
   if (!res.ok) throw new Error(`解析服务返回 ${res.status}：${(await res.text()).slice(0, 300)}`)
   return (await res.json()) as ResponsesOutput
@@ -85,10 +115,14 @@ export async function callModel(
   const timer = setTimeout(() => controller.abort(), 120_000)
   try {
     const { functionsBase, token } = getSession()
+    const { useCustomModel, apiBase, apiKey } = getSettings()
+    // 自定义模型显式开启且配置完整时优先于托管网关——否则用户填了自己的 API 却因为
+    // 登录着而完全不生效，是最容易让人以为「填了没用」的坑。
+    const preferDirect = useCustomModel && !!apiBase && !!apiKey
     const data =
-      functionsBase && token
+      !preferDirect && functionsBase && token
         ? await viaGateway(functionsBase, token, instructions, input, action, controller.signal)
-        : await viaDirect(instructions, input, controller.signal)
+        : await viaDirect(instructions, input, action, controller.signal)
     if (data.error?.message) throw new Error(`解析服务错误：${data.error.message}`)
     return extractText(data).trim()
   } catch (e) {
@@ -97,6 +131,68 @@ export async function callModel(
   } finally {
     clearTimeout(timer)
     externalSignal?.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+/** 设置页「检测连接」：GET /v1/models 校验地址与 Key 并取回可选模型。
+ *  注意它只验证凭据与连通性——真正推理走 /responses，两者未必同时可用，UI 文案需说明。 */
+export async function probeModelEndpoint(apiBase: string, apiKey: string): Promise<ModelProbeResult> {
+  const base = apiBase.trim()
+  const key = apiKey.trim()
+  const fail = (error: string): ModelProbeResult => ({
+    ok: false,
+    models: [],
+    error,
+    responsesAvailable: null
+  })
+  if (!base) return fail('请先填写 API 地址')
+  if (!/^https?:\/\//i.test(base)) return fail('API 地址需以 http:// 或 https:// 开头')
+  if (!key) return fail('请先填写 API Key')
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const res = await fetch(modelsEndpoint(base), {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: controller.signal
+    })
+    if (res.status === 401 || res.status === 403)
+      return fail(`Key 被拒绝（${res.status}），请检查 API Key`)
+    if (!res.ok)
+      return fail(`接口返回 ${res.status}：${(await res.text().catch(() => '')).slice(0, 200)}`)
+    return {
+      ok: true,
+      models: parseModelList(await res.json().catch(() => null)),
+      error: null,
+      responsesAvailable: await probeResponsesEndpoint(base, key, controller.signal)
+    }
+  } catch (e) {
+    if (controller.signal.aborted) return fail('连接超时（15 秒）')
+    return fail(`无法访问：${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 解析走的是 /v1/responses，但很多「OpenAI 兼容」服务只实现了 /v1/chat/completions。
+ *  故意发一个不合法的空 body：404/405 说明端点不存在，其他状态码说明存在且只是拒绝了这个请求。
+ *  不带 model/input，所以不会真的推理、不消耗 token。 */
+async function probeResponsesEndpoint(
+  base: string,
+  key: string,
+  signal: AbortSignal
+): Promise<boolean | null> {
+  try {
+    const res = await fetch(responsesEndpoint(base), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: '{}',
+      signal
+    })
+    if (res.status === 404 || res.status === 405) return false
+    return true
+  } catch {
+    return null // 网络层失败：说不清端点在不在，别给用户假结论
   }
 }
 

@@ -36,6 +36,21 @@ export function migrateWorkRecords(database: Database.Database): void {
 }
 
 /**
+ * Apply additive task-reminder migrations. Columns only; old clients keep
+ * reading the table unchanged, so this is safe to roll back by reverting code.
+ */
+export function migrateTaskReminders(database: Database.Database): void {
+  const columns = (database.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(
+    (column) => column.name
+  )
+  if (!columns.includes('remind_offset_min'))
+    database.exec('ALTER TABLE tasks ADD COLUMN remind_offset_min INTEGER')
+  if (!columns.includes('reminded_at')) database.exec('ALTER TABLE tasks ADD COLUMN reminded_at TEXT')
+  if (!columns.includes('snoozed_until')) database.exec('ALTER TABLE tasks ADD COLUMN snoozed_until TEXT')
+  database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_remind ON tasks(belongs_to_user, status)')
+}
+
+/**
  * 老数据清理：把「裸 App/产品名」（如 谷子助手、微信 (窗口)）和「随心输入」类泛化名的
  * task 标签置空。这些标签来自早期归类逻辑（含把窗口标题当任务名的本地摘要），
  * 置空后不再进入任务专注统计，也不再作为模型候选任务名污染后续归类。

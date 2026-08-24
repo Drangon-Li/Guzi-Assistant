@@ -1,7 +1,4 @@
-import {
-  resolveDirectModelSettings,
-  responsesEndpoint
-} from '../src/shared/model-configuration.ts'
+import { resolveDirectModelSettings, responsesEndpoint, modelsEndpoint, parseModelList, modelForAction } from '../src/shared/model-configuration.ts'
 
 let failed = 0
 const check = (name, ok) => {
@@ -92,6 +89,39 @@ check(
   responsesEndpoint('https://host.example/qwen') ===
     'https://host.example/qwen/v1/responses'
 )
+
+// ---- 模型列表端点 ----
+check('models 端点自动补 /v1', modelsEndpoint('https://api.openai.com') === 'https://api.openai.com/v1/models')
+check('models 端点不重复补 /v1', modelsEndpoint('https://host.example/qwen/v1') === 'https://host.example/qwen/v1/models')
+check('models 端点规整尾随斜杠', modelsEndpoint('https://host.example/v1///') === 'https://host.example/v1/models')
+check('models 端点去首尾空格', modelsEndpoint('  https://a.b  ') === 'https://a.b/v1/models')
+
+// ---- 模型列表解析（各家兼容程度不一，只认 id）----
+check(
+  '标准 {data:[{id}]} 形态',
+  JSON.stringify(parseModelList({ data: [{ id: 'gpt-4' }, { id: 'gpt-3.5' }] })) === '["gpt-3.5","gpt-4"]'
+)
+check('去重', JSON.stringify(parseModelList({ data: [{ id: 'a' }, { id: 'a' }] })) === '["a"]')
+check('裸数组也认', JSON.stringify(parseModelList([{ id: 'b' }, { id: 'a' }])) === '["a","b"]')
+check('字符串数组也认', JSON.stringify(parseModelList(['b', 'a'])) === '["a","b"]')
+check('空/异常输入 → 空列表', parseModelList(null).length === 0 && parseModelList({ data: 'x' }).length === 0)
+check('忽略没有 id 的项', JSON.stringify(parseModelList({ data: [{ id: 'a' }, { name: 'b' }, {}] })) === '["a"]')
+check('忽略空白 id', JSON.stringify(parseModelList({ data: [{ id: '  ' }, { id: 'a' }] })) === '["a"]')
+
+// ---- 模型分档 ----
+const tiers = { model: 'text-m', modelVision: 'vision-m', modelChat: 'chat-m' }
+check('文本抽取用文本档', modelForAction('parse_text', tiers) === 'text-m')
+check('读图用读图档', modelForAction('parse_vision', tiers) === 'vision-m')
+check('对话用对话档', modelForAction('chat', tiers) === 'chat-m')
+
+const only = { model: 'text-m', modelVision: '', modelChat: '' }
+check('读图档留空 → 回落文本档', modelForAction('parse_vision', only) === 'text-m')
+check('对话档留空 → 回落文本档', modelForAction('chat', only) === 'text-m')
+check(
+  '只填空白也算留空',
+  modelForAction('parse_vision', { model: 'text-m', modelVision: '   ', modelChat: '' }) === 'text-m'
+)
+check('各档去首尾空格', modelForAction('chat', { model: 'a', modelVision: '', modelChat: '  c  ' }) === 'c')
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)
