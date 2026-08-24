@@ -118,7 +118,8 @@ export async function assistantChat(payload: {
         payload.candidates?.items ?? null,
         personalMemoryText()
       ),
-      input
+      input,
+      'chat' // 网关据此保留自然采样；此前默认走 parse_text 的 temperature 0，对话会发僵
     )
     const env = parseAssistantOutput(output)
 
