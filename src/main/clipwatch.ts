@@ -237,10 +237,7 @@ function presentCards(
     debugEvent('clip', '没有需要弹卡的候选（已存在或弱信号）')
     return
   }
-  // 剪贴板卡不走 5 秒自动忽略：用户刚按了 ⌘C，视线多半还在原窗口，
-  // 倒计时走满会被当成「拒绝」并标记 dismissed，等于白识别一次。
-  // 屏幕感知的卡是冷不丁冒出来的，那里保留自动消失。
-  for (const card of cards) card.suggestion.noAutoHide = true
+  // 剪贴板卡与屏幕感知卡同口径：倒计时 + 底部进度条，走满自动忽略；悬停即暂停。
   debugEvent('clip', cards.length > 1 ? `弹出清单卡：${cards.length} 条` : '弹出检测卡')
   showDetectedCards(cards)
   applyExternalPetSay(cards.length > 1 ? `发现 ${cards.length} 个日程~` : '发现一个日程~', 'waiting')

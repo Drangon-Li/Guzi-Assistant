@@ -338,7 +338,7 @@ export function getSettings(): AppSettings {
     screenSenseVlmConfirm: map.screenSenseVlmConfirm === 'true',
     dailyReportTime: map.dailyReportTime ?? '',
     screenSenseCardHideSec:
-      map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 5,
+      map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 6,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
     theme: map.theme === 'light' || map.theme === 'dark' ? map.theme : 'system',
     mcpEnabled: map.mcpEnabled === 'true',

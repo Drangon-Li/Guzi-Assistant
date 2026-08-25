@@ -77,7 +77,7 @@ import { pickHistoryApps } from './history/app-picker.ts'
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
-import { broadcast, broadcastTheme, focusMain, hidePreview, showPreview } from './windows'
+import { broadcast, broadcastTheme, focusMain, hidePreview, resizePreview, showPreview } from './windows'
 import {
   applyExternalPetReaction,
   applyExternalPetSay,
@@ -239,6 +239,9 @@ export function registerIpc(): void {
   ipcMain.handle('preview:hide', () => {
     clearPendings()
     hidePreview()
+  })
+  ipcMain.handle('preview:resize', (_e, height: number) => {
+    if (typeof height === 'number' && Number.isFinite(height)) resizePreview(height)
   })
 
   // ---------- 任务提醒卡 ----------

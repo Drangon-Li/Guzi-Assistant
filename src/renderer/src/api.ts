@@ -72,6 +72,7 @@ export const api = {
   previewSubmit: (captureId: string) => inv<ParseSummary>('preview:submit', captureId),
   previewCancel: (captureId: string) => inv<void>('preview:cancel', captureId),
   previewHide: () => inv<void>('preview:hide'),
+  previewResize: (height: number) => inv<void>('preview:resize', height),
 
   getSource: (id: string) => inv<SourceRecord | null>('source:get', id),
   deleteSource: (id: string) => inv<void>('source:delete', id),

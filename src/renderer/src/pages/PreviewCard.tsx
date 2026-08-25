@@ -23,8 +23,6 @@ type BatchItem = LocalExtraction & {
   item: ParsedItem
   sourceText: string
   detectionId?: string
-  /** 剪贴板来源的卡不自动忽略——用户刚主动复制，不该 5 秒就当他拒绝了 */
-  noAutoHide?: boolean
 }
 
 const AUTO_SECONDS = 3
@@ -43,7 +41,7 @@ export default function PreviewCard(): React.JSX.Element | null {
   // 内部状态变化（preview→loading→result）共用同一 key，原地更新、不重放滑入
   const [seq, setSeq] = useState(0)
   // 检测卡/AI 建议卡闲置自动隐藏秒数（设置里可调；0=不自动隐藏）
-  const [autoHideSec, setAutoHideSec] = useState(60)
+  const [autoHideSec, setAutoHideSec] = useState(6)
   // 桌宠模式：卡片贴在桌宠旁，隐藏顶部冗余的「谷子助手」品牌行（桌宠已在旁边）
   const [petMode, setPetMode] = useState(false)
   // 检测卡「备注」：快速反馈（不是我的/已完成/自由输入），存档并注入后续提示词帮模型学习
@@ -54,14 +52,16 @@ export default function PreviewCard(): React.JSX.Element | null {
   const [remainMs, setRemainMs] = useState<number | null>(null)
   // 清单卡勾选集：按下标记，不按标题——清单里出现同名条目时按标题会让两条互相勾连
   const [picked, setPicked] = useState<Set<number>>(new Set())
+  // 内容高度 → 主进程调整磨砂窗口尺寸（窗口本体即卡片，高度必须贴内容，否则露出空白磨砂区）
+  const boxRef = useRef<HTMLDivElement | null>(null)
 
-  // 关闭前先播放淡出动画，再执行真正的隐藏 */
+  // 关闭：整窗淡出由主进程做（磨砂和原生阴影 CSS 动不了），渲染层保持内容到窗口隐藏后再复位
   const fadeOut = (action: () => void): void => {
     setClosing(true)
+    action()
     window.setTimeout(() => {
       setClosing(false)
       setState({ phase: 'idle' })
-      action()
     }, 250)
   }
 
@@ -261,10 +261,9 @@ export default function PreviewCard(): React.JSX.Element | null {
     return undefined
   }, [state, autoHideSec])
 
-  // 新检测卡/建议卡弹出：重置自动忽略倒计时。清单卡和剪贴板卡不倒计时
+  // 新检测卡/建议卡弹出：重置自动忽略倒计时。清单卡需逐条勾选，不倒计时
   useEffect(() => {
-    const noAutoHide = state.phase === 'local' && state.local.noAutoHide
-    if ((state.phase === 'local' || state.phase === 'suggestion') && autoHideSec > 0 && !noAutoHide)
+    if ((state.phase === 'local' || state.phase === 'suggestion') && autoHideSec > 0)
       setRemainMs(autoHideSec * 1000)
     else setRemainMs(null)
   }, [seq, state.phase, autoHideSec, state])
@@ -286,15 +285,29 @@ export default function PreviewCard(): React.JSX.Element | null {
     return () => window.clearTimeout(t)
   }, [remainMs, countdownPaused, state])
 
+  // 内容高度实时汇报：窗口本体即磨砂卡，高度必须贴内容（清单卡/备注展开时窗口向上生长）
+  const cardShown = state.phase !== 'idle' && !(state.phase === 'loading' && petMode)
+  useEffect(() => {
+    if (!cardShown) return undefined
+    const el = boxRef.current
+    if (!el) return undefined
+    const report = (): void => void api.previewResize(Math.ceil(el.getBoundingClientRect().height))
+    report()
+    const ro = new ResizeObserver(report)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [cardShown])
+
   if (state.phase === 'idle') return null
   // 桌宠模式下：扫描/解析的 loading 由桌宠 Siri 光环表达，不弹空卡
   if (state.phase === 'loading' && petMode) return null
 
   return (
-    <div className="flex h-screen items-end justify-end overflow-hidden p-2">
+    <div className="w-screen">
+      {/* 窗口本体即磨砂卡（原生 vibrancy 圆角+阴影），渲染层只叠 70% 水洗层保证对比度 */}
       <div
-        key={seq}
-        className={`${closing ? 'animate-card-out' : 'animate-card-in'} relative flex w-full flex-col gap-2.5 overflow-hidden rounded-2xl border border-slate-200 bg-surface p-4 text-sm shadow-2xl`}
+        ref={boxRef}
+        className="relative flex w-full flex-col gap-2.5 overflow-hidden bg-surface/70 p-4 text-sm"
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
       >
@@ -306,7 +319,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             </>
           )}
           {state.phase === 'preview' && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+            <span className="rounded bg-slate-500/10 px-1.5 py-0.5 text-[10px] text-slate-500">
               {SOURCE_LABELS[state.capture.type]}
             </span>
           )}
@@ -337,10 +350,10 @@ export default function PreviewCard(): React.JSX.Element | null {
               <img
                 src={state.capture.thumbnailDataUrl}
                 alt="剪切板图片预览"
-                className="max-h-24 self-start rounded-lg border border-slate-200 object-contain"
+                className="max-h-24 self-start rounded-lg border border-slate-400/25 object-contain"
               />
             ) : (
-              <div className="line-clamp-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+              <div className="line-clamp-3 rounded-lg bg-slate-500/10 px-3 py-2 text-xs leading-5 text-slate-600">
                 {state.capture.excerpt}
               </div>
             )}
@@ -358,7 +371,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             )}
             <div className="flex justify-end gap-2">
               <button
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-500/10"
                 onClick={() => {
                   const id = state.capture.captureId
                   fadeOut(() => void api.previewCancel(id))
@@ -412,7 +425,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             {state.summary.related > 0 && (
               <div className="flex justify-end gap-2">
                 <button
-                  className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                  className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-500/10"
                   onClick={close}
                 >
                   关闭
@@ -438,7 +451,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             </div>
             <div className="flex justify-end">
               <button
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-500/10"
                 onClick={close}
               >
                 关闭
@@ -467,7 +480,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             {/* 不设「拒绝」：倒计时走满自动忽略，右上 ✕ 可立即关。用户只需在想要时点「同意」 */}
             <div className="flex justify-end gap-2">
               <button
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+                className="rounded-lg border border-slate-400/40 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-500/10"
                 onClick={() => void acceptSuggestion(true)}
               >
                 修改
@@ -501,7 +514,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                   {['不是我的日程', '已经完成了', '时间不对'].map((t) => (
                     <button
                       key={t}
-                      className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-brand-soft hover:text-brand"
+                      className="rounded-md bg-slate-500/10 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-brand-soft hover:text-brand"
                       onClick={() => submitNote(t)}
                     >
                       {t}
@@ -511,7 +524,7 @@ export default function PreviewCard(): React.JSX.Element | null {
                 <div className="flex gap-1.5">
                   <input
                     autoFocus
-                    className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs focus:border-slate-400 focus:outline-none"
+                    className="min-w-0 flex-1 rounded-md border border-slate-400/25 px-2 py-1 text-xs focus:border-slate-400 focus:outline-none"
                     placeholder="补充一句，帮我下次判断得更准…"
                     value={noteText}
                     onChange={(e) => setNoteText(e.target.value)}
@@ -531,7 +544,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             )}
             <div className="flex justify-end gap-2">
               <button
-                className="mr-auto rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className="mr-auto rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-500/10 hover:text-slate-600"
                 onClick={() => setNoteOpen(!noteOpen)}
               >
                 {noteOpen ? '收起' : '备注'}
@@ -558,7 +571,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             <ul className="-mx-1 max-h-52 overflow-y-auto">
               {state.items.map((item, index) => (
                 <li key={index}>
-                  <label className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-slate-50">
+                  <label className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-slate-500/10">
                     <input
                       type="checkbox"
                       className="mt-0.5 size-3.5 shrink-0 accent-brand"
@@ -577,7 +590,7 @@ export default function PreviewCard(): React.JSX.Element | null {
             </ul>
             <div className="flex justify-end gap-2">
               <button
-                className="mr-auto rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className="mr-auto rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-500/10 hover:text-slate-600"
                 onClick={dismissBatch}
               >
                 全部忽略
