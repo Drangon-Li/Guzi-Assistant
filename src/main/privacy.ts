@@ -4,23 +4,26 @@ import { app } from 'electron'
 import { getSettings } from './db'
 import { decideHistoryPrivacy } from './history/privacy-policy.ts'
 
+// 本应用名单的唯一来源（隐私关键：漏一处就会扫描/记录自己的窗口）。
+// 保留历史进程名：升级后仍要排除旧版本窗口，避免把自己的日程重新识别为新任务。
+function ownAppNames(): string[] {
+  return [
+    app.getName(),
+    'Electron',
+    'GuziAssistant',
+    'Guzi Assistant',
+    '谷子助手',
+    'Gooz',
+    'EShell',
+    '纸壳助手'
+  ]
+}
+
 /** 是否谷子助手自己在前台：停在本应用页面时不该扫描自己的窗口（否则把已有日程当成新检测）。 */
 export function isOwnApp(frontApp: string | null): boolean {
   if (!frontApp) return false
   const f = frontApp.trim().toLowerCase()
-  // 保留历史进程名：升级后仍要排除旧版本窗口，避免把自己的日程重新识别为新任务。
-  return [
-    app.getName(),
-    'electron',
-    'GuziAssistant',
-    'Guzi Assistant',
-    '谷子助手',
-    'gooz',
-    '纸壳助手',
-    'eshell'
-  ].some(
-    (n) => n && f.includes(n.toLowerCase())
-  )
+  return ownAppNames().some((n) => n && f.includes(n.toLowerCase()))
 }
 
 export function privacyForContext(context: {
@@ -48,16 +51,7 @@ export function privacyForContext(context: {
     targetRole: context.targetRole,
     targetSubrole: context.targetSubrole,
     secureInput: context.secureInput,
-    ownAppNames: [
-      app.getName(),
-      'Electron',
-      'GuziAssistant',
-      'Guzi Assistant',
-      '谷子助手',
-      'Gooz',
-      'EShell',
-      '纸壳助手'
-    ],
+    ownAppNames: ownAppNames(),
     excludedApps: settings.screenSenseExcludedApps,
     excludedBundleIds: historyOnly ? settings.historyExcludedApps.map((item) => item.bundleId) : [],
     excludedHosts: historyOnly ? settings.historyExcludedHosts : [],

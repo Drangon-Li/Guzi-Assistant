@@ -19,6 +19,7 @@ import {
   type SemanticAssessment
 } from '../shared/hybrid-history.ts'
 import { redactSensitive } from '../shared/sensitive.ts'
+import { emptyHistoryStoreHealth } from '../shared/history.ts'
 import type { SemanticWorkEvidence } from '../shared/semantic-work.ts'
 import type {
   ActivityHistorySegmentRecord,
@@ -33,6 +34,7 @@ import type {
   FrontmostContext
 } from './frontapp.ts'
 import { CollectorPolicy, type CollectorPolicyMetrics } from './history/collector-policy.ts'
+import { isPrivateBrowserWindow } from './history/privacy-policy.ts'
 
 export type ActivityScanReason = 'event' | 'hard_fallback' | 'interval' | 'manual' | 'semantic_only'
 
@@ -50,14 +52,6 @@ export interface AccessibilityWorkContext extends SemanticWorkEvidence {
 }
 
 const MAX_EVENTS = 5000
-const BROWSER_BUNDLES = new Set([
-  'com.apple.safari',
-  'com.google.chrome',
-  'com.microsoft.edgemac',
-  'org.mozilla.firefox'
-])
-const PRIVATE_TITLE =
-  /private browsing|private window|incognito|inprivate|无痕|無痕|私密浏览|私密瀏覽|シークレット|プライベート|시크릿|프라이빗/i
 
 let events: ActivityEvent[] = []
 let assessments = new Map<string, SemanticAssessment>()
@@ -169,37 +163,15 @@ const isoOrNull = (value: number | null): string | null =>
   value === null ? null : new Date(value).toISOString()
 
 function readHistoryHealth(): HistoryStoreHealth {
-  if (!historyHealthProvider) {
-    return {
-      enabled: false,
-      state: 'disabled',
-      currentSegmentId: null,
-      queueLength: 0,
-      droppedCount: 0,
-      suppressedCount: 0,
-      invalidCount: 0,
-      segmentCount: 0,
-      lastWriteAt: null,
-      lastCleanupAt: null,
-      lastError: null
-    }
-  }
+  if (!historyHealthProvider) return emptyHistoryStoreHealth({ enabled: false, state: 'disabled' })
   try {
     return historyHealthProvider()
   } catch (error) {
-    return {
+    return emptyHistoryStoreHealth({
       enabled: true,
       state: 'degraded',
-      currentSegmentId: null,
-      queueLength: 0,
-      droppedCount: 0,
-      suppressedCount: 0,
-      invalidCount: 0,
-      segmentCount: 0,
-      lastWriteAt: null,
-      lastCleanupAt: null,
       lastError: error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)
-    }
+    })
   }
 }
 
@@ -254,7 +226,7 @@ function safeContext(context: FrontmostContext): FrontmostContext {
 }
 
 export function isPrivateBrowsingContext(context: FrontmostContext): boolean {
-  return BROWSER_BUNDLES.has(context.bundleId.toLowerCase()) && PRIVATE_TITLE.test(context.windowTitle)
+  return isPrivateBrowserWindow(context.bundleId, context.windowTitle)
 }
 
 export interface RecordContextOptions {

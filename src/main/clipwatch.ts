@@ -20,6 +20,7 @@ import type { LocalExtraction } from '@shared/types'
 import { textHash } from '@shared/phash'
 import { redactSensitive } from '@shared/sensitive'
 import { CLIP_LIMITS, decideClipboardFastPath, decideClipboardParse } from '@shared/clip-gate'
+import { CooldownMap } from '@shared/cooldown'
 import { HINTS } from './capture'
 import { getSettings } from './db'
 import { ensureNativeHelperBinary } from './native-helper-cache'
@@ -261,8 +262,8 @@ let stopped = true
 let restartTimer: ReturnType<typeof setTimeout> | null = null
 let restartAttempts = 0
 let unsupported = false
-/** 同内容冷却表：hash → 到期时刻 */
-const cooldown = new Map<string, number>()
+/** 同内容冷却表 */
+const cooldown = new CooldownMap(CLIP_LIMITS.cooldownMs)
 let lastParseAtMs: number | null = null
 let running = false
 
@@ -317,12 +318,12 @@ async function handleHit(event: ClipHelperHit): Promise<void> {
   }
 
   const now = Date.now()
-  for (const [key, expiry] of cooldown) if (expiry <= now) cooldown.delete(key) // 防 Map 无界增长
+  cooldown.sweep(now)
   const hash = textHash(event.text)
   const decision = decideClipboardParse({
     text: event.text,
     nowMs: now,
-    cooldownUntilMs: cooldown.get(hash) ?? null,
+    cooldownUntilMs: cooldown.untilMs(hash),
     lastParseAtMs,
     excludedApp: excludedApp(event.app, event.bundleId),
     usesModel: !fast.fast
@@ -331,7 +332,7 @@ async function handleHit(event: ClipHelperHit): Promise<void> {
     debugEvent('clip', `不解析：${decision.reason}`)
     return
   }
-  cooldown.set(hash, now + CLIP_LIMITS.cooldownMs)
+  cooldown.start(hash, now)
 
   if (fast.fast) {
     debugEvent('clip', `本地直出（${fast.isoTime}${fast.deadline ? ' 截止' : ''}），未调模型`)

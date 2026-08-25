@@ -7,7 +7,8 @@ import { randomUUID } from 'crypto'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import { detectSensitive, redactSensitive } from '@shared/sensitive'
-import { createSource, createTask, deleteSourceRow, findDuplicateTitle, getProfile } from './db'
+import { createSource, deleteSourceRow, findDuplicateTitle, getProfile } from './db'
+import { createTaskFromItem, scheduledStatus } from './task-ingest'
 import { parseToItems, type ParsedItem } from './parser'
 import { broadcast, showPreview } from './windows'
 import { applyExternalPetReaction } from './pet/controller'
@@ -27,6 +28,11 @@ const TEXT_EXTS = ['.txt', '.md', '.eml', '.csv', '.log']
 
 export function excerptOf(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 80)
+}
+
+/** 全零 ParseSummary（错误/空结果场景）；screenwatch 的错误卡也复用。 */
+export function emptyParseSummary(error: string | null): ParseSummary {
+  return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
 }
 
 function shrink(img: NativeImage, maxWidth: number): NativeImage {
@@ -224,28 +230,10 @@ function createTasksFromItems(
     related++
     let status: TaskStatus = 'pending'
     if (mode === 'aggressive' && it.belongs_to_user === 'yes' && it.confidence >= 0.85 && it.suggested_action === 'add') {
-      status = it.due_time || it.start_time ? 'scheduled' : 'not_started'
+      status = scheduledStatus(it)
       autoAdded++
     }
-    createTask({
-      sourceId,
-      title: it.title,
-      itemType: it.item_type,
-      belongsToUser: it.belongs_to_user,
-      belongingReason: it.belonging_reason,
-      userRole: it.user_role,
-      startTime: it.start_time,
-      dueTime: it.due_time,
-      location: it.location,
-      priority: it.priority,
-      confidence: it.confidence,
-      suggestedAction: it.suggested_action,
-      evidence: it.evidence,
-      notes: it.notes,
-      duplicateOf: it.duplicate_of,
-      status,
-      feedback: null
-    })
+    createTaskFromItem(sourceId, it, status)
   }
   return { related, autoAdded, duplicates }
 }
@@ -283,28 +271,13 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
   } catch (e) {
     // 解析失败的来源没有任何任务引用，UI 上不可见也删不掉，必须当场清理
     if (source) deleteSourceRow(source.id)
-    return {
-      sourceId: '',
-      total: 0,
-      related: 0,
-      autoAdded: 0,
-      duplicates: 0,
-      error: e instanceof Error ? e.message : String(e)
-    }
+    return emptyParseSummary(e instanceof Error ? e.message : String(e))
   }
 }
 
 export async function submitPending(captureId: string): Promise<ParseSummary> {
   const payload = pendings.get(captureId)
-  if (!payload)
-    return {
-      sourceId: '',
-      total: 0,
-      related: 0,
-      autoAdded: 0,
-      duplicates: 0,
-      error: '提交内容已失效，请重新捕获'
-    }
+  if (!payload) return emptyParseSummary('提交内容已失效，请重新捕获')
   pendings.delete(captureId)
   return parseAndStore(payload)
 }
@@ -351,25 +324,13 @@ export async function submitFiles(paths: string[]): Promise<ParseSummary[]> {
     try {
       results.push(await parseAndStore({ type: 'file', filePath: p }))
     } catch (e) {
-      results.push({
-        sourceId: '',
-        total: 0,
-        related: 0,
-        autoAdded: 0,
-        duplicates: 0,
-        error: `${basename(p)}：${e instanceof Error ? e.message : String(e)}`
-      })
+      results.push(emptyParseSummary(`${basename(p)}：${e instanceof Error ? e.message : String(e)}`))
     }
   }
   if (paths.length > MAX_FILES_PER_SUBMIT) {
-    results.push({
-      sourceId: '',
-      total: 0,
-      related: 0,
-      autoAdded: 0,
-      duplicates: 0,
-      error: `一次最多处理 ${MAX_FILES_PER_SUBMIT} 个文件，已跳过其余 ${paths.length - MAX_FILES_PER_SUBMIT} 个`
-    })
+    results.push(
+      emptyParseSummary(`一次最多处理 ${MAX_FILES_PER_SUBMIT} 个文件，已跳过其余 ${paths.length - MAX_FILES_PER_SUBMIT} 个`)
+    )
   }
   return results
 }

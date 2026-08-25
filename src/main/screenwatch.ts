@@ -3,11 +3,11 @@
 // history/service.ts，前台采样在 usage-sampler.ts，隐私判定在 privacy.ts。
 import { unlink } from 'fs/promises'
 import { nativeImage, powerMonitor, systemPreferences } from 'electron'
-import { captureScreenSilently, HINTS } from './capture'
+import { captureScreenSilently, emptyParseSummary, HINTS } from './capture'
 import { shouldTodoScan, todoScanAppKind } from '@shared/todo-scan'
 import { ocrImageDetailed } from './ocr'
 import { cloudReady, parseToItemsRaw } from './parser'
-import { addDetection, addOcrEvidence, getSettings, getSource, listFocusTaskCandidates, upsertActivitySegment } from './db'
+import { addOcrEvidence, getSettings, getSource, listFocusTaskCandidates, upsertActivitySegment } from './db'
 import { applyReportSchedule } from './report-scheduler'
 import { debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
@@ -18,8 +18,9 @@ import { redactSensitive } from '@shared/sensitive'
 import { looksLikeChat, clusterChatSpeakers, formatChatTranscript, type TextBox } from '@shared/chat-layout'
 import { expiredShotIds } from '@shared/shot-retention'
 import { dhash, hamming, bgraToGray, textHash } from '@shared/phash'
+import { CooldownMap } from '@shared/cooldown'
 import { parseFocusTask, parseWorkSummary } from '@shared/parsing'
-import type { ParseSummary, ScanResult } from '@shared/types'
+import type { ScanResult } from '@shared/types'
 import {
   activityScanDecision,
   getScreenActivityStatus as getActivityRuntimeStatus,
@@ -38,13 +39,7 @@ import {
   type ActivityScanReason
 } from './activity-tracker'
 import { decideOcrTrigger, type OcrTriggerReason } from '@shared/hybrid-history'
-import {
-  buildDetectionCards,
-  parsedToExtraction,
-  showDetectedCards,
-  type DetectedCard,
-  type DetectHit
-} from './detection-cards'
+import { buildDetectionCards, parsedToExtraction, showDetectedCards, type DetectHit } from './detection-cards'
 import {
   legacyWorkSummaryHint,
   maybeAddWorkRecord,
@@ -65,9 +60,6 @@ import {
   stopLegacyHistorySync
 } from './history/service.ts'
 
-function emptySummary(error: string | null): ParseSummary {
-  return { sourceId: '', total: 0, related: 0, autoAdded: 0, duplicates: 0, error }
-}
 
 const FG_X_CUT = 0.18 // 裁前景图：去左侧栏/会话列表
 const FG_Y_TOP = 0.025 // 去顶部菜单栏
@@ -181,7 +173,7 @@ export async function scanOnce(): Promise<ScanResult> {
     if (!png) {
       const message = '截图失败，请检查屏幕录制权限'
       debugEvent('error', message)
-      showPreview({ summary: emptySummary(message) }) // 红色错误卡，手动关闭
+      showPreview({ summary: emptyParseSummary(message) }) // 红色错误卡，手动关闭
       return { status: 'error', message }
     }
     debugShot(png)
@@ -223,21 +215,8 @@ export async function scanOnce(): Promise<ScanResult> {
         return { status: 'empty', message: '未发现可添加的日程' }
       }
       if (screenSenseKeepShots) saveShotTempFromPng(textHash(text), png) // 整帧一张证据图
-      const cards: DetectedCard[] = hits.map(({ extraction, item }) => {
-        debugEvent('detect', `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'}`)
-        const { detection } = addDetection({
-          title: extraction.title,
-          timeIso: extraction.isoTime,
-          deadline: extraction.deadline,
-          sourceText: text,
-          hits: extraction.hits,
-          app: null
-        })
-        return {
-          suggestion: { ...extraction, item, sourceText: text, detectionId: detection.id },
-          detectionId: detection.id
-        }
-      })
+      // manual=true：手动扫描是用户主动触发，全部候选都出卡，不做 isNew/强弱门控
+      const cards = buildDetectionCards({ hits, sourceText: text, app: null, popup: true, manual: true })
       showDetectedCards(cards) // 一条走单卡，多条汇成一张清单卡
       applyExternalPetSay(hits.length > 1 ? `发现 ${hits.length} 个日程~` : '发现一个日程~', 'waiting')
       return {
@@ -249,7 +228,7 @@ export async function scanOnce(): Promise<ScanResult> {
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    showPreview({ summary: emptySummary(message) })
+    showPreview({ summary: emptyParseSummary(message) })
     return { status: 'error', message }
   } finally {
     setPetScanning(false)
@@ -279,7 +258,7 @@ let cloudPauseUntil = 0
 let cloudPauseNotified = false
 let previewBlockLogged = false // 调试日志：预览卡占用导致跳过只记一次，卡关掉后重置
 let cloudBlockLogged = false // 调试日志：解析服务未就绪导致跳过只记一次，恢复后重置
-const cooldown = new Map<string, number>()
+const cooldown = new CooldownMap(COOLDOWN_MS)
 let trayRefresh: (() => void) | null = null
 
 // legacy 双写对比需要监控运行态；注入 provider 避免 history/service 反向依赖本模块。
@@ -488,13 +467,13 @@ async function watchTick(): Promise<void> {
 
     // 内容冷却（同内容 10 分钟内不重复跑模型/弹卡）→ 放模型前，省推理
     const now = Date.now()
-    for (const [k, exp] of cooldown) if (exp <= now) cooldown.delete(k) // 清理过期，避免 Map 无界增长
-    const until = cooldown.get(th)
+    cooldown.sweep(now)
+    const until = cooldown.untilMs(th)
     if (until && until > now) {
       debugEvent('record', '同内容冷却中，跳过')
       return
     }
-    cooldown.set(th, now + COOLDOWN_MS) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
+    cooldown.start(th, now) // 命中或未命中都冷却，避免双屏来回切时反复跑模型
 
     // 云端解析 → 全部候选（多任务）+ 顺带的工作记录
     const { hits, workSummary, focusTask } = await detectAll(

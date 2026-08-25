@@ -1,6 +1,5 @@
 import {
   createSource,
-  createTask,
   deleteSourceRow,
   findDuplicateTitle,
   getProfile,
@@ -9,6 +8,7 @@ import {
   personalMemoryText,
   updateTask
 } from './db'
+import { createTaskFromItem, scheduledStatus } from './task-ingest'
 import { broadcast } from './windows'
 import { applyExternalPetReaction } from './pet/controller'
 import { callModel } from './parser'
@@ -46,26 +46,7 @@ function addCandidates(
     if (!force && findDuplicateTitle(item.title, item.start_time, item.due_time)) {
       return { candidate, title: item.title, time, duplicate: true, item }
     }
-    const status: TaskStatus = item.due_time || item.start_time ? 'scheduled' : 'not_started'
-    createTask({
-      sourceId: source.id,
-      title: item.title,
-      itemType: item.item_type,
-      belongsToUser: item.belongs_to_user,
-      belongingReason: item.belonging_reason,
-      userRole: item.user_role,
-      startTime: item.start_time,
-      dueTime: item.due_time,
-      location: item.location,
-      priority: item.priority,
-      confidence: item.confidence,
-      suggestedAction: item.suggested_action,
-      evidence: item.evidence,
-      notes: item.notes,
-      duplicateOf: item.duplicate_of,
-      status,
-      feedback: null
-    })
+    createTaskFromItem(source.id, item, scheduledStatus(item))
     created++
     return { candidate, title: item.title, time, duplicate: false }
   })

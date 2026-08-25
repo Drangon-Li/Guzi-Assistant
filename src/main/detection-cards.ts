@@ -2,18 +2,18 @@
 import {
   addDetection,
   createSource,
-  createTask,
   deleteSourceRow,
   findDuplicateTitle,
   getDetection,
   setDetectionStatus
 } from './db'
+import { createTaskFromItem, scheduledStatus } from './task-ingest'
 import { excerptOf } from './capture'
 import { broadcast, debugEvent, showPreview } from './windows'
 import { finalizeShot } from './shotvault'
 import { textHash } from '@shared/phash'
 import type { AddedInfo, ParsedItem } from '@shared/parsing'
-import type { LocalExtraction, TaskStatus } from '@shared/types'
+import type { LocalExtraction } from '@shared/types'
 
 export interface DetectHit {
   extraction: LocalExtraction
@@ -42,12 +42,14 @@ export interface DetectedCard {
 }
 
 /** 把云端候选记进「记忆」历史，并挑出该弹卡的那些。屏幕感知与剪贴板自动捕获共用。
- *  onNewDetection 供屏幕路径存证据图；剪贴板路径没有截图，不传即可。 */
+ *  onNewDetection 供屏幕路径存证据图；剪贴板路径没有截图，不传即可。
+ *  manual=true（手动扫描）：用户主动触发，全部候选都出卡，不做 isNew/强弱信号门控。 */
 export function buildDetectionCards(input: {
   hits: DetectHit[]
   sourceText: string
   app: string | null
   popup: boolean
+  manual?: boolean
   onNewDetection?: () => void
 }): DetectedCard[] {
   // 清单场景：一次识别出多条且其中至少一条解出了具体时间 → 这份列表不是噪声，整份都值得展示
@@ -68,13 +70,15 @@ export function buildDetectionCards(input: {
       hits: extraction.hits,
       app: input.app
     })
-    if (!isNew) {
+    if (!isNew && !input.manual) {
       debugEvent('record', '已存在，不重复抓取')
       continue
     }
-    debugEvent('record', '已记入「记忆」历史（新）')
-    input.onNewDetection?.()
-    if ((!extraction.strong && !listMode) || !input.popup) {
+    if (isNew) {
+      debugEvent('record', '已记入「记忆」历史（新）')
+      input.onNewDetection?.()
+    }
+    if (!input.manual && ((!extraction.strong && !listMode) || !input.popup)) {
       debugEvent('popup', '不弹卡（弱信号或弹窗关），留在记忆历史')
       continue
     }
@@ -114,26 +118,7 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
     deleteSourceRow(source.id) // 没有任务引用的来源不留库
     return { candidate: 0, title: item.title, time, duplicate: true, item }
   }
-  const status: TaskStatus = item.due_time || item.start_time ? 'scheduled' : 'not_started'
-  const task = createTask({
-    sourceId: source.id,
-    title: item.title,
-    itemType: item.item_type,
-    belongsToUser: item.belongs_to_user,
-    belongingReason: item.belonging_reason,
-    userRole: item.user_role,
-    startTime: item.start_time,
-    dueTime: item.due_time,
-    location: item.location,
-    priority: item.priority,
-    confidence: item.confidence,
-    suggestedAction: item.suggested_action,
-    evidence: item.evidence,
-    notes: item.notes,
-    duplicateOf: item.duplicate_of,
-    status,
-    feedback: null
-  })
+  const task = createTaskFromItem(source.id, item, scheduledStatus(item))
   finalizeShot(textHash(sourceText), source.id) // 把捕获时存的临时加密缩略图落实到本来源（无则 no-op）
   broadcast('guzi-assistant:tasks-updated')
   return { candidate: 0, title: item.title, time, duplicate: false, taskId: task.id }

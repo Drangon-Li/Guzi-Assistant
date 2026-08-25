@@ -27,7 +27,13 @@ import { HistoryQueryService } from './query-service.ts'
 import { buildRolloutComparison } from './rollout-comparison.ts'
 import { ACTIVITY_RETENTION_MS, type ActivityEvent } from '@shared/activity-events'
 import type { HistoryStoreHealth } from '@shared/types'
-import type { HistoryDeleteResult, HistoryStatus, HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
+import {
+  emptyHistoryStoreHealth,
+  type HistoryDeleteResult,
+  type HistoryStatus,
+  type HistoryQueryOptions,
+  type HistorySearchOptions
+} from '@shared/history'
 
 /** 两个 History 开关独立回滚：派生路径只有在事件流和派生开关都开启时生效。 */
 export function historyDerivedWorkActive(): boolean {
@@ -74,28 +80,13 @@ function ensureHistoryStore(): HistorySegmentStore {
   return historyStore
 }
 
-function historyHealthFallback(enabled: boolean, state: HistoryStoreHealth['state']): HistoryStoreHealth {
-  return {
-    enabled,
-    state,
-    currentSegmentId: null,
-    queueLength: 0,
-    droppedCount: 0,
-    suppressedCount: 0,
-    invalidCount: 0,
-    segmentCount: 0,
-    lastWriteAt: null,
-    lastCleanupAt: null,
-    lastError: null
-  }
-}
 
 function historyStatusSnapshot(): HistoryStatus {
   const settings = getSettings()
-  let health = historyStore?.health() ?? historyHealthFallback(
-    settings.historyV2Enabled,
-    settings.historyV2Enabled ? (historyPaused ? 'stopped' : 'starting') : 'disabled'
-  )
+  let health = historyStore?.health() ?? emptyHistoryStoreHealth({
+    enabled: settings.historyV2Enabled,
+    state: settings.historyV2Enabled ? (historyPaused ? 'stopped' : 'starting') : 'disabled'
+  })
   let tenMinute = 0
   let sixHour = 0
   let retentionExpiresAt: string | null = null
@@ -574,17 +565,9 @@ export function startHistoryPersistence(): HistorySegmentStore | null {
     }
     return store
   } catch (error) {
-    configureHistoryHealthProvider(() => ({
+    configureHistoryHealthProvider(() => emptyHistoryStoreHealth({
       enabled: true,
       state: 'degraded',
-      currentSegmentId: null,
-      queueLength: 0,
-      droppedCount: 0,
-      suppressedCount: 0,
-      invalidCount: 0,
-      segmentCount: 0,
-      lastWriteAt: null,
-      lastCleanupAt: null,
       lastError: error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)
     }))
     debugEvent('error', `History store 初始化失败：${error instanceof Error ? error.message : String(error)}`)

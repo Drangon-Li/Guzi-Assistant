@@ -1,5 +1,23 @@
 import type { HistoryStoreHealth } from './types'
 
+/** 全零 HistoryStoreHealth 基座：service 兜底/降级与 activity-tracker 健康回退共用。 */
+export function emptyHistoryStoreHealth(
+  init: Pick<HistoryStoreHealth, 'enabled' | 'state'> & Partial<HistoryStoreHealth>
+): HistoryStoreHealth {
+  return {
+    currentSegmentId: null,
+    queueLength: 0,
+    droppedCount: 0,
+    suppressedCount: 0,
+    invalidCount: 0,
+    segmentCount: 0,
+    lastWriteAt: null,
+    lastCleanupAt: null,
+    lastError: null,
+    ...init
+  }
+}
+
 /** Privacy-minimized view returned by History queries. */
 export interface HistorySummaryView {
   id: string
