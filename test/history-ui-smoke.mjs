@@ -6,7 +6,8 @@ const page = read('../src/renderer/src/pages/History.tsx')
 const settings = read('../src/renderer/src/pages/Settings.tsx')
 const settingsUi = read('../src/renderer/src/components/ui.tsx')
 const app = read('../src/renderer/src/App.tsx')
-const screenwatch = read('../src/main/screenwatch.ts')
+const historyService = read('../src/main/history/service.ts')
+const privacy = read('../src/main/privacy.ts')
 const db = read('../src/main/db.ts')
 const api = read('../src/renderer/src/api.ts')
 const ipc = read('../src/shared/ipc-channels.ts')
@@ -20,7 +21,7 @@ const checks = [
   ['摘要卡突出工作焦点、对应任务与进展', /工作焦点/.test(page) && /对应任务/.test(page) && /item\.focusTask/.test(page) && /item\.progress/.test(page) && /item\.outcome/.test(page)],
   ['History 只保留可选择的 App 黑名单', /历史 App 黑名单/.test(page) && /historyPickApps/.test(page) && /选择 App/.test(page) && /historyExcludedApps/.test(page) && !/historyIncludedApps/.test(page) && !/保存 include/.test(page)],
   ['原生选择器读取 App Bundle ID', /showOpenDialog/.test(picker) && /CFBundleIdentifier/.test(picker) && /multiSelections/.test(picker) && /history:pick-apps/.test(api) && /history:pick-apps/.test(ipc)],
-  ['黑名单按 Bundle ID 持久化并进入隐私门', /historyExcludedApps: parseHistoryAppList/.test(db) && /k === 'historyExcludedApps'/.test(db) && /excludedBundleIds: historyOnly/.test(screenwatch) && !/includedApps: historyOnly/.test(screenwatch)],
+  ['黑名单按 Bundle ID 持久化并进入隐私门', /historyExcludedApps: parseHistoryAppList/.test(db) && /k === 'historyExcludedApps'/.test(db) && /excludedBundleIds: historyOnly/.test(privacy) && !/includedApps: historyOnly/.test(privacy)],
   ['支持暂停恢复与摘要', /api\.historyPause\(\)/.test(page) && /api\.historyResume\(\)/.test(page) && /api\.historySummarize\(/.test(page)],
   ['支持 10 分钟、1 小时、1 天和全部清理', /cleanRange\('10m'\)/.test(page) && /cleanRange\('1h'\)/.test(page) && /cleanRange\('1d'\)/.test(page) && /cleanRange\('all'\)/.test(page)],
   ['清理使用范围 API 或统一 clear API', /cleanCurrentRange/.test(page) && /api\.historyDeleteRange\(/.test(page) && /api\.historyClear\(/.test(page)],
@@ -29,19 +30,13 @@ const checks = [
   ['设置二值选项使用可访问 Toggle，圆钮有对称水平内边距', /role="switch"/.test(settingsUi) && /left-0\.5/.test(settingsUi) && /translate-x-0['"]/.test(settingsUi) && /translate-x-5/.test(settingsUi) && /<Toggle/.test(settings) && !/type="checkbox"/.test(settings)],
   ['屏幕感知技术参数默认折叠', /高级设置与隐私选项/.test(settings) && /查看采集器健康详情/.test(settings) && /<details/.test(settings)],
   ['删除/摘要完成后广播并由页面刷新',
-    (screenwatch.match(/broadcast\('guzi-assistant:history-updated'\)/g) ?? []).length >= 4 &&
+    (historyService.match(/broadcast\('guzi-assistant:history-updated'\)/g) ?? []).length >= 4 &&
       /api\.on\('guzi-assistant:history-updated'/.test(page) &&
       /api\.on\('guzi-assistant:history-updated'/.test(settings)],
-  ['rollout 摘要按 10 分钟与 6 小时分开对比',
-    /摘要（10 分钟）/.test(settings) &&
-      /legacy\.tenMinuteSummaryCount/.test(settings) &&
-      /history\.tenMinuteSummaryCount/.test(settings) &&
-      /摘要（6 小时）/.test(settings) &&
-      /history\.sixHourSummaryCount/.test(settings)],
   ['两个 History 开关默认关闭且可独立回滚',
     /historyV2Enabled: map\.historyV2Enabled === 'true'/.test(db) &&
       /historyDerivedWorkEnabled: map\.historyDerivedWorkEnabled === 'true'/.test(db) &&
-      /historyV2Enabled && settings\.historyDerivedWorkEnabled/.test(screenwatch)]
+      /historyV2Enabled && settings\.historyDerivedWorkEnabled/.test(historyService)]
 ]
 
 for (const [name, ok] of checks) {

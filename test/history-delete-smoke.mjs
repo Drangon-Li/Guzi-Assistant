@@ -145,10 +145,10 @@ try {
   await rm(integratedRoot, { recursive: true, force: true })
 }
 
-const screenwatchSource = readFileSync(new URL('../src/main/screenwatch.ts', import.meta.url), 'utf8')
-assert.match(screenwatchSource, /for \(const id of summaryIds\) summaryIndex\.remove\(id\)/)
-assert.match(screenwatchSource, /removeHistoryWorkRecords\(/)
-assert.match(screenwatchSource, /segmentIdsFromSummaries\.filter\(\(segmentId\) => segmentIdsInRange\.has\(segmentId\)\)/)
+const historyServiceSource = readFileSync(new URL('../src/main/history/service.ts', import.meta.url), 'utf8')
+assert.match(historyServiceSource, /for \(const id of summaryIds\) summaryIndex\.remove\(id\)/)
+assert.match(historyServiceSource, /removeHistoryWorkRecords\(/)
+assert.match(historyServiceSource, /segmentIdsFromSummaries\.filter\(\(segmentId\) => segmentIdsInRange\.has\(segmentId\)\)/)
 console.log('✓ runtime deletion removes summary rows and scopes derived-work deletion to the requested range')
 
 function check(path) {

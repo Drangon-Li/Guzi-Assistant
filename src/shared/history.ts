@@ -1,5 +1,23 @@
 import type { HistoryStoreHealth } from './types'
 
+/** 全零 HistoryStoreHealth 基座：service 兜底/降级与 activity-tracker 健康回退共用。 */
+export function emptyHistoryStoreHealth(
+  init: Pick<HistoryStoreHealth, 'enabled' | 'state'> & Partial<HistoryStoreHealth>
+): HistoryStoreHealth {
+  return {
+    currentSegmentId: null,
+    queueLength: 0,
+    droppedCount: 0,
+    suppressedCount: 0,
+    invalidCount: 0,
+    segmentCount: 0,
+    lastWriteAt: null,
+    lastCleanupAt: null,
+    lastError: null,
+    ...init
+  }
+}
+
 /** Privacy-minimized view returned by History queries. */
 export interface HistorySummaryView {
   id: string
@@ -118,41 +136,6 @@ export interface HistoryStatus {
   health: HistoryStoreHealth
   retentionExpiresAt: string | null
   summaryCounts: { tenMinute: number; sixHour: number }
-  /** Aggregate-only dual-write comparison; null while History is disabled. */
-  rolloutComparison: RolloutComparison | null
-}
-
-export interface RolloutComparison {
-  schemaVersion: 1
-  windowStart: string
-  windowEnd: string
-  legacy: {
-    segmentCount: number
-    eventCount: number
-    meaningfulEventCount: number
-    summaryCount: number
-    /** Explicit 10-minute baseline count; summaryCount remains a compatibility alias. */
-    tenMinuteSummaryCount: number
-  }
-  history: {
-    segmentCount: number
-    eventCount: number
-    meaningfulEventCount: number
-    suppressedEventCount: number
-    summaryCount: number
-    tenMinuteSummaryCount: number
-    sixHourSummaryCount: number
-  }
-  workRecords: {
-    legacyCount: number
-    historyCount: number
-    legacyDuplicateCount: number
-    historyDuplicateCount: number
-    legacyDuplicateRate: number
-    historyDuplicateRate: number
-    crossPathOverlapCount: number
-    crossPathOverlapRate: number
-  }
 }
 
 export interface HistoryDeleteResult {

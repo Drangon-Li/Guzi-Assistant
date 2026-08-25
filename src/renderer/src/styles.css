@@ -107,14 +107,50 @@ textarea {
 .animate-card-out { animation: card-out 0.24s ease-in forwards; }
 
 /* 任务完成：先保持勾选+划线让用户看到，再淡出+收拢滑走 */
+/* 完成收拢分三拍：勾选+划线停留 → 淡出滑走 → 高度收拢。
+   拆开淡出和收高是关键：同时动会让行在半透明状态跳高度，看着就是卡顿；
+   max-height 取 88px 贴近真实行高（先前 240px 让收拢挤在最后几十毫秒里，观感像卡了一下）；
+   结尾 margin-top -8px 抵消列表 gap-2，行移除时下方任务不再跳动。 */
 @keyframes task-done-out {
-  0% { opacity: 1; max-height: 240px; transform: none; }
-  30% { opacity: 1; max-height: 240px; transform: none; }
-  100% { opacity: 0; max-height: 0; transform: translateX(16px); }
+  0% { opacity: 1; max-height: 88px; transform: none; margin-top: 0; }
+  35% { opacity: 1; max-height: 88px; transform: none; }
+  70% { opacity: 0; max-height: 88px; transform: translateX(16px); margin-top: 0; }
+  100% {
+    opacity: 0;
+    max-height: 0;
+    transform: translateX(16px);
+    margin-top: -8px;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+  }
 }
 .animate-task-done {
   overflow: hidden;
-  animation: task-done-out 0.34s var(--ease-spring) forwards;
+  animation: task-done-out 0.4s ease-in-out forwards;
+}
+
+/* 取消完成：勾选/划线已即时消失，行向左淡出收拢（与完成方向相反，示意退回未完成列表）。
+   比完成动画短——没有「确认勾选」的停留拍。 */
+@keyframes task-restore-out {
+  0% { opacity: 1; max-height: 88px; transform: none; margin-top: 0; }
+  25% { opacity: 1; max-height: 88px; transform: none; }
+  65% { opacity: 0; max-height: 88px; transform: translateX(-16px); margin-top: 0; }
+  100% {
+    opacity: 0;
+    max-height: 0;
+    transform: translateX(-16px);
+    margin-top: -8px;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+  }
+}
+.animate-task-restore {
+  overflow: hidden;
+  animation: task-restore-out 0.3s ease-in-out forwards;
 }
 
 /* 列表错位进场：父级加 .stagger，子项依次淡入 */

@@ -36,6 +36,14 @@ const BROWSER_BUNDLES = new Set([
 const PRIVATE_TITLE =
   /private browsing|private window|incognito|inprivate|无痕|無痕|私密浏览|私密瀏覽|シークレット|プライベート|시크릿|프라이빗/i
 
+/** 私密浏览检测的唯一实现：主流浏览器 Bundle + 私密窗口标题特征。 */
+export function isPrivateBrowserWindow(
+  bundleId: string | null | undefined,
+  windowTitle: string | null | undefined
+): boolean {
+  return !!bundleId && BROWSER_BUNDLES.has(bundleId.toLowerCase()) && PRIVATE_TITLE.test(windowTitle ?? '')
+}
+
 function includesApp(appName: string | null | undefined, candidates: string[]): boolean {
   if (!appName) return false
   const value = appName.trim().toLowerCase()
@@ -82,7 +90,7 @@ export function decideHistoryPrivacy(input: HistoryPrivacyInput): HistoryPrivacy
     return { state: 'excluded', persist: false, reason: 'excluded_app' }
   if (isAppExcluded(input.appName, input.excludedApps ?? []))
     return { state: 'excluded', persist: false, reason: 'excluded_app' }
-  if (input.bundleId && BROWSER_BUNDLES.has(input.bundleId.toLowerCase()) && PRIVATE_TITLE.test(input.windowTitle ?? ''))
+  if (isPrivateBrowserWindow(input.bundleId, input.windowTitle))
     return { state: 'private', persist: false, reason: 'private_browser' }
   if (!isAppIncluded(input.appName, input.includedApps ?? []))
     return { state: 'excluded', persist: false, reason: 'not_included_app' }

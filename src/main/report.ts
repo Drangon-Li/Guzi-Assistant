@@ -9,7 +9,23 @@ export async function generateDailyReport(day: string): Promise<ReportRecord> {
   if (!profile) throw new Error('尚未完成用户档案设置')
   const records = listWorkRecords(day)
   const usage = appUsageSummary(day)
-  const { done, open } = splitTasksForDay(listTasks(), day)
+  const allTasks = listTasks()
+  const { done, open } = splitTasksForDay(allTasks, day)
+  // 按标签聚合当日完成/未完成，给日报一个分类视角
+  const OPEN = new Set(['not_started', 'scheduled', 'in_progress', 'overdue'])
+  const tagStat = new Map<string, { done: number; open: number }>()
+  for (const t of allTasks) {
+    const isDone = t.status === 'done' && t.updatedAt.slice(0, 10) === day
+    const isOpen = OPEN.has(t.status) && t.belongsToUser !== 'no'
+    if (!isDone && !isOpen) continue
+    for (const tag of t.tags) {
+      const s = tagStat.get(tag) ?? { done: 0, open: 0 }
+      if (isDone) s.done += 1
+      else s.open += 1
+      tagStat.set(tag, s)
+    }
+  }
+  const tagSummary = [...tagStat.entries()].map(([tag, s]) => `#${tag}：完成 ${s.done} / 待办 ${s.open}`)
   if (!records.length && !done.length && !usage.length)
     throw new Error('这一天还没有工作记录，开启屏幕感知或完成任务后再来生成')
   const { instructions, text } = buildDailyReportPrompt(profile.name, {
@@ -17,7 +33,8 @@ export async function generateDailyReport(day: string): Promise<ReportRecord> {
     records,
     usage,
     tasksDone: done,
-    tasksOpen: open
+    tasksOpen: open,
+    tagSummary
   })
   const output = await callModel(
     instructions,

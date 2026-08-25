@@ -1120,26 +1120,6 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
               </span>
               <span>10 分钟摘要：{historyStatus.summaryCounts.tenMinute}</span>
               <span>6 小时摘要：{historyStatus.summaryCounts.sixHour}</span>
-              {historyStatus.rolloutComparison && (
-                <>
-                  <span className="col-span-2 mt-2 border-t border-slate-100 pt-2 text-slate-400">双写对比（最近 48 小时）</span>
-                  <span>
-                    事件：旧 {historyStatus.rolloutComparison.legacy.eventCount} / 新 {historyStatus.rolloutComparison.history.eventCount + historyStatus.rolloutComparison.history.suppressedEventCount}
-                  </span>
-                  <span>
-                    摘要（10 分钟）：旧 {historyStatus.rolloutComparison.legacy.tenMinuteSummaryCount} / 新 {historyStatus.rolloutComparison.history.tenMinuteSummaryCount}
-                  </span>
-                  <span>
-                    摘要（6 小时）：新 {historyStatus.rolloutComparison.history.sixHourSummaryCount}
-                  </span>
-                  <span>
-                    工作记录：旧 {historyStatus.rolloutComparison.workRecords.legacyCount} / 新 {historyStatus.rolloutComparison.workRecords.historyCount}
-                  </span>
-                  <span>
-                    重复率：旧 {Math.round(historyStatus.rolloutComparison.workRecords.legacyDuplicateRate * 100)}% / 新 {Math.round(historyStatus.rolloutComparison.workRecords.historyDuplicateRate * 100)}%
-                  </span>
-                </>
-              )}
               {historyStatus.health.lastError && (
                 <span className="col-span-2 text-amber-600">最近错误：{historyStatus.health.lastError}</span>
               )}

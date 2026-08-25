@@ -12,13 +12,12 @@ import { resolveDirectModelSettings } from '@shared/model-configuration'
 import { normalizeHistoryHost } from '@shared/history'
 import { createSqliteHistorySegmentIndex, type HistorySegmentIndex } from './history/segment-index.ts'
 import { createSqliteHistorySummaryIndex, type HistorySummaryIndex } from './history/summary-index.ts'
-import { migrateTaskReminders, migrateWorkRecords, scrubInvalidTaskNames } from './db-migrations.ts'
+import { migrateTaskExtras, migrateTaskReminders, migrateWorkRecords, scrubInvalidTaskNames } from './db-migrations.ts'
 import type {
   AppSettings,
   AppCategoryOverride,
   AppSwitchRecord,
   AppUsageEntry,
-  ActivityHistorySegmentRecord,
   DetectionRecord,
   MemoryHit,
   ReportRecord,
@@ -186,6 +185,7 @@ export function initDb(): void {
   migrateWorkRecords(db)
   // 老库迁移：tasks 加提醒三列（纯加列，旧客户端 SELECT * 忽略即可）
   migrateTaskReminders(db)
+  migrateTaskExtras(db)
   // 老数据清理：裸 App 名/泛化名/窗口标题残片的 task 标签置空（不进统计、不进模型候选）
   scrubInvalidTaskNames(db)
   const pmCols = (db.prepare('PRAGMA table_info(personal_memory)').all() as { name: string }[]).map((c) => c.name)
@@ -296,6 +296,7 @@ export function getSettings(): AppSettings {
     cmd_shift_c: 'CommandOrControl+Shift+C'
   }
   return {
+    starredTags: parseList(map.starredTags),
     hotkey: map.hotkey || legacy[map.hotkeyMode] || 'Control+\\',
     screenshotHotkey: map.screenshotHotkey || 'Control+Shift+\\',
     mainWindowHotkey: map.mainWindowHotkey || 'Alt+G',
@@ -339,7 +340,7 @@ export function getSettings(): AppSettings {
     screenSenseVlmConfirm: map.screenSenseVlmConfirm === 'true',
     dailyReportTime: map.dailyReportTime ?? '',
     screenSenseCardHideSec:
-      map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 5,
+      map.screenSenseCardHideSec != null ? Number(map.screenSenseCardHideSec) : 6,
     assistantAutoCloseSec: map.assistantAutoCloseSec != null ? Number(map.assistantAutoCloseSec) : 60,
     theme: map.theme === 'light' || map.theme === 'dark' ? map.theme : 'system',
     mcpEnabled: map.mcpEnabled === 'true',
@@ -402,6 +403,13 @@ export function saveSettings(patch: Partial<AppSettings>): void {
   )
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) continue
+    if (k === 'starredTags') {
+      const values = Array.isArray(v)
+        ? v.filter((item): item is string => typeof item === 'string').map((item) => item.trim().replace(/,/g, '')).filter(Boolean)
+        : []
+      stmt.run(k, [...new Set(values)].join(','))
+      continue
+    }
     if (k === 'historyIncludedHosts' || k === 'historyExcludedHosts') {
       const values = Array.isArray(v)
         ? v.map((item) => normalizeHistoryHost(item)).filter((item): item is string => item !== null)
@@ -560,6 +568,8 @@ interface TaskRow {
   duplicate_of: string | null
   status: string
   feedback: string | null
+  tags: string
+  checklist: string
   remind_offset_min: number | null
   reminded_at: string | null
   snoozed_until: string | null
@@ -587,6 +597,8 @@ function rowToTask(r: TaskRow): TaskRecord {
     duplicateOf: r.duplicate_of,
     status: r.status as TaskStatus,
     feedback: r.feedback,
+    tags: JSON.parse(r.tags || '[]') as string[],
+    checklist: JSON.parse(r.checklist || '[]') as TaskRecord['checklist'],
     remindOffsetMin: r.remind_offset_min,
     remindedAt: r.reminded_at,
     snoozedUntil: r.snoozed_until,
@@ -595,14 +607,18 @@ function rowToTask(r: TaskRow): TaskRecord {
   }
 }
 
-/** 提醒三字段是簿记状态，捕获链路的调用方不必关心，缺省即 null。 */
-type NewTask = Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt' | 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'> &
-  Partial<Pick<TaskRecord, 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'>>
+/** 提醒三字段是簿记状态、标签/清单可缺省，捕获链路的调用方不必关心。 */
+type NewTask = Omit<
+  TaskRecord,
+  'id' | 'createdAt' | 'updatedAt' | 'tags' | 'checklist' | 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'
+> & Partial<Pick<TaskRecord, 'tags' | 'checklist' | 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'>>
 
 export function createTask(t: NewTask): TaskRecord {
   const now = localNow()
   const rec: TaskRecord = {
     ...t,
+    tags: t.tags ?? [],
+    checklist: t.checklist ?? [],
     remindOffsetMin: t.remindOffsetMin ?? null,
     remindedAt: t.remindedAt ?? null,
     snoozedUntil: t.snoozedUntil ?? null,
@@ -614,14 +630,15 @@ export function createTask(t: NewTask): TaskRecord {
     INSERT INTO tasks (
       id, source_id, title, item_type, belongs_to_user, belonging_reason, user_role,
       start_time, due_time, location, priority, confidence, suggested_action,
-      evidence, notes, duplicate_of, status, feedback,
+      evidence, notes, duplicate_of, status, feedback, tags, checklist,
       remind_offset_min, reminded_at, snoozed_until, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     rec.id, rec.sourceId, rec.title, rec.itemType, rec.belongsToUser, rec.belongingReason,
     rec.userRole, rec.startTime, rec.dueTime, rec.location, rec.priority, rec.confidence,
     rec.suggestedAction, JSON.stringify(rec.evidence), JSON.stringify(rec.notes), rec.duplicateOf,
-    rec.status, rec.feedback, rec.remindOffsetMin, rec.remindedAt, rec.snoozedUntil,
+    rec.status, rec.feedback, JSON.stringify(rec.tags), JSON.stringify(rec.checklist),
+    rec.remindOffsetMin, rec.remindedAt, rec.snoozedUntil,
     rec.createdAt, rec.updatedAt
   )
   return rec
@@ -683,6 +700,8 @@ const TASK_EDITABLE: Record<string, string> = {
   status: 'status',
   feedback: 'feedback',
   notes: 'notes',
+  tags: 'tags',
+  checklist: 'checklist',
   belongsToUser: 'belongs_to_user', // #15：允许用户改判归属（驱动个性化学习）
   remindOffsetMin: 'remind_offset_min'
 }
@@ -725,7 +744,7 @@ export function updateTask(id: string, patch: Partial<TaskRecord>): void {
     if (k in patch) {
       sets.push(`${col} = ?`)
       const v = (patch as Record<string, unknown>)[k]
-      values.push(k === 'notes' ? JSON.stringify(v) : v)
+      values.push(k === 'notes' || k === 'tags' || k === 'checklist' ? JSON.stringify(v) : v)
     }
   }
   if (!sets.length) return
@@ -770,6 +789,32 @@ export function bulkUpdateStatus(ids: string[], status: TaskStatus): void {
     for (const id of list) stmt.run(status, localNow(), id)
   })
   run(ids)
+}
+
+/** 彻底删除任务；其来源若再无其他任务引用，连来源和证据截图一并清掉。 */
+export function deleteTask(id: string): void {
+  const t = db.prepare('SELECT source_id FROM tasks WHERE id = ?').get(id) as
+    | { source_id: string | null }
+    | undefined
+  if (!t) return
+  db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
+  if (t.source_id) {
+    const n = (db.prepare('SELECT count(*) AS n FROM tasks WHERE source_id = ?').get(t.source_id) as { n: number }).n
+    if (n === 0) {
+      deleteSourceRow(t.source_id)
+      deleteShot(t.source_id)
+    }
+  }
+}
+
+/** 用户标签词表（按使用频次降序）：筛选条展示 + 解析预打标签的候选。 */
+export function listTaskTags(): string[] {
+  const rows = db.prepare("SELECT tags FROM tasks WHERE status != 'ignored'").all() as { tags: string }[]
+  const freq = new Map<string, number>()
+  for (const row of rows) {
+    for (const tag of JSON.parse(row.tags || '[]') as string[]) freq.set(tag, (freq.get(tag) ?? 0) + 1)
+  }
+  return [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([tag]) => tag)
 }
 
 // ---------- detections（屏幕感知本地检测历史，被动留存进「记忆」页）----------
@@ -1162,60 +1207,6 @@ export function setAppCategoryOverride(app: string, category: string | null): vo
 
 // ---------- Hybrid History v2（只持久化聚合片段和脱敏 OCR 证据，不落盘原始事件） ----------
 
-export function upsertActivitySegment(segment: ActivityHistorySegmentRecord): void {
-  db.prepare(
-    `INSERT INTO activity_segments (
-      id, bucket_kind, bucket_start, bucket_end, first_event_at, last_event_at,
-      event_count, meaningful_event_count, semantic_complete_count, semantic_partial_count,
-      semantic_empty_count, ocr_evidence_count, trigger_reasons, summary, closed, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      bucket_end = excluded.bucket_end,
-      first_event_at = excluded.first_event_at,
-      last_event_at = excluded.last_event_at,
-      event_count = excluded.event_count,
-      meaningful_event_count = excluded.meaningful_event_count,
-      semantic_complete_count = excluded.semantic_complete_count,
-      semantic_partial_count = excluded.semantic_partial_count,
-      semantic_empty_count = excluded.semantic_empty_count,
-      ocr_evidence_count = excluded.ocr_evidence_count,
-      trigger_reasons = excluded.trigger_reasons,
-      summary = excluded.summary,
-      closed = excluded.closed,
-      updated_at = excluded.updated_at
-    WHERE activity_segments.bucket_end IS NOT excluded.bucket_end
-      OR activity_segments.first_event_at IS NOT excluded.first_event_at
-      OR activity_segments.last_event_at IS NOT excluded.last_event_at
-      OR activity_segments.event_count IS NOT excluded.event_count
-      OR activity_segments.meaningful_event_count IS NOT excluded.meaningful_event_count
-      OR activity_segments.semantic_complete_count IS NOT excluded.semantic_complete_count
-      OR activity_segments.semantic_partial_count IS NOT excluded.semantic_partial_count
-      OR activity_segments.semantic_empty_count IS NOT excluded.semantic_empty_count
-      OR activity_segments.ocr_evidence_count IS NOT excluded.ocr_evidence_count
-      OR activity_segments.trigger_reasons IS NOT excluded.trigger_reasons
-      OR activity_segments.summary IS NOT excluded.summary
-      OR activity_segments.closed IS NOT excluded.closed`
-  ).run(
-    segment.id,
-    segment.bucketKind,
-    segment.bucketStart,
-    segment.bucketEnd,
-    segment.firstEventAt,
-    segment.lastEventAt,
-    segment.eventCount,
-    segment.meaningfulEventCount,
-    segment.semanticCompleteCount,
-    segment.semanticPartialCount,
-    segment.semanticEmptyCount,
-    segment.ocrEvidenceCount,
-    JSON.stringify(segment.triggerReasons),
-    segment.summary.slice(0, 1000),
-    segment.closed ? 1 : 0,
-    segment.createdAt,
-    segment.updatedAt
-  )
-}
-
 export function addOcrEvidence(evidence: OcrEvidenceRecord): void {
   db.prepare(
     `INSERT INTO ocr_evidence (
@@ -1236,59 +1227,6 @@ export function addOcrEvidence(evidence: OcrEvidenceRecord): void {
     evidence.redactedText.slice(0, 20_000),
     evidence.createdAt
   )
-}
-
-export function listActivitySegments(limit = 40): ActivityHistorySegmentRecord[] {
-  const rows = db
-    .prepare('SELECT * FROM activity_segments ORDER BY bucket_start DESC LIMIT ?')
-    .all(limit) as Array<Record<string, unknown>>
-  return rows.map((row) => ({
-    id: String(row.id),
-    bucketKind: String(row.bucket_kind) as '10m' | '6h',
-    bucketStart: String(row.bucket_start),
-    bucketEnd: String(row.bucket_end),
-    firstEventAt: String(row.first_event_at),
-    lastEventAt: String(row.last_event_at),
-    eventCount: Number(row.event_count),
-    meaningfulEventCount: Number(row.meaningful_event_count),
-    semanticCompleteCount: Number(row.semantic_complete_count),
-    semanticPartialCount: Number(row.semantic_partial_count),
-    semanticEmptyCount: Number(row.semantic_empty_count),
-    ocrEvidenceCount: Number(row.ocr_evidence_count),
-    triggerReasons: JSON.parse(String(row.trigger_reasons || '[]')) as string[],
-    summary: String(row.summary),
-    closed: Number(row.closed) === 1,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at)
-  }))
-}
-
-/** Aggregate legacy segments for a bounded rollout comparison window. */
-export function listActivitySegmentsSince(fromIso: string, toIso: string): ActivityHistorySegmentRecord[] {
-  const rows = db
-    .prepare(
-      "SELECT * FROM activity_segments WHERE bucket_kind = '10m' AND bucket_end > ? AND bucket_start < ? ORDER BY bucket_start"
-    )
-    .all(fromIso, toIso) as Array<Record<string, unknown>>
-  return rows.map((row) => ({
-    id: String(row.id),
-    bucketKind: String(row.bucket_kind) as '10m' | '6h',
-    bucketStart: String(row.bucket_start),
-    bucketEnd: String(row.bucket_end),
-    firstEventAt: String(row.first_event_at),
-    lastEventAt: String(row.last_event_at),
-    eventCount: Number(row.event_count),
-    meaningfulEventCount: Number(row.meaningful_event_count),
-    semanticCompleteCount: Number(row.semantic_complete_count),
-    semanticPartialCount: Number(row.semantic_partial_count),
-    semanticEmptyCount: Number(row.semantic_empty_count),
-    ocrEvidenceCount: Number(row.ocr_evidence_count),
-    triggerReasons: JSON.parse(String(row.trigger_reasons || '[]')) as string[],
-    summary: String(row.summary),
-    closed: Number(row.closed) === 1,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at)
-  }))
 }
 
 export function listOcrEvidence(limit = 40): OcrEvidenceRecord[] {

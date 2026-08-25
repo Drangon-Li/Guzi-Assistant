@@ -76,6 +76,11 @@ export interface HistoryAppSelection {
   path: string
 }
 
+export interface ChecklistItem {
+  text: string
+  done: boolean
+}
+
 export interface TaskRecord {
   id: string
   sourceId: string | null
@@ -97,6 +102,10 @@ export interface TaskRecord {
   duplicateOf: string | null
   status: TaskStatus
   feedback: string | null
+  /** 用户标签（分类/筛选；解析可预打、用户可改） */
+  tags: string[]
+  /** 检查清单（子任务），逐项勾选 */
+  checklist: ChecklistItem[]
   /** 提醒提前量（分钟）；null = 跟随全局默认，负数 = 该任务关闭提醒 */
   remindOffsetMin: number | null
   /** 已提醒过的目标时刻（本地 ISO），提醒幂等键；改任务时间/提前量时复位 */
@@ -153,6 +162,8 @@ export interface PermissionStatus {
 }
 
 export interface AppSettings {
+  /** 重点标签：谷子建议对含这些标签的任务加分 */
+  starredTags: string[]
   /** Electron accelerator 字符串，如 "Alt+C"、"Command+Shift+K" */
   hotkey: string
   /** 提交屏幕截图（交互框选截图 → 解析）的全局快捷键 */

@@ -8,6 +8,8 @@ import TaskDetailModal from '../components/TaskDetailModal'
 import Timeline, { type TimelineMode } from './Timeline'
 import QuickAddTask from '../components/QuickAddTask'
 import { Segmented } from '../components/ui'
+import ContextMenu, { type MenuEntry } from '../components/ContextMenu'
+import { rankTaskSuggestions } from '@shared/task-suggest'
 
 interface Props {
   tasks: TaskRecord[]
@@ -15,11 +17,29 @@ interface Props {
   onOpenAssistant: () => void
 }
 
-type Tab = 'today' | 'next3' | 'week' | 'all'
+type Tab = 'suggest' | 'today' | 'next3' | 'week' | 'all'
 type View = 'list' | 'timeline'
 
 const ACTIVE_STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'overdue']
 const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+/** 视图/筛选选择持久化：切页会卸载组件，重进时恢复上一次的选择。 */
+function readPref<T extends string>(key: string, valid: readonly T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(key)
+    return valid.includes(v as T) ? (v as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writePref(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* 隐私模式等场景写不进就算了，不影响功能 */
+  }
+}
 
 function timeOf(t: TaskRecord): string | null {
   return t.dueTime ?? t.startTime
@@ -41,9 +61,59 @@ function nowLocal(): string {
 }
 
 export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props): React.JSX.Element {
-  const [view, setView] = useState<View>('list')
-  const [tab, setTab] = useState<Tab>('today')
-  const [tlMode, setTlMode] = useState<TimelineMode>('day')
+  const [view, setViewRaw] = useState<View>(() => readPref('schedule.view', ['list', 'timeline'], 'list'))
+  const [tab, setTabRaw] = useState<Tab>(() =>
+    readPref('schedule.tab', ['suggest', 'today', 'next3', 'week', 'all'], 'today')
+  )
+  const [tlMode, setTlModeRaw] = useState<TimelineMode>(() =>
+    readPref('schedule.tlMode', ['day', 'week', 'month'], 'day')
+  )
+  const setView = (v: View): void => {
+    setViewRaw(v)
+    writePref('schedule.view', v)
+  }
+  const setTab = (v: Tab): void => {
+    setTabRaw(v)
+    writePref('schedule.tab', v)
+  }
+  const setTlMode = (v: TimelineMode): void => {
+    setTlModeRaw(v)
+    writePref('schedule.tlMode', v)
+  }
+  // 标签筛选：点选一个标签只看该类任务；跨 tab 生效，不持久化（是临时视角不是模式）
+  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  // 重点标签（星标）：谷子建议对含这些标签的任务加分；存设置，跨端生效
+  const [starredTags, setStarredTags] = useState<string[]>([])
+  useEffect(() => {
+    const load = (): void => void api.getSettings().then((s) => setStarredTags(s.starredTags))
+    load()
+    return api.on('guzi-assistant:settings-updated', load)
+  }, [])
+  const toggleStar = (tag: string): void => {
+    const next = starredTags.includes(tag) ? starredTags.filter((t) => t !== tag) : [...starredTags, tag]
+    setStarredTags(next)
+    void api.saveSettings({ starredTags: next })
+  }
+  // 多选批量：只作用于主列表分区（已完成/已过期/已忽略区不参与）
+  const [multiMode, setMultiMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [batchTag, setBatchTag] = useState('')
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false)
+  const exitMulti = (): void => {
+    setMultiMode(false)
+    setSelected(new Set())
+    setBatchTag('')
+    setConfirmBatchDelete(false)
+  }
+  const toggleSelect = (id: string): void =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const byTag = (list: TaskRecord[]): TaskRecord[] =>
+    tagFilter ? list.filter((t) => t.tags.includes(tagFilter)) : list
   const [editing, setEditing] = useState<TaskRecord | null>(null)
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
@@ -54,16 +124,59 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
     window.setTimeout(() => setNote(''), 3500)
   }
 
+  // 右键菜单：任务行 / 顶部标签两种目标；菜单内删除走两步确认
+  const [menu, setMenu] = useState<
+    | { kind: 'task'; taskId: string; x: number; y: number }
+    | { kind: 'tag'; tag: string; x: number; y: number }
+    | null
+  >(null)
+  const [menuConfirm, setMenuConfirm] = useState(false)
+  const openTaskMenu =
+    (t: TaskRecord) =>
+    (e: React.MouseEvent): void => {
+      e.preventDefault()
+      setMenuConfirm(false)
+      setMenu({ kind: 'task', taskId: t.id, x: e.clientX, y: e.clientY })
+    }
+  const openTagMenu =
+    (tag: string) =>
+    (e: React.MouseEvent): void => {
+      e.preventDefault()
+      setMenuConfirm(false)
+      setMenu({ kind: 'tag', tag, x: e.clientX, y: e.clientY })
+    }
+
   const active = tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).sort(byTime)
   const pending = tasks.filter((t) => t.status === 'pending')
   const done = tasks.filter((t) => t.status === 'done')
   const ignored = tasks.filter((t) => t.status === 'ignored')
   const overdue = active.filter((t) => t.status === 'overdue')
   const unscheduled = active.filter((t) => !timeOf(t) && t.status !== 'overdue')
+  // 已过期：时间在今天之前、但既没完成也没进 overdue 的任务（典型是只有开始时间的「开过的会」，
+  // 不会被 due_time 驱动的 overdue 扫描抓到）。单独归入折叠区，与已完成/已忽略并列，不再滞留「全部」。
+  const today = todayKey()
+  const expired = active.filter((t) => {
+    if (t.status === 'overdue') return false
+    const d = dayKey(timeOf(t))
+    return d !== null && d < today
+  })
+  const expiredIds = new Set(expired.map((t) => t.id))
+  const allTags = [...new Set(tasks.filter((t) => t.status !== 'ignored').flatMap((t) => t.tags))].sort(
+    (a, b) => Number(starredTags.includes(b)) - Number(starredTags.includes(a))
+  )
 
-  const sections: { title: string; list: TaskRecord[]; empty?: string }[] = []
-  if (tab === 'today') {
-    const today = todayKey()
+  const sections: { title: string; list: TaskRecord[]; empty?: string; hints?: Map<string, string> }[] = []
+  if (tab === 'suggest') {
+    // 谷子建议：时间紧迫度 + 优先级本地打分，分档给出「先办什么」；含已过期/未排期的候选
+    const tiers = rankTaskSuggestions(tasks, nowLocal(), { starredTags })
+    if (!tiers.length) sections.push({ title: '谷子建议', list: [], empty: '没有待办任务，休息一下吧' })
+    for (const tier of tiers)
+      sections.push({
+        title: tier.title,
+        list: tier.items.map((s) => s.task),
+        hints: new Map(tier.items.map((s) => [s.task.id, s.reasons.slice(0, 2).join(' · ')]))
+      })
+  } else if (tab === 'today') {
     if (overdue.length) sections.push({ title: '已延期', list: overdue })
     sections.push({
       title: '今日',
@@ -87,7 +200,100 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
     }
     if (unscheduled.length) sections.push({ title: '未排期', list: unscheduled })
   } else {
-    sections.push({ title: '全部未完成', list: active, empty: '没有未完成的任务' })
+    sections.push({
+      title: '全部未完成',
+      list: active.filter((t) => !expiredIds.has(t.id)),
+      empty: '没有未完成的任务'
+    })
+  }
+
+  function taskMenuEntries(t: TaskRecord | undefined): MenuEntry[] {
+    if (!t) return []
+    const isDone = t.status === 'done'
+    const sid = t.sourceId
+    const entries: MenuEntry[] = [
+      {
+        label: isDone ? '取消完成' : '标记完成',
+        onClick: () =>
+          void api.updateTask(t.id, {
+            status: isDone ? (t.dueTime || t.startTime ? 'scheduled' : 'not_started') : 'done'
+          })
+      },
+      { label: '编辑', onClick: () => setEditing(t) },
+      { label: '查看详情', onClick: () => setDetail(t) }
+    ]
+    if (sid) entries.push({ label: '查看来源', onClick: () => setSourceId(sid) })
+    if (t.startTime || t.dueTime)
+      entries.push({ label: '加入日历（.ics）', onClick: () => void api.exportTaskIcs(t) })
+    if (!isDone && timeOf(t))
+      entries.push(
+        { type: 'separator' },
+        { type: 'header', label: '推迟' },
+        { label: '到明天', onClick: () => postponeTask(t, '1') },
+        { label: '到后天', onClick: () => postponeTask(t, '2') },
+        { label: '到下周一', onClick: () => postponeTask(t, 'monday') }
+      )
+    if (allTags.length) {
+      entries.push({ type: 'separator' }, { type: 'header', label: '标签（点选切换）' })
+      for (const tag of allTags.slice(0, 8)) {
+        const has = t.tags.includes(tag)
+        entries.push({
+          label: `#${tag}`,
+          checked: has,
+          keepOpen: true,
+          onClick: () =>
+            void api.updateTask(t.id, { tags: has ? t.tags.filter((x) => x !== tag) : [...t.tags, tag] })
+        })
+      }
+    }
+    entries.push({ type: 'separator' })
+    if (t.status !== 'ignored')
+      entries.push({ label: '忽略', onClick: () => void api.updateTask(t.id, { status: 'ignored' }) })
+    entries.push(
+      menuConfirm
+        ? {
+            label: '确认删除',
+            danger: true,
+            onClick: () => {
+              void api.deleteTask(t.id)
+              flash('任务已删除')
+            }
+          }
+        : { label: '删除…', danger: true, keepOpen: true, onClick: () => setMenuConfirm(true) }
+    )
+    return entries
+  }
+
+  function tagMenuEntries(tag: string): MenuEntry[] {
+    return [
+      {
+        label: starredTags.includes(tag) ? '取消重点标签' : '设为重点（谷子建议加分）',
+        checked: starredTags.includes(tag),
+        onClick: () => toggleStar(tag)
+      },
+      {
+        label: tagFilter === tag ? '取消筛选' : '仅看此标签',
+        onClick: () => setTagFilter(tagFilter === tag ? null : tag)
+      },
+      { type: 'separator' },
+      menuConfirm
+        ? {
+            label: '确认移除',
+            danger: true,
+            onClick: () => {
+              for (const t of tasks)
+                if (t.tags.includes(tag)) void api.updateTask(t.id, { tags: t.tags.filter((x) => x !== tag) })
+              if (starredTags.includes(tag)) {
+                const next = starredTags.filter((x) => x !== tag)
+                setStarredTags(next)
+                void api.saveSettings({ starredTags: next })
+              }
+              if (tagFilter === tag) setTagFilter(null)
+              flash(`已移除标签 #${tag}`)
+            }
+          }
+        : { label: '从所有任务移除…', danger: true, keepOpen: true, onClick: () => setMenuConfirm(true) }
+    ]
   }
 
   return (
@@ -111,6 +317,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
             value={tab}
             onChange={setTab}
             options={[
+              ['suggest', '谷子建议'],
               ['today', '今日'],
               ['next3', '近三天'],
               ['week', '本周'],
@@ -129,6 +336,56 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
           />
         )}
       </div>
+
+      {view === 'list' && (allTags.length > 0 || tab !== 'suggest') && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {allTags.length > 0 && (
+            <>
+              <button
+                className={`rounded-full px-2.5 py-0.5 text-[11px] ${
+                  tagFilter === null ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+                onClick={() => setTagFilter(null)}
+              >
+                全部
+              </button>
+              {allTags.map((t) => (
+                <button
+                  key={t}
+                  className={`group rounded-full px-2.5 py-0.5 text-[11px] ${
+                    tagFilter === t ? 'bg-brand text-white' : 'bg-brand-soft text-brand hover:bg-brand-soft/70'
+                  }`}
+                  onClick={() => setTagFilter(tagFilter === t ? null : t)}
+                  onContextMenu={openTagMenu(t)}
+                >
+                  #{t}
+                  <span
+                    title={starredTags.includes(t) ? '取消重点（谷子建议不再加分）' : '设为重点（谷子建议加分）'}
+                    className={`ml-1 ${
+                      starredTags.includes(t) ? 'text-amber-500' : 'opacity-0 group-hover:opacity-60'
+                    }`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleStar(t)
+                    }}
+                  >
+                    ★
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
+          <div className="flex-1" />
+          <button
+            className={`rounded-full px-2.5 py-0.5 text-[11px] ${
+              multiMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+            }`}
+            onClick={() => (multiMode ? exitMulti() : setMultiMode(true))}
+          >
+            {multiMode ? '退出多选' : '多选'}
+          </button>
+        </div>
+      )}
 
       <div className="mt-5 flex flex-col gap-6 pb-10">
         {pending.length > 0 && (
@@ -171,10 +428,15 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
           <section key={sec.title}>
             <h2 className="mb-2 text-xs font-medium text-slate-400">{sec.title}</h2>
             <div className="flex flex-col gap-2">
-              {sec.list.map((t) => (
+              {byTag(sec.list).map((t) => (
                 <TaskRow
                   key={t.id}
                   task={t}
+                  hint={sec.hints?.get(t.id)}
+                  selectMode={multiMode}
+                  selected={selected.has(t.id)}
+                  onToggleSelect={() => toggleSelect(t.id)}
+                  onContextMenu={openTaskMenu(t)}
                   onOpen={() => setDetail(t)}
                   onEdit={() => setEditing(t)}
                   onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
@@ -188,6 +450,26 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
             </div>
           </section>
         ))}
+
+        {view === 'list' && expired.length > 0 && (
+          <details>
+            <summary className="cursor-pointer text-xs text-slate-400 select-none">
+              已过期（{expired.length}）
+            </summary>
+            <div className="mt-2 flex flex-col gap-2">
+              {byTag(expired).map((t) => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  onContextMenu={openTaskMenu(t)}
+                  onOpen={() => setDetail(t)}
+                  onEdit={() => setEditing(t)}
+                  onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
+                />
+              ))}
+            </div>
+          </details>
+        )}
 
         {view === 'list' && ignored.length > 0 && (
           <details>
@@ -212,6 +494,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
                   >
                     恢复
                   </button>
+                  <IgnoredDeleteButton id={t.id} />
                 </div>
               ))}
             </div>
@@ -224,10 +507,11 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
               已完成（{done.length}）
             </summary>
             <div className="mt-2 flex flex-col gap-2">
-              {done.map((t) => (
+              {byTag(done).map((t) => (
                 <TaskRow
                   key={t.id}
                   task={t}
+                  onContextMenu={openTaskMenu(t)}
                   onOpen={() => setDetail(t)}
                   onEdit={() => setEditing(t)}
                   onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
@@ -243,6 +527,11 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
           task={editing}
           heading="编辑任务"
           confirmLabel="保存"
+          onDelete={() => {
+            void api.deleteTask(editing.id)
+            setEditing(null)
+            flash('任务已删除')
+          }}
           onClose={() => setEditing(null)}
           onSave={(patch) => {
             // 延期任务改到未来时间后恢复为已安排
@@ -263,6 +552,81 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
       )}
       {sourceId && <SourceModal sourceId={sourceId} onClose={() => setSourceId(null)} />}
 
+      {multiMode && selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-200 bg-surface px-3 py-2 shadow-lg">
+          <span className="text-xs text-slate-500">已选 {selected.size} 条</span>
+          <button
+            className="rounded-lg bg-brand px-2.5 py-1 text-xs text-white hover:bg-brand-dark"
+            onClick={() => {
+              void api.bulkTasks([...selected], 'done')
+              flash(`已完成 ${selected.size} 条`)
+              exitMulti()
+            }}
+          >
+            完成
+          </button>
+          <button
+            className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            onClick={() => {
+              void api.bulkTasks([...selected], 'ignored')
+              flash(`已忽略 ${selected.size} 条`)
+              exitMulti()
+            }}
+          >
+            忽略
+          </button>
+          <button
+            className={`rounded-lg px-2.5 py-1 text-xs ${
+              confirmBatchDelete
+                ? 'bg-red-500 text-white hover:bg-red-600'
+                : 'text-red-400 hover:bg-red-50 hover:text-red-600'
+            }`}
+            onClick={() => {
+              if (!confirmBatchDelete) {
+                setConfirmBatchDelete(true)
+                return
+              }
+              for (const id of selected) void api.deleteTask(id)
+              flash(`已删除 ${selected.size} 条`)
+              exitMulti()
+            }}
+          >
+            {confirmBatchDelete ? '确认删除' : '删除'}
+          </button>
+          <span className="h-4 w-px bg-slate-200" />
+          <input
+            className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-xs focus:border-slate-400 focus:outline-none"
+            placeholder="打标签…"
+            value={batchTag}
+            onChange={(e) => setBatchTag(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.key !== 'Enter') return
+              const tag = batchTag.trim().replace(/^#/, '')
+              if (!tag) return
+              for (const id of selected) {
+                const t = tasks.find((x) => x.id === id)
+                if (t && !t.tags.includes(tag)) void api.updateTask(id, { tags: [...t.tags, tag] })
+              }
+              flash(`已为 ${selected.size} 条打上 #${tag}`)
+              exitMulti()
+            }}
+          />
+        </div>
+      )}
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          entries={
+            menu.kind === 'task'
+              ? taskMenuEntries(tasks.find((t) => t.id === menu.taskId))
+              : tagMenuEntries(menu.tag)
+          }
+          onClose={() => setMenu(null)}
+        />
+      )}
+
       {/* 悬浮加号：随手记（自然语言解析）/ 表单 两种方式手动建日程 */}
       <QuickAddTask onAdded={flash} />
       {note && (
@@ -277,41 +641,118 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
   )
 }
 
+/** 快速推迟：保留原钟点、只挪日期；开始/截止各自平移。改到未来后 updateTask 会自动解除已延期。 */
+function postponeTask(task: TaskRecord, target: string): void {
+  const base = new Date()
+  let offset = Number(target)
+  if (target === 'monday') {
+    const dow = base.getDay()
+    offset = ((8 - dow) % 7) || 7
+  }
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offset)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const shift = (iso: string | null): string | null => (iso ? `${day}T${iso.slice(11, 16) || '09:00'}` : null)
+  const patch: Partial<TaskRecord> = {}
+  if (task.dueTime) patch.dueTime = shift(task.dueTime)
+  if (task.startTime) patch.startTime = shift(task.startTime)
+  void api.updateTask(task.id, patch)
+}
+
+function IgnoredDeleteButton({ id }: { id: string }): React.JSX.Element {
+  const [confirm, setConfirm] = useState(false)
+  return confirm ? (
+    <button
+      className="shrink-0 rounded bg-red-500 px-2 py-1 text-[11px] text-white hover:bg-red-600"
+      onClick={() => void api.deleteTask(id)}
+    >
+      确认删除
+    </button>
+  ) : (
+    <button
+      className="shrink-0 rounded px-2 py-1 text-[11px] text-red-400 hover:bg-red-50 hover:text-red-600"
+      onClick={() => setConfirm(true)}
+    >
+      删除
+    </button>
+  )
+}
+
 function TaskRow({
   task,
+  hint,
+  selectMode,
+  selected,
+  onToggleSelect,
+  onContextMenu,
   onOpen,
   onEdit,
   onShowSource
 }: {
   task: TaskRecord
+  /** 「谷子建议」里的推荐理由，如「今天截止 · 高优先级」 */
+  hint?: string
+  selectMode?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
   onOpen: () => void
   onEdit: () => void
   onShowSource: () => void
 }): React.JSX.Element {
   const isDone = task.status === 'done'
   const isOverdue = task.status === 'overdue'
-  const [leaving, setLeaving] = useState(false)
-  const completing = !isDone
+  // 'done'=勾选完成（划线停留后向右淡出收拢）；'restore'=取消完成（勾选/划线立即消失，向左淡出收拢）
+  const [leaving, setLeaving] = useState<null | 'done' | 'restore'>(null)
 
-  // 勾选后先播完成动画（保持勾选/划线），动画结束再真正改状态，避免任务瞬间消失
   const toggle = (): void => {
     if (leaving) return
-    setLeaving(true)
     const next: TaskStatus = isDone
       ? task.dueTime || task.startTime
         ? 'scheduled'
         : 'not_started'
       : 'done'
-    window.setTimeout(() => void api.updateTask(task.id, { status: next }), 340)
+    // 动画播完（该行已收拢到零高度）再真正改状态，列表刷新时下方任务不会跳动；
+    // 完成/取消方向相反，示意「归档」和「退回」
+    const kind = isDone ? 'restore' : 'done'
+    setLeaving(kind)
+    window.setTimeout(() => void api.updateTask(task.id, { status: next }), kind === 'done' ? 400 : 300)
   }
-  const checked = leaving ? completing : isDone
-  const strike = isDone || (leaving && completing)
+  const checked = leaving === 'done' ? true : leaving === 'restore' ? false : isDone
+  const strike = leaving === 'restore' ? false : isDone || leaving === 'done'
+
+  // 多选模式：整行变成选择目标，勾选框/标题点击都切换选中，操作按钮隐藏
+  if (selectMode) {
+    return (
+      <div
+        className={`flex cursor-pointer items-center gap-3 rounded-xl border bg-surface px-4 py-3 shadow-sm ${
+          selected ? 'border-brand ring-1 ring-brand/40' : 'border-slate-200'
+        }`}
+        onClick={onToggleSelect}
+      >
+        <input type="checkbox" readOnly checked={!!selected} className="size-4 shrink-0 accent-brand" />
+        <div className="min-w-0 flex-1">
+          <div className={`truncate text-sm ${selected ? 'text-slate-900' : ''}`}>{task.title}</div>
+          <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-slate-400">
+            {task.dueTime && <span>截止 {fmtTime(task.dueTime)}</span>}
+            {!task.dueTime && task.startTime && <span>开始 {fmtTime(task.startTime)}</span>}
+            {task.tags.map((t) => (
+              <span key={t} className="rounded bg-brand-soft px-1 text-[10px] text-brand">
+                #{t}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
       className={`flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-4 py-3 shadow-sm ${
-        leaving ? 'animate-task-done' : ''
+        leaving === 'done' ? 'animate-task-done' : leaving === 'restore' ? 'animate-task-restore' : ''
       }`}
+      onContextMenu={onContextMenu}
     >
       <input
         type="checkbox"
@@ -328,7 +769,12 @@ function TaskRow({
         >
           {task.title}
         </button>
-        <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-slate-400">
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-slate-400">
+          {hint && (
+            <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand">
+              {hint}
+            </span>
+          )}
           <span>{TYPE_LABELS[task.itemType]}</span>
           {task.notes.length > 0 && <span>{task.notes.length} 条注意事项</span>}
           {task.startTime && <span>开始 {fmtTime(task.startTime)}</span>}
@@ -339,8 +785,35 @@ function TaskRow({
           )}
           {task.location && <span>{task.location}</span>}
           {task.priority !== 'unknown' && <span>优先级 {PRIORITY_LABELS[task.priority]}</span>}
+          {task.checklist.length > 0 && (
+            <span>清单 {task.checklist.filter((c) => c.done).length}/{task.checklist.length}</span>
+          )}
+          {task.tags.map((t) => (
+            <span key={t} className="rounded bg-brand-soft px-1 text-[10px] text-brand">
+              #{t}
+            </span>
+          ))}
         </div>
       </div>
+      {!isDone && timeOf(task) && (
+        <select
+          value=""
+          onChange={(e) => {
+            const v = e.target.value
+            if (v) postponeTask(task, v)
+            e.target.value = ''
+          }}
+          className="shrink-0 rounded-lg border border-slate-200 px-1.5 py-1 text-[11px] text-slate-500 focus:outline-none"
+          title="快速推迟"
+        >
+          <option value="" disabled hidden>
+            推迟
+          </option>
+          <option value="1">到明天</option>
+          <option value="2">到后天</option>
+          <option value="monday">到下周一</option>
+        </select>
+      )}
       {isOverdue ? (
         <span className="shrink-0 rounded-full border border-[#c0584e]/30 px-2 py-0.5 text-[11px] text-[#c0584e]">
           已延期

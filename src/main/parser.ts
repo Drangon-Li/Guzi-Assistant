@@ -1,4 +1,4 @@
-import { getProfile, getSettings, listTasks, personalMemoryText } from './db'
+import { getProfile, getSettings, listTasks, listTaskTags, personalMemoryText } from './db'
 import {
   buildInstructions,
   extractText,
@@ -21,6 +21,14 @@ import { getSession } from './session'
 export type { ParsedItem }
 
 type ParseAction = ModelAction
+
+/** 云端解析可用性：已登录（网关）或已配直连 API，且完成档案设置。未就绪时监控静默跳过，不白跑截图/OCR。 */
+export function cloudReady(): boolean {
+  const { functionsBase, token } = getSession()
+  const { apiBase, apiKey } = getSettings()
+  if (!((functionsBase && token) || (apiBase && apiKey))) return false
+  return !!getProfile()
+}
 
 /** 走托管 parse 网关（#39/#70）：带 Supabase 登录 token，由 Edge Function 扣积分 + 转发我方模型。 */
 async function viaGateway(
@@ -220,7 +228,7 @@ export async function parseToItemsRaw(input: {
     .map((t) => ({ title: t.title, due_time: t.dueTime }))
 
   const output = await callModel(
-    buildInstructions(profile, existing, belongingPriorFromProfile(profile), personalMemoryText()),
+    buildInstructions(profile, existing, belongingPriorFromProfile(profile), personalMemoryText(), listTaskTags()),
     [{ role: 'user', content }],
     input.imageDataUrl ? 'parse_vision' : 'parse_text',
     input.signal

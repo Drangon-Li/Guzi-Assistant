@@ -11,9 +11,9 @@ import {
   setWatchPaused,
   isWatchActive,
   isWatchPaused,
-  stopWatch,
-  shutdownHistoryStore
+  stopWatch
 } from './screenwatch'
+import { shutdownHistoryStore } from './history/service.ts'
 import { submitExternalFiles } from './capture'
 import {
   appState,

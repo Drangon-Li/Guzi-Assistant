@@ -96,7 +96,7 @@ const empty = buildDailyReportPrompt('张三', {
   tasksDone: [],
   tasksOpen: []
 })
-check('空素材各节标注（无）', (empty.text.match(/（无）/g) ?? []).length === 4)
+check('空素材各节标注（无）', (empty.text.match(/（无）/g) ?? []).length === 5)
 
 // ---- groupWorkPeriods ----
 const wr = (t, content, app) => ({ id: t, content, app: app ?? 'Code', createdAt: `2026-07-02T${t}` })

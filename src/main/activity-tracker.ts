@@ -19,9 +19,9 @@ import {
   type SemanticAssessment
 } from '../shared/hybrid-history.ts'
 import { redactSensitive } from '../shared/sensitive.ts'
+import { emptyHistoryStoreHealth } from '../shared/history.ts'
 import type { SemanticWorkEvidence } from '../shared/semantic-work.ts'
 import type {
-  ActivityHistorySegmentRecord,
   HistoryStoreHealth,
   OcrEvidenceRecord,
   ScreenActivityStatus
@@ -33,6 +33,7 @@ import type {
   FrontmostContext
 } from './frontapp.ts'
 import { CollectorPolicy, type CollectorPolicyMetrics } from './history/collector-policy.ts'
+import { isPrivateBrowserWindow } from './history/privacy-policy.ts'
 
 export type ActivityScanReason = 'event' | 'hard_fallback' | 'interval' | 'manual' | 'semantic_only'
 
@@ -50,64 +51,8 @@ export interface AccessibilityWorkContext extends SemanticWorkEvidence {
 }
 
 const MAX_EVENTS = 5000
-const BROWSER_BUNDLES = new Set([
-  'com.apple.safari',
-  'com.google.chrome',
-  'com.microsoft.edgemac',
-  'org.mozilla.firefox'
-])
-const PRIVATE_TITLE =
-  /private browsing|private window|incognito|inprivate|无痕|無痕|私密浏览|私密瀏覽|シークレット|プライベート|시크릿|프라이빗/i
-
-let events: ActivityEvent[] = []
-let assessments = new Map<string, SemanticAssessment>()
-let startedAtMs = Date.now()
-let lastContext: FrontmostContext | null = null
-let pendingContextChange = false
-let observer: ScreenActivityStatus['observer'] = 'waiting'
-let observerDetail: string | null = null
-let collectorState: ScreenActivityStatus['collector'] = 'stopped'
-let collectorDetail: string | null = null
-let collectorRestartCount = 0
-let collectorAccessibility: ScreenActivityStatus['accessibility'] = 'unknown'
-let collectorInputMonitoring: ScreenActivityStatus['inputMonitoring'] = 'unknown'
-let collectorLastHeartbeatAtMs: number | null = null
-let collectorPolicyMetrics: CollectorPolicyMetrics = {
-  droppedCount: 0,
-  deduplicatedCount: 0,
-  rateLimitedCount: 0,
-  backoffDroppedCount: 0,
-  backoffBundleCount: 0
-}
-const collectorPolicy = new CollectorPolicy()
-let collectorHandle: FrontmostCollectorHandle | null = null
-let collectorGeneration = 0
-let lastEventAtMs: number | null = null
-let lastScanAtMs: number | null = null
-let lastScanReason: ActivityScanReason | null = null
-let latestAssessment: SemanticAssessment = {
-  semanticLevel: 'empty',
-  score: 0,
-  reasonCodes: ['no_context'],
-  privacyState: 'normal'
-}
-let latestContextKey = ''
-let consecutivePartialCount = 0
-let ocrFallbackCount = 0
-let ocrFallbackReasons: Record<string, number> = {}
-let lastOcrAtMs: number | null = null
-let lastOcrContextKey: string | null = null
-let observerFailureOcrUsed = false
-let ocrEvidence: OcrEvidence[] = []
-let semanticWorkClassifier: ((context: AccessibilityWorkContext) => void) | null = null
-let workClassificationStatus: ScreenActivityStatus['workClassificationStatus'] = 'idle'
-let workClassificationSource: ScreenActivityStatus['workClassificationSource'] = null
-let workClassificationAtMs: number | null = null
-let workClassificationDetail: string | null = null
-let workClassificationCount = 0
 
 interface ActivityHistoryPersistence {
-  upsertSegment: (record: ActivityHistorySegmentRecord) => void
   addOcrEvidence: (record: OcrEvidenceRecord) => void
   appendHistoryEvent?: (event: ActivityEvent) => void
 }
@@ -123,104 +68,10 @@ type CollectorModuleLoader = () => Promise<CollectorModule>
 
 const defaultCollectorModuleLoader: CollectorModuleLoader = () => import('./frontapp.ts')
 
-function isCurrentCollectorGeneration(generation: number): boolean {
-  return generation === collectorGeneration && collectorState !== 'stopped'
-}
-
-let persistence: ActivityHistoryPersistence | null = null
-let persistedSegmentFingerprints = new Map<string, string>()
-let historyHealthProvider: (() => HistoryStoreHealth) | null = null
-
-export function configureActivityHistoryPersistence(next: ActivityHistoryPersistence | null): void {
-  if (persistence !== next) persistedSegmentFingerprints.clear()
-  persistence = next
-}
-
-/** Clear the process-local baseline cache after an external database wipe. */
-export function invalidateActivityHistoryPersistenceCache(): void {
-  persistedSegmentFingerprints.clear()
-}
-
-export function configureHistoryHealthProvider(next: (() => HistoryStoreHealth) | null): void {
-  historyHealthProvider = next
-}
-
-export function configureSemanticWorkClassifier(
-  next: ((context: AccessibilityWorkContext) => void) | null
-): void {
-  semanticWorkClassifier = next
-}
-
-export function setWorkClassificationStatus(input: {
-  status: ScreenActivityStatus['workClassificationStatus']
-  source?: ScreenActivityStatus['workClassificationSource']
-  detail?: string | null
-  atMs?: number | null
-  increment?: boolean
-}): void {
-  workClassificationStatus = input.status
-  if (input.source !== undefined) workClassificationSource = input.source
-  if (input.detail !== undefined) workClassificationDetail = input.detail
-  if (input.atMs !== undefined) workClassificationAtMs = input.atMs
-  if (input.increment) workClassificationCount += 1
-}
+type PrivacyDecider = (context: FrontmostContext) => { suppressed: boolean; privacyState: PrivacyState }
 
 const isoOrNull = (value: number | null): string | null =>
   value === null ? null : new Date(value).toISOString()
-
-function readHistoryHealth(): HistoryStoreHealth {
-  if (!historyHealthProvider) {
-    return {
-      enabled: false,
-      state: 'disabled',
-      currentSegmentId: null,
-      queueLength: 0,
-      droppedCount: 0,
-      suppressedCount: 0,
-      invalidCount: 0,
-      segmentCount: 0,
-      lastWriteAt: null,
-      lastCleanupAt: null,
-      lastError: null
-    }
-  }
-  try {
-    return historyHealthProvider()
-  } catch (error) {
-    return {
-      enabled: true,
-      state: 'degraded',
-      currentSegmentId: null,
-      queueLength: 0,
-      droppedCount: 0,
-      suppressedCount: 0,
-      invalidCount: 0,
-      segmentCount: 0,
-      lastWriteAt: null,
-      lastCleanupAt: null,
-      lastError: error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)
-    }
-  }
-}
-
-function appendEvent(event: ActivityEvent, nowMs: number): void {
-  const nextEvents = event.suppressed ? [...events, event] : dedupeActivityEvents([...events, event])
-  const accepted = event.suppressed || nextEvents.some((item) => item.id === event.id)
-  events = nextEvents
-    .filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
-    .slice(-MAX_EVENTS)
-  for (const id of assessments.keys()) {
-    const assessment = events.some((item) => item.id === id)
-    if (!assessment) assessments.delete(id)
-  }
-  lastEventAtMs = event.occurredAtMs
-  if (!accepted) return
-  try {
-    persistence?.appendHistoryEvent?.(event)
-  } catch {
-    // A persistence failure must not stop foreground-event collection.
-  }
-}
 
 function safeContext(context: FrontmostContext): FrontmostContext {
   return {
@@ -254,7 +105,7 @@ function safeContext(context: FrontmostContext): FrontmostContext {
 }
 
 export function isPrivateBrowsingContext(context: FrontmostContext): boolean {
-  return BROWSER_BUNDLES.has(context.bundleId.toLowerCase()) && PRIVATE_TITLE.test(context.windowTitle)
+  return isPrivateBrowserWindow(context.bundleId, context.windowTitle)
 }
 
 export interface RecordContextOptions {
@@ -274,279 +125,631 @@ export interface RecordContextOptions {
   secureInput?: boolean
 }
 
-export function recordFrontmostContext(
-  context: FrontmostContext,
-  options: RecordContextOptions
-): ActivityEvent | null {
-  const nowMs = options.nowMs ?? Date.now()
-  observer = options.observerHealthy === false ? 'unavailable' : 'healthy'
-  observerDetail = options.observerHealthy === false ? 'Accessibility unavailable' : null
-  const safe = safeContext({
-    ...context,
-    eventKind: options.eventKind ?? context.eventKind,
-    eventSource: options.eventSource ?? context.eventSource,
-    targetRole: options.targetRole ?? context.targetRole,
-    targetId: options.targetId ?? context.targetId,
-    command: options.command ?? context.command,
-    modifiers: options.modifiers ?? context.modifiers,
-    inputLength: options.inputLength ?? context.inputLength,
-    secureInput: options.secureInput ?? context.secureInput
-  })
-  const previous = lastContext
-  const appChanged = !previous || previous.name !== safe.name || previous.bundleId !== safe.bundleId
-  const contextChanged =
-    appChanged ||
-    !previous ||
-    previous.windowTitle !== safe.windowTitle ||
-    previous.urlHost !== safe.urlHost ||
-    previous.windowId !== safe.windowId ||
-    previous.focusedRole !== safe.focusedRole ||
-    previous.focusedSubrole !== safe.focusedSubrole ||
-    previous.safeLabel !== safe.safeLabel ||
-    previous.targetSubrole !== safe.targetSubrole ||
-    safe.eventKind === 'ax_focus_changed' ||
-    safe.eventKind === 'ax_attribute_changed' ||
-    options.forceEvent === true
-  lastContext = safe
-  if (!contextChanged) return null
-
-  const privacyState = options.privacyState ?? (options.suppressed ? 'excluded' : 'normal')
-  const event: ActivityEvent = {
-    id: randomUUID(),
-    occurredAtMs: nowMs,
-    kind: safe.eventKind ?? (appChanged ? 'app_activated' : 'window_changed'),
-    source: safe.eventSource === 'accessibility' ? 'accessibility' : safe.eventSource === 'collector' ? 'collector' : 'workspace',
-    privacyState,
-    ...(options.suppressed
-      ? { suppressed: true }
-      : {
-          appName: safe.name || null,
-          bundleId: safe.bundleId || null,
-          windowTitle: safe.windowTitle || null,
-          urlHost: safe.urlHost || null,
-          windowId: safe.windowId ?? null,
-          focusedRole: safe.focusedRole || null,
-          focusedSubrole: safe.focusedSubrole || null,
-          safeLabel: safe.safeLabel || null,
-          targetRole: safe.targetRole || safe.focusedRole || null,
-          targetSubrole: safe.targetSubrole || safe.focusedSubrole || null,
-          targetId: safe.targetId || null,
-          command: safe.command || null,
-          modifiers: safe.modifiers ?? [],
-          inputLength: safe.inputLength ?? null,
-          secureInput: safe.secureInput === true
-        })
+/** 活动事件流的运行态：事件缓冲、语义评估、collector 生命周期与 OCR 门控状态全部收在实例里。 */
+class ActivityTracker {
+  private events: ActivityEvent[] = []
+  private assessments = new Map<string, SemanticAssessment>()
+  private startedAtMs = Date.now()
+  private lastContext: FrontmostContext | null = null
+  private pendingContextChange = false
+  private observer: ScreenActivityStatus['observer'] = 'waiting'
+  private observerDetail: string | null = null
+  private collectorState: ScreenActivityStatus['collector'] = 'stopped'
+  private collectorDetail: string | null = null
+  private collectorRestartCount = 0
+  private collectorAccessibility: ScreenActivityStatus['accessibility'] = 'unknown'
+  private collectorInputMonitoring: ScreenActivityStatus['inputMonitoring'] = 'unknown'
+  private collectorLastHeartbeatAtMs: number | null = null
+  private readonly collectorPolicy = new CollectorPolicy()
+  private collectorPolicyMetrics: CollectorPolicyMetrics = this.collectorPolicy.snapshot()
+  private collectorHandle: FrontmostCollectorHandle | null = null
+  private collectorGeneration = 0
+  private lastEventAtMs: number | null = null
+  private lastScanAtMs: number | null = null
+  private lastScanReason: ActivityScanReason | null = null
+  private latestAssessment: SemanticAssessment = {
+    semanticLevel: 'empty',
+    score: 0,
+    reasonCodes: ['no_context'],
+    privacyState: 'normal'
   }
-  const assessment = assessSemanticCompleteness({
-    appName: safe.name,
-    bundleId: safe.bundleId,
-    windowTitle: safe.windowTitle,
-    focusedRole: safe.focusedRole,
-    safeLabel: safe.safeLabel,
-    eventKind: event.kind,
-    eventSource: event.source,
-    eventContinuous: previous?.name === safe.name && previous?.bundleId === safe.bundleId,
-    observerHealthy: options.observerHealthy ?? observer === 'healthy',
-    privacyState
-  })
-  assessments.set(event.id, assessment)
-  latestAssessment = assessment
-  latestContextKey = contextKey(safe)
-  if (assessment.semanticLevel === 'partial') consecutivePartialCount += 1
-  else if (assessment.semanticLevel === 'complete') consecutivePartialCount = 0
-  else if (privacyState !== 'normal') consecutivePartialCount = 0
-  appendEvent(event, nowMs)
-  if (!options.suppressed) pendingContextChange = true
-  if (
-    !options.suppressed &&
-    privacyState === 'normal' &&
-    assessment.semanticLevel === 'complete' &&
-    safe.eventSource === 'accessibility'
-  ) {
-    semanticWorkClassifier?.({
-      eventId: event.id,
+  private latestContextKey = ''
+  private consecutivePartialCount = 0
+  private ocrFallbackCount = 0
+  private ocrFallbackReasons: Record<string, number> = {}
+  private lastOcrAtMs: number | null = null
+  private lastOcrContextKey: string | null = null
+  private observerFailureOcrUsed = false
+  private ocrEvidence: OcrEvidence[] = []
+  private semanticWorkClassifier: ((context: AccessibilityWorkContext) => void) | null = null
+  private workClassificationStatus: ScreenActivityStatus['workClassificationStatus'] = 'idle'
+  private workClassificationSource: ScreenActivityStatus['workClassificationSource'] = null
+  private workClassificationAtMs: number | null = null
+  private workClassificationDetail: string | null = null
+  private workClassificationCount = 0
+  private persistence: ActivityHistoryPersistence | null = null
+  private historyHealthProvider: (() => HistoryStoreHealth) | null = null
+
+  configurePersistence(next: ActivityHistoryPersistence | null): void {
+    this.persistence = next
+  }
+
+  configureHistoryHealthProvider(next: (() => HistoryStoreHealth) | null): void {
+    this.historyHealthProvider = next
+  }
+
+  configureSemanticWorkClassifier(next: ((context: AccessibilityWorkContext) => void) | null): void {
+    this.semanticWorkClassifier = next
+  }
+
+  setWorkClassificationStatus(input: {
+    status: ScreenActivityStatus['workClassificationStatus']
+    source?: ScreenActivityStatus['workClassificationSource']
+    detail?: string | null
+    atMs?: number | null
+    increment?: boolean
+  }): void {
+    this.workClassificationStatus = input.status
+    if (input.source !== undefined) this.workClassificationSource = input.source
+    if (input.detail !== undefined) this.workClassificationDetail = input.detail
+    if (input.atMs !== undefined) this.workClassificationAtMs = input.atMs
+    if (input.increment) this.workClassificationCount += 1
+  }
+
+  private readHistoryHealth(): HistoryStoreHealth {
+    if (!this.historyHealthProvider) return emptyHistoryStoreHealth({ enabled: false, state: 'disabled' })
+    try {
+      return this.historyHealthProvider()
+    } catch (error) {
+      return emptyHistoryStoreHealth({
+        enabled: true,
+        state: 'degraded',
+        lastError: error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)
+      })
+    }
+  }
+
+  private appendEvent(event: ActivityEvent, nowMs: number): void {
+    const nextEvents = event.suppressed ? [...this.events, event] : dedupeActivityEvents([...this.events, event])
+    const accepted = event.suppressed || nextEvents.some((item) => item.id === event.id)
+    this.events = nextEvents
+      .filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
+      .slice(-MAX_EVENTS)
+    for (const id of this.assessments.keys()) {
+      const assessment = this.events.some((item) => item.id === id)
+      if (!assessment) this.assessments.delete(id)
+    }
+    this.lastEventAtMs = event.occurredAtMs
+    if (!accepted) return
+    try {
+      this.persistence?.appendHistoryEvent?.(event)
+    } catch {
+      // A persistence failure must not stop foreground-event collection.
+    }
+  }
+
+  recordFrontmostContext(context: FrontmostContext, options: RecordContextOptions): ActivityEvent | null {
+    const nowMs = options.nowMs ?? Date.now()
+    // 只有显式声明健康态的来源（collector 事件带 accessibility 状态）才更新 observer；
+    // 轮询路径（watchTick/sampleTick）不传，避免与 collector 竞写导致健康态来回抖动。
+    if (options.observerHealthy !== undefined) {
+      this.observer = options.observerHealthy === false ? 'unavailable' : 'healthy'
+      this.observerDetail = options.observerHealthy === false ? 'Accessibility unavailable' : null
+    }
+    const safe = safeContext({
+      ...context,
+      eventKind: options.eventKind ?? context.eventKind,
+      eventSource: options.eventSource ?? context.eventSource,
+      targetRole: options.targetRole ?? context.targetRole,
+      targetId: options.targetId ?? context.targetId,
+      command: options.command ?? context.command,
+      modifiers: options.modifiers ?? context.modifiers,
+      inputLength: options.inputLength ?? context.inputLength,
+      secureInput: options.secureInput ?? context.secureInput
+    })
+    const previous = this.lastContext
+    const appChanged = !previous || previous.name !== safe.name || previous.bundleId !== safe.bundleId
+    const contextChanged =
+      appChanged ||
+      !previous ||
+      previous.windowTitle !== safe.windowTitle ||
+      previous.urlHost !== safe.urlHost ||
+      previous.windowId !== safe.windowId ||
+      previous.focusedRole !== safe.focusedRole ||
+      previous.focusedSubrole !== safe.focusedSubrole ||
+      previous.safeLabel !== safe.safeLabel ||
+      previous.targetSubrole !== safe.targetSubrole ||
+      safe.eventKind === 'ax_focus_changed' ||
+      safe.eventKind === 'ax_attribute_changed' ||
+      options.forceEvent === true
+    this.lastContext = safe
+    if (!contextChanged) return null
+
+    const privacyState = options.privacyState ?? (options.suppressed ? 'excluded' : 'normal')
+    const event: ActivityEvent = {
+      id: randomUUID(),
       occurredAtMs: nowMs,
+      kind: safe.eventKind ?? (appChanged ? 'app_activated' : 'window_changed'),
+      source: safe.eventSource === 'accessibility' ? 'accessibility' : safe.eventSource === 'collector' ? 'collector' : 'workspace',
+      privacyState,
+      ...(options.suppressed
+        ? { suppressed: true }
+        : {
+            appName: safe.name || null,
+            bundleId: safe.bundleId || null,
+            windowTitle: safe.windowTitle || null,
+            urlHost: safe.urlHost || null,
+            windowId: safe.windowId ?? null,
+            focusedRole: safe.focusedRole || null,
+            focusedSubrole: safe.focusedSubrole || null,
+            safeLabel: safe.safeLabel || null,
+            targetRole: safe.targetRole || safe.focusedRole || null,
+            targetSubrole: safe.targetSubrole || safe.focusedSubrole || null,
+            targetId: safe.targetId || null,
+            command: safe.command || null,
+            modifiers: safe.modifiers ?? [],
+            inputLength: safe.inputLength ?? null,
+            secureInput: safe.secureInput === true
+          })
+    }
+    const assessment = assessSemanticCompleteness({
       appName: safe.name,
       bundleId: safe.bundleId,
       windowTitle: safe.windowTitle,
-      focusedRole: safe.focusedRole ?? '',
-      safeLabel: safe.safeLabel ?? '',
+      focusedRole: safe.focusedRole,
+      safeLabel: safe.safeLabel,
       eventKind: event.kind,
-      semanticScore: assessment.score,
-      source: 'accessibility',
-      segmentId: `activity-10m-${utcTenMinuteBucket(nowMs).startIso}`,
-      highValueEvent: isHighValueActivityEvent(event)
+      eventSource: event.source,
+      eventContinuous: previous?.name === safe.name && previous?.bundleId === safe.bundleId,
+      observerHealthy: options.observerHealthy ?? this.observer === 'healthy',
+      privacyState
+    })
+    this.assessments.set(event.id, assessment)
+    this.latestAssessment = assessment
+    this.latestContextKey = contextKey(safe)
+    if (assessment.semanticLevel === 'partial') this.consecutivePartialCount += 1
+    else if (assessment.semanticLevel === 'complete') this.consecutivePartialCount = 0
+    else if (privacyState !== 'normal') this.consecutivePartialCount = 0
+    this.appendEvent(event, nowMs)
+    if (!options.suppressed) this.pendingContextChange = true
+    if (
+      !options.suppressed &&
+      privacyState === 'normal' &&
+      assessment.semanticLevel === 'complete' &&
+      safe.eventSource === 'accessibility'
+    ) {
+      this.semanticWorkClassifier?.({
+        eventId: event.id,
+        occurredAtMs: nowMs,
+        appName: safe.name,
+        bundleId: safe.bundleId,
+        windowTitle: safe.windowTitle,
+        focusedRole: safe.focusedRole ?? '',
+        safeLabel: safe.safeLabel ?? '',
+        eventKind: event.kind,
+        semanticScore: assessment.score,
+        source: 'accessibility',
+        segmentId: `activity-10m-${utcTenMinuteBucket(nowMs).startIso}`,
+        highValueEvent: isHighValueActivityEvent(event)
+      })
+    }
+    return event
+  }
+
+  recordScreenChange(context: FrontmostContext, nowMs = Date.now()): void {
+    const safe = safeContext({ ...context, eventSource: 'collector' })
+    this.appendEvent(
+      {
+        id: randomUUID(),
+        occurredAtMs: nowMs,
+        kind: 'screen_changed',
+        source: 'fallback',
+        appName: safe.name || null,
+        bundleId: safe.bundleId || null,
+        windowTitle: safe.windowTitle || null,
+        privacyState: 'normal'
+      },
+      nowMs
+    )
+  }
+
+  recordCollectorEvent(event: CollectorEvent, privacyForContext: PrivacyDecider): ActivityEvent | null {
+    if (event.type === 'heartbeat') {
+      this.markCollectorHealth({
+        state: 'healthy',
+        restartCount: this.collectorRestartCount,
+        lastHeartbeatAtMs: event.occurredAtMs,
+        accessibility: event.accessibility,
+        detail: null,
+        inputMonitoring: event.inputMonitoring ?? this.collectorInputMonitoring
+      })
+      return null
+    }
+    const context: FrontmostContext = {
+      name: event.appName,
+      bundleId: event.bundleId,
+      windowTitle: event.windowTitle,
+      urlHost: event.urlHost,
+      windowId: event.windowId,
+      focusedRole: event.focusedRole,
+      focusedSubrole: event.focusedSubrole,
+      safeLabel: event.safeLabel,
+      targetRole: event.targetRole,
+      targetSubrole: event.targetSubrole,
+      targetId: event.targetId,
+      command: event.command,
+      modifiers: event.modifiers,
+      inputLength: event.inputLength,
+      secureInput: event.secureInput,
+      eventKind: event.type === 'app_activated' ? 'app_activated' : event.type,
+      eventSource: event.accessibility === 'available' ? 'accessibility' : 'collector'
+    }
+    const privacy =
+      event.privacyState && event.privacyState !== 'normal'
+        ? { suppressed: true, privacyState: event.privacyState as PrivacyState }
+        : privacyForContext(context)
+    const gateDecision = privacy.suppressed
+      ? { accepted: true, reason: 'accepted' as const }
+      : this.collectorPolicy.accept({
+          kind: context.eventKind!,
+          source: context.eventSource === 'accessibility' ? 'accessibility' : 'collector',
+          appName: context.name,
+          bundleId: context.bundleId,
+          windowTitle: context.windowTitle,
+          urlHost: context.urlHost,
+          windowId: context.windowId,
+          focusedRole: context.focusedRole,
+          focusedSubrole: context.focusedSubrole,
+          targetRole: context.targetRole,
+          targetSubrole: context.targetSubrole,
+          safeLabel: context.safeLabel,
+          command: context.command,
+          modifiers: context.modifiers,
+          inputLength: context.inputLength,
+          privacyState: privacy.privacyState,
+          occurredAtMs: event.occurredAtMs
+        }, event.occurredAtMs)
+    this.collectorPolicyMetrics = this.collectorPolicy.snapshot()
+    if (!gateDecision.accepted) return null
+    const recorded = this.recordFrontmostContext(context, {
+      ...privacy,
+      observerHealthy: event.accessibility === 'available',
+      nowMs: event.occurredAtMs,
+      forceEvent: true,
+      targetRole: event.targetRole,
+      targetId: event.targetId,
+      command: event.command,
+      modifiers: event.modifiers,
+      inputLength: event.inputLength,
+      secureInput: event.secureInput
+    })
+    if (event.accessibility === 'unavailable') this.collectorPolicy.recordBundleFailure(event.bundleId, event.occurredAtMs)
+    else this.collectorPolicy.recordBundleSuccess(event.bundleId)
+    this.collectorPolicyMetrics = this.collectorPolicy.snapshot()
+    return recorded
+  }
+
+  private isCurrentCollectorGeneration(generation: number): boolean {
+    return generation === this.collectorGeneration && this.collectorState !== 'stopped'
+  }
+
+  startCollector(privacyForContext: PrivacyDecider, loadCollectorModule: CollectorModuleLoader = defaultCollectorModuleLoader): void {
+    this.stopCollector()
+    const generation = ++this.collectorGeneration
+    this.collectorState = 'starting'
+    this.collectorDetail = null
+    this.collectorRestartCount = 0
+    this.collectorAccessibility = 'unknown'
+    this.collectorInputMonitoring = 'unknown'
+    this.collectorLastHeartbeatAtMs = null
+    this.collectorPolicy.reset()
+    this.collectorPolicyMetrics = this.collectorPolicy.snapshot()
+    void loadCollectorModule().then(({ startFrontmostCollector }) => {
+      if (!this.isCurrentCollectorGeneration(generation)) return
+      const handle = startFrontmostCollector(
+        (event) => {
+          if (generation !== this.collectorGeneration) return
+          this.recordCollectorEvent(event, privacyForContext)
+        },
+        (health) => {
+          if (generation !== this.collectorGeneration) return
+          this.markCollectorHealth(health)
+        }
+      )
+      if (!this.isCurrentCollectorGeneration(generation)) {
+        handle.stop()
+        return
+      }
+      this.collectorHandle = handle
+    }).catch((error) => {
+      if (generation !== this.collectorGeneration) return
+      this.markCollectorHealth({
+        state: 'degraded',
+        restartCount: 3,
+        lastHeartbeatAtMs: null,
+        accessibility: 'unknown',
+        detail: error instanceof Error ? error.message : String(error)
+      })
     })
   }
-  return event
+
+  stopCollector(): void {
+    this.collectorGeneration += 1
+    const handle = this.collectorHandle
+    this.collectorHandle = null
+    this.collectorState = 'stopped'
+    this.collectorDetail = null
+    this.collectorLastHeartbeatAtMs = null
+    handle?.stop()
+  }
+
+  private markCollectorHealth(health: CollectorHealth): void {
+    this.collectorState = health.state === 'healthy' && health.accessibility === 'unavailable' ? 'degraded' : health.state
+    this.collectorDetail = health.detail
+    this.collectorRestartCount = health.restartCount
+    this.collectorAccessibility = health.accessibility
+    this.collectorInputMonitoring = health.inputMonitoring ?? this.collectorInputMonitoring
+    this.collectorLastHeartbeatAtMs = health.lastHeartbeatAtMs
+  }
+
+  markObserverFailure(detail: string): void {
+    this.observer = 'unavailable'
+    this.observerDetail = detail.slice(0, 160)
+  }
+
+  markObserverHealthy(): void {
+    this.observer = 'healthy'
+    this.observerDetail = null
+  }
+
+  scanDecision(eventDriven: boolean, fallbackIntervalSec: number, nowMs = Date.now()): ActivityScanDecision {
+    if (!eventDriven) return { run: true, reason: 'interval' }
+    if (this.observer === 'unavailable') return { run: false, reason: 'observer_unavailable' }
+    if (this.observer !== 'healthy') return { run: false, reason: 'waiting' }
+    if (this.pendingContextChange) return { run: true, reason: 'event' }
+    if (
+      shouldRunHardFallback({
+        nowMs,
+        startedAtMs: this.startedAtMs,
+        lastFallbackAtMs: this.lastScanAtMs,
+        intervalMs: fallbackIntervalSec * 1000
+      })
+    )
+      return { run: true, reason: 'hard_fallback' }
+    return { run: false, reason: 'waiting' }
+  }
+
+  markScan(reason: ActivityScanReason, nowMs = Date.now()): void {
+    this.lastScanAtMs = nowMs
+    this.lastScanReason = reason
+    this.pendingContextChange = false
+  }
+
+  hybridSemanticState(): {
+    assessment: SemanticAssessment
+    contextKey: string
+    consecutivePartialCount: number
+    highValueEvent: boolean
+    observerHealthy: boolean
+    observerFailureCount: number
+    lastOcrAtMs: number | null
+    lastOcrContextKey: string | null
+  } {
+    const latest = this.events.at(-1)
+    return {
+      assessment: latest ? this.assessments.get(latest.id) ?? this.latestAssessment : this.latestAssessment,
+      contextKey: this.latestContextKey,
+      consecutivePartialCount: this.consecutivePartialCount,
+      highValueEvent: latest ? isHighValueActivityEvent(latest) : false,
+      observerHealthy:
+        !this.latestAssessment.reasonCodes.includes('observer_degraded') &&
+        this.observer === 'healthy' &&
+        this.collectorState !== 'degraded' &&
+        this.collectorAccessibility !== 'unavailable',
+      observerFailureCount: this.collectorRestartCount,
+      lastOcrAtMs: this.lastOcrAtMs,
+      lastOcrContextKey: this.lastOcrContextKey
+    }
+  }
+
+  markOcrFallback(reason: OcrTriggerReason, nowMs = Date.now(), context = this.latestContextKey): void {
+    this.lastOcrAtMs = nowMs
+    this.lastOcrContextKey = context
+    this.ocrFallbackCount += 1
+    this.ocrFallbackReasons[reason] = (this.ocrFallbackReasons[reason] ?? 0) + 1
+    if (reason === 'observer_failure') this.observerFailureOcrUsed = true
+  }
+
+  recordOcrEvidence(
+    input: Omit<OcrEvidence, 'id' | 'segmentId'> & { segmentId?: string | null; privacyState?: PrivacyState }
+  ): OcrEvidence | null {
+    // This is intentionally a second gate after the caller's frontmost-context check.
+    // It prevents a late OCR result from crossing a privacy transition into storage.
+    if (input.privacyState && input.privacyState !== 'normal') return null
+    const evidence: OcrEvidence = {
+      id: randomUUID(),
+      eventId: input.eventId,
+      segmentId: input.segmentId ?? `activity-10m-${utcTenMinuteBucket(input.occurredAtMs).startIso}`,
+      occurredAtMs: input.occurredAtMs,
+      appName: input.appName,
+      bundleId: input.bundleId,
+      windowTitle:
+        input.windowTitle == null
+          ? null
+          : sanitizeWindowTitle(redactSensitive(input.windowTitle).text) || null,
+      semanticScore: input.semanticScore,
+      triggerReason: input.triggerReason,
+      redactionHits: input.redactionHits,
+      redactedText: input.redactedText.slice(0, 20_000)
+    }
+    this.ocrEvidence = [...this.ocrEvidence, evidence]
+      .filter((item) => item.occurredAtMs >= Date.now() - ACTIVITY_RETENTION_MS)
+      .slice(-500)
+    this.persistence?.addOcrEvidence({
+      id: evidence.id,
+      eventId: evidence.eventId,
+      segmentId: evidence.segmentId,
+      occurredAt: new Date(evidence.occurredAtMs).toISOString(),
+      appName: evidence.appName,
+      bundleId: evidence.bundleId,
+      windowTitle: evidence.windowTitle,
+      semanticScore: evidence.semanticScore,
+      triggerReason: evidence.triggerReason,
+      redactionHits: evidence.redactionHits,
+      redactedText: evidence.redactedText,
+      createdAt: new Date(evidence.occurredAtMs).toISOString()
+    })
+    return evidence
+  }
+
+  canUseObserverFailureOcr(): boolean {
+    return !this.observerFailureOcrUsed
+  }
+
+  resetGate(nowMs = Date.now()): void {
+    this.startedAtMs = nowMs
+    this.pendingContextChange = false
+    this.observer = 'waiting'
+    this.observerDetail = null
+    this.lastScanAtMs = null
+    this.lastScanReason = null
+    this.lastContext = null
+    this.latestAssessment = { semanticLevel: 'empty', score: 0, reasonCodes: ['no_context'], privacyState: 'normal' }
+    this.latestContextKey = ''
+    this.consecutivePartialCount = 0
+    this.lastOcrAtMs = null
+    this.lastOcrContextKey = null
+    this.collectorPolicy.reset()
+    this.collectorPolicyMetrics = this.collectorPolicy.snapshot()
+    this.observerFailureOcrUsed = false
+    this.workClassificationStatus = 'idle'
+    this.workClassificationSource = null
+    this.workClassificationAtMs = null
+    this.workClassificationDetail = null
+    this.workClassificationCount = 0
+  }
+
+  status(input: { eventDriven: boolean; hybridV2: boolean; running: boolean; paused: boolean }): ScreenActivityStatus {
+    const nowMs = Date.now()
+    this.events = this.events.filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
+    const activeIds = new Set(this.events.map((item) => item.id))
+    for (const id of this.assessments.keys()) if (!activeIds.has(id)) this.assessments.delete(id)
+    this.ocrEvidence = this.ocrEvidence.filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
+    const tenMinuteSegments = buildActivitySegments(this.events, '10m')
+    const sixHourSegments = buildActivitySegments(this.events, '6h')
+    const latestSegment = tenMinuteSegments.at(-1)
+    const latestHybrid = latestSegment
+      ? hybridSegmentFromActivity(
+          latestSegment,
+          this.events
+            .filter((event) => event.occurredAtMs >= latestSegment.bucket.startMs && event.occurredAtMs < latestSegment.bucket.endMs)
+            .map((event) => this.assessments.get(event.id))
+            .filter((item): item is SemanticAssessment => !!item),
+          this.ocrEvidence.filter(
+            (evidence) => evidence.occurredAtMs >= latestSegment.bucket.startMs && evidence.occurredAtMs < latestSegment.bucket.endMs
+          )
+        )
+      : null
+    const usable = [...this.assessments.values()].filter((item) => item.privacyState === 'normal')
+    const semanticCoverage = usable.length
+      ? Math.round((usable.filter((item) => item.semanticLevel === 'complete').length / usable.length) * 100)
+      : 0
+    return {
+      eventDriven: input.eventDriven,
+      hybridV2: input.hybridV2,
+      running: input.running,
+      paused: input.paused,
+      observer: this.observer,
+      observerDetail: this.observerDetail,
+      collector: this.collectorState,
+      collectorDetail: this.collectorDetail,
+      collectorRestartCount: this.collectorRestartCount,
+      collectorDroppedEventCount: this.collectorPolicyMetrics.droppedCount,
+      collectorDeduplicatedEventCount: this.collectorPolicyMetrics.deduplicatedCount,
+      collectorRateLimitedCount: this.collectorPolicyMetrics.rateLimitedCount,
+      collectorBackoffBundleCount: this.collectorPolicyMetrics.backoffBundleCount,
+      accessibility: this.collectorAccessibility,
+      inputMonitoring: this.collectorInputMonitoring,
+      lastHeartbeatAt: isoOrNull(this.collectorLastHeartbeatAtMs),
+      semanticCoverage,
+      ocrFallbackCount: this.ocrFallbackCount,
+      ocrFallbackReasons: { ...this.ocrFallbackReasons },
+      recentTriggerReasons: Object.keys(this.ocrFallbackReasons).sort(),
+      recentSummary: tenMinuteSegments.at(-1)?.summary ?? null,
+      latestEventCount: latestHybrid?.eventCount ?? 0,
+      latestMeaningfulEventCount: latestHybrid?.meaningfulEventCount ?? 0,
+      latestSemanticCompleteCount: latestHybrid?.semanticCompleteCount ?? 0,
+      latestSemanticPartialCount: latestHybrid?.semanticPartialCount ?? 0,
+      latestSemanticEmptyCount: latestHybrid?.semanticEmptyCount ?? 0,
+      latestOcrEvidenceCount: latestHybrid?.ocrEvidenceCount ?? 0,
+      lastEventAt: isoOrNull(this.lastEventAtMs),
+      lastScanAt: isoOrNull(this.lastScanAtMs),
+      lastScanReason: this.lastScanReason,
+      pendingEvent: this.pendingContextChange,
+      rawEventCount: this.events.length,
+      tenMinuteSegmentCount: tenMinuteSegments.length,
+      sixHourSegmentCount: sixHourSegments.length,
+      latestSummary: tenMinuteSegments.at(-1)?.summary ?? null,
+      workClassificationStatus: this.workClassificationStatus,
+      workClassificationSource: this.workClassificationSource,
+      workClassificationAt: isoOrNull(this.workClassificationAtMs),
+      workClassificationDetail: this.workClassificationDetail,
+      workClassificationCount: this.workClassificationCount,
+      history: this.readHistoryHealth()
+    }
+  }
+}
+
+// 进程内单例 + 薄代理导出：调用方与测试保持原函数 API，不感知类化。
+export const activityTracker = new ActivityTracker()
+
+export function configureActivityHistoryPersistence(next: ActivityHistoryPersistence | null): void {
+  activityTracker.configurePersistence(next)
+}
+
+export function configureHistoryHealthProvider(next: (() => HistoryStoreHealth) | null): void {
+  activityTracker.configureHistoryHealthProvider(next)
+}
+
+export function configureSemanticWorkClassifier(
+  next: ((context: AccessibilityWorkContext) => void) | null
+): void {
+  activityTracker.configureSemanticWorkClassifier(next)
+}
+
+export function setWorkClassificationStatus(input: Parameters<ActivityTracker['setWorkClassificationStatus']>[0]): void {
+  activityTracker.setWorkClassificationStatus(input)
+}
+
+export function recordFrontmostContext(context: FrontmostContext, options: RecordContextOptions): ActivityEvent | null {
+  return activityTracker.recordFrontmostContext(context, options)
 }
 
 export function recordScreenChange(context: FrontmostContext, nowMs = Date.now()): void {
-  const safe = safeContext({ ...context, eventSource: 'collector' })
-  appendEvent(
-    {
-      id: randomUUID(),
-      occurredAtMs: nowMs,
-      kind: 'screen_changed',
-      source: 'fallback',
-      appName: safe.name || null,
-      bundleId: safe.bundleId || null,
-      windowTitle: safe.windowTitle || null,
-      privacyState: 'normal'
-    },
-    nowMs
-  )
+  activityTracker.recordScreenChange(context, nowMs)
 }
 
-export function recordCollectorEvent(
-  event: CollectorEvent,
-  privacyForContext: (context: FrontmostContext) => { suppressed: boolean; privacyState: PrivacyState }
-): ActivityEvent | null {
-  if (event.type === 'heartbeat') {
-    markCollectorHealth({
-      state: 'healthy',
-      restartCount: collectorRestartCount,
-      lastHeartbeatAtMs: event.occurredAtMs,
-      accessibility: event.accessibility,
-      detail: null,
-      inputMonitoring: event.inputMonitoring ?? collectorInputMonitoring
-    })
-    return null
-  }
-  const context: FrontmostContext = {
-    name: event.appName,
-    bundleId: event.bundleId,
-    windowTitle: event.windowTitle,
-    urlHost: event.urlHost,
-    windowId: event.windowId,
-    focusedRole: event.focusedRole,
-    focusedSubrole: event.focusedSubrole,
-    safeLabel: event.safeLabel,
-    targetRole: event.targetRole,
-    targetSubrole: event.targetSubrole,
-    targetId: event.targetId,
-    command: event.command,
-    modifiers: event.modifiers,
-    inputLength: event.inputLength,
-    secureInput: event.secureInput,
-    eventKind: event.type === 'app_activated' ? 'app_activated' : event.type,
-    eventSource: event.accessibility === 'available' ? 'accessibility' : 'collector'
-  }
-  const privacy =
-    event.privacyState && event.privacyState !== 'normal'
-      ? { suppressed: true, privacyState: event.privacyState as PrivacyState }
-      : privacyForContext(context)
-  const gateDecision = privacy.suppressed
-    ? { accepted: true, reason: 'accepted' as const }
-    : collectorPolicy.accept({
-        kind: context.eventKind!,
-        source: context.eventSource === 'accessibility' ? 'accessibility' : 'collector',
-        appName: context.name,
-        bundleId: context.bundleId,
-        windowTitle: context.windowTitle,
-        urlHost: context.urlHost,
-        windowId: context.windowId,
-        focusedRole: context.focusedRole,
-        focusedSubrole: context.focusedSubrole,
-        targetRole: context.targetRole,
-        targetSubrole: context.targetSubrole,
-        safeLabel: context.safeLabel,
-        command: context.command,
-        modifiers: context.modifiers,
-        inputLength: context.inputLength,
-        privacyState: privacy.privacyState,
-        occurredAtMs: event.occurredAtMs
-      }, event.occurredAtMs)
-  collectorPolicyMetrics = collectorPolicy.snapshot()
-  if (!gateDecision.accepted) return null
-  const recorded = recordFrontmostContext(context, {
-    ...privacy,
-    observerHealthy: event.accessibility === 'available',
-    nowMs: event.occurredAtMs,
-    forceEvent: true,
-    targetRole: event.targetRole,
-    targetId: event.targetId,
-    command: event.command,
-    modifiers: event.modifiers,
-    inputLength: event.inputLength,
-    secureInput: event.secureInput
-  })
-  if (event.accessibility === 'unavailable') collectorPolicy.recordBundleFailure(event.bundleId, event.occurredAtMs)
-  else collectorPolicy.recordBundleSuccess(event.bundleId)
-  collectorPolicyMetrics = collectorPolicy.snapshot()
-  return recorded
+export function recordCollectorEvent(event: CollectorEvent, privacyForContext: PrivacyDecider): ActivityEvent | null {
+  return activityTracker.recordCollectorEvent(event, privacyForContext)
 }
 
 export function startActivityCollector(
-  privacyForContext: (context: FrontmostContext) => { suppressed: boolean; privacyState: PrivacyState },
+  privacyForContext: PrivacyDecider,
   loadCollectorModule: CollectorModuleLoader = defaultCollectorModuleLoader
 ): void {
-  stopActivityCollector()
-  const generation = ++collectorGeneration
-  collectorState = 'starting'
-  collectorDetail = null
-  collectorRestartCount = 0
-  collectorAccessibility = 'unknown'
-  collectorInputMonitoring = 'unknown'
-  collectorLastHeartbeatAtMs = null
-  collectorPolicy.reset()
-  collectorPolicyMetrics = collectorPolicy.snapshot()
-  void loadCollectorModule().then(({ startFrontmostCollector }) => {
-    if (!isCurrentCollectorGeneration(generation)) return
-    const handle = startFrontmostCollector(
-      (event) => {
-        if (generation !== collectorGeneration) return
-        recordCollectorEvent(event, privacyForContext)
-      },
-      (health) => {
-        if (generation !== collectorGeneration) return
-        markCollectorHealth(health)
-      }
-    )
-    if (!isCurrentCollectorGeneration(generation)) {
-      handle.stop()
-      return
-    }
-    collectorHandle = handle
-  }).catch((error) => {
-    if (generation !== collectorGeneration) return
-    markCollectorHealth({
-      state: 'degraded',
-      restartCount: 3,
-      lastHeartbeatAtMs: null,
-      accessibility: 'unknown',
-      detail: error instanceof Error ? error.message : String(error)
-    })
-  })
+  activityTracker.startCollector(privacyForContext, loadCollectorModule)
 }
 
 export function stopActivityCollector(): void {
-  collectorGeneration += 1
-  const handle = collectorHandle
-  collectorHandle = null
-  collectorState = 'stopped'
-  collectorDetail = null
-  collectorLastHeartbeatAtMs = null
-  handle?.stop()
-}
-
-function markCollectorHealth(health: CollectorHealth): void {
-  collectorState = health.state === 'healthy' && health.accessibility === 'unavailable' ? 'degraded' : health.state
-  collectorDetail = health.detail
-  collectorRestartCount = health.restartCount
-  collectorAccessibility = health.accessibility
-  collectorInputMonitoring = health.inputMonitoring ?? collectorInputMonitoring
-  collectorLastHeartbeatAtMs = health.lastHeartbeatAtMs
+  activityTracker.stopCollector()
 }
 
 export function markActivityObserverFailure(detail: string): void {
-  observer = 'unavailable'
-  observerDetail = detail.slice(0, 160)
+  activityTracker.markObserverFailure(detail)
 }
 
 export function markActivityObserverHealthy(): void {
-  observer = 'healthy'
-  observerDetail = null
+  activityTracker.markObserverHealthy()
 }
 
 export function activityScanDecision(
@@ -554,131 +757,34 @@ export function activityScanDecision(
   fallbackIntervalSec: number,
   nowMs = Date.now()
 ): ActivityScanDecision {
-  if (!eventDriven) return { run: true, reason: 'interval' }
-  if (observer === 'unavailable') return { run: false, reason: 'observer_unavailable' }
-  if (observer !== 'healthy') return { run: false, reason: 'waiting' }
-  if (pendingContextChange) return { run: true, reason: 'event' }
-  if (
-    shouldRunHardFallback({
-      nowMs,
-      startedAtMs,
-      lastFallbackAtMs: lastScanAtMs,
-      intervalMs: fallbackIntervalSec * 1000
-    })
-  )
-    return { run: true, reason: 'hard_fallback' }
-  return { run: false, reason: 'waiting' }
+  return activityTracker.scanDecision(eventDriven, fallbackIntervalSec, nowMs)
 }
 
 export function markActivityScan(reason: ActivityScanReason, nowMs = Date.now()): void {
-  lastScanAtMs = nowMs
-  lastScanReason = reason
-  pendingContextChange = false
+  activityTracker.markScan(reason, nowMs)
 }
 
-export function getHybridSemanticState(): {
-  assessment: SemanticAssessment
-  contextKey: string
-  consecutivePartialCount: number
-  highValueEvent: boolean
-  observerHealthy: boolean
-  observerFailureCount: number
-  lastOcrAtMs: number | null
-  lastOcrContextKey: string | null
-} {
-  const latest = events.at(-1)
-  return {
-    assessment: latest ? assessments.get(latest.id) ?? latestAssessment : latestAssessment,
-    contextKey: latestContextKey,
-    consecutivePartialCount,
-    highValueEvent: latest ? isHighValueActivityEvent(latest) : false,
-    observerHealthy:
-      !latestAssessment.reasonCodes.includes('observer_degraded') &&
-      observer === 'healthy' &&
-      collectorState !== 'degraded' &&
-      collectorAccessibility !== 'unavailable',
-    observerFailureCount: collectorRestartCount,
-    lastOcrAtMs,
-    lastOcrContextKey
-  }
+export function getHybridSemanticState(): ReturnType<ActivityTracker['hybridSemanticState']> {
+  return activityTracker.hybridSemanticState()
 }
 
-export function markOcrFallback(reason: OcrTriggerReason, nowMs = Date.now(), context = latestContextKey): void {
-  lastOcrAtMs = nowMs
-  lastOcrContextKey = context
-  ocrFallbackCount += 1
-  ocrFallbackReasons[reason] = (ocrFallbackReasons[reason] ?? 0) + 1
-  if (reason === 'observer_failure') observerFailureOcrUsed = true
+export function markOcrFallback(reason: OcrTriggerReason, nowMs?: number, context?: string): void {
+  if (context === undefined) activityTracker.markOcrFallback(reason, nowMs)
+  else activityTracker.markOcrFallback(reason, nowMs, context)
 }
 
 export function recordOcrEvidence(
   input: Omit<OcrEvidence, 'id' | 'segmentId'> & { segmentId?: string | null; privacyState?: PrivacyState }
 ): OcrEvidence | null {
-  // This is intentionally a second gate after the caller's frontmost-context check.
-  // It prevents a late OCR result from crossing a privacy transition into storage.
-  if (input.privacyState && input.privacyState !== 'normal') return null
-  const evidence: OcrEvidence = {
-    id: randomUUID(),
-    eventId: input.eventId,
-    segmentId: input.segmentId ?? `activity-10m-${utcTenMinuteBucket(input.occurredAtMs).startIso}`,
-    occurredAtMs: input.occurredAtMs,
-    appName: input.appName,
-    bundleId: input.bundleId,
-    windowTitle:
-      input.windowTitle == null
-        ? null
-        : sanitizeWindowTitle(redactSensitive(input.windowTitle).text) || null,
-    semanticScore: input.semanticScore,
-    triggerReason: input.triggerReason,
-    redactionHits: input.redactionHits,
-    redactedText: input.redactedText.slice(0, 20_000)
-  }
-  ocrEvidence = [...ocrEvidence, evidence]
-    .filter((item) => item.occurredAtMs >= Date.now() - ACTIVITY_RETENTION_MS)
-    .slice(-500)
-  persistence?.addOcrEvidence({
-    id: evidence.id,
-    eventId: evidence.eventId,
-    segmentId: evidence.segmentId,
-    occurredAt: new Date(evidence.occurredAtMs).toISOString(),
-    appName: evidence.appName,
-    bundleId: evidence.bundleId,
-    windowTitle: evidence.windowTitle,
-    semanticScore: evidence.semanticScore,
-    triggerReason: evidence.triggerReason,
-    redactionHits: evidence.redactionHits,
-    redactedText: evidence.redactedText,
-    createdAt: new Date(evidence.occurredAtMs).toISOString()
-  })
-  return evidence
+  return activityTracker.recordOcrEvidence(input)
 }
 
 export function canUseObserverFailureOcr(): boolean {
-  return !observerFailureOcrUsed
+  return activityTracker.canUseObserverFailureOcr()
 }
 
 export function resetActivityGate(nowMs = Date.now()): void {
-  startedAtMs = nowMs
-  pendingContextChange = false
-  observer = 'waiting'
-  observerDetail = null
-  lastScanAtMs = null
-  lastScanReason = null
-  lastContext = null
-  latestAssessment = { semanticLevel: 'empty', score: 0, reasonCodes: ['no_context'], privacyState: 'normal' }
-  latestContextKey = ''
-  consecutivePartialCount = 0
-  lastOcrAtMs = null
-  lastOcrContextKey = null
-  collectorPolicy.reset()
-  collectorPolicyMetrics = collectorPolicy.snapshot()
-  persistedSegmentFingerprints.clear()
-  observerFailureOcrUsed = false
-  workClassificationStatus = 'idle'
-  workClassificationSource = null
-  workClassificationAtMs = null
-  workClassificationDetail = null
-  workClassificationCount = 0
+  activityTracker.resetGate(nowMs)
 }
 
 export function getScreenActivityStatus(input: {
@@ -687,120 +793,5 @@ export function getScreenActivityStatus(input: {
   running: boolean
   paused: boolean
 }): ScreenActivityStatus {
-  const nowMs = Date.now()
-  events = events.filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
-  const activeIds = new Set(events.map((item) => item.id))
-  for (const id of assessments.keys()) if (!activeIds.has(id)) assessments.delete(id)
-  ocrEvidence = ocrEvidence.filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
-  const tenMinuteSegments = buildActivitySegments(events, '10m')
-  const sixHourSegments = buildActivitySegments(events, '6h')
-  persistSegments(tenMinuteSegments, sixHourSegments, nowMs)
-  const latestSegment = tenMinuteSegments.at(-1)
-  const latestHybrid = latestSegment
-    ? hybridSegmentFromActivity(
-        latestSegment,
-        events
-          .filter((event) => event.occurredAtMs >= latestSegment.bucket.startMs && event.occurredAtMs < latestSegment.bucket.endMs)
-          .map((event) => assessments.get(event.id))
-          .filter((item): item is SemanticAssessment => !!item),
-        ocrEvidence.filter(
-          (evidence) => evidence.occurredAtMs >= latestSegment.bucket.startMs && evidence.occurredAtMs < latestSegment.bucket.endMs
-        )
-      )
-    : null
-  const usable = [...assessments.values()].filter((item) => item.privacyState === 'normal')
-  const semanticCoverage = usable.length
-    ? Math.round((usable.filter((item) => item.semanticLevel === 'complete').length / usable.length) * 100)
-    : 0
-  return {
-    eventDriven: input.eventDriven,
-    hybridV2: input.hybridV2,
-    running: input.running,
-    paused: input.paused,
-    observer,
-    observerDetail,
-    collector: collectorState,
-    collectorDetail,
-    collectorRestartCount,
-    collectorDroppedEventCount: collectorPolicyMetrics.droppedCount,
-    collectorDeduplicatedEventCount: collectorPolicyMetrics.deduplicatedCount,
-    collectorRateLimitedCount: collectorPolicyMetrics.rateLimitedCount,
-    collectorBackoffBundleCount: collectorPolicyMetrics.backoffBundleCount,
-    accessibility: collectorAccessibility,
-    inputMonitoring: collectorInputMonitoring,
-    lastHeartbeatAt: isoOrNull(collectorLastHeartbeatAtMs),
-    semanticCoverage,
-    ocrFallbackCount,
-    ocrFallbackReasons: { ...ocrFallbackReasons },
-    recentTriggerReasons: Object.keys(ocrFallbackReasons).sort(),
-    recentSummary: tenMinuteSegments.at(-1)?.summary ?? null,
-    latestEventCount: latestHybrid?.eventCount ?? 0,
-    latestMeaningfulEventCount: latestHybrid?.meaningfulEventCount ?? 0,
-    latestSemanticCompleteCount: latestHybrid?.semanticCompleteCount ?? 0,
-    latestSemanticPartialCount: latestHybrid?.semanticPartialCount ?? 0,
-    latestSemanticEmptyCount: latestHybrid?.semanticEmptyCount ?? 0,
-    latestOcrEvidenceCount: latestHybrid?.ocrEvidenceCount ?? 0,
-    lastEventAt: isoOrNull(lastEventAtMs),
-    lastScanAt: isoOrNull(lastScanAtMs),
-    lastScanReason,
-    pendingEvent: pendingContextChange,
-    rawEventCount: events.length,
-    tenMinuteSegmentCount: tenMinuteSegments.length,
-    sixHourSegmentCount: sixHourSegments.length,
-    latestSummary: tenMinuteSegments.at(-1)?.summary ?? null,
-    workClassificationStatus,
-    workClassificationSource,
-    workClassificationAt: isoOrNull(workClassificationAtMs),
-    workClassificationDetail,
-    workClassificationCount,
-    history: readHistoryHealth()
-  }
-}
-
-function persistSegments(
-  tenMinuteSegments: ReturnType<typeof buildActivitySegments>,
-  sixHourSegments: ReturnType<typeof buildActivitySegments>,
-  nowMs: number
-): void {
-  if (!persistence) return
-  const all = [...tenMinuteSegments, ...sixHourSegments]
-  const activeIds = new Set(all.map((segment) => segment.id))
-  for (const id of persistedSegmentFingerprints.keys()) {
-    if (!activeIds.has(id)) persistedSegmentFingerprints.delete(id)
-  }
-  for (const segment of all) {
-    const segmentEvents = events.filter(
-      (event) => event.occurredAtMs >= segment.bucket.startMs && event.occurredAtMs < segment.bucket.endMs
-    )
-    const segmentAssessments = segmentEvents
-      .map((event) => assessments.get(event.id))
-      .filter((item): item is SemanticAssessment => !!item)
-    const segmentOcr = ocrEvidence.filter(
-      (evidence) => evidence.occurredAtMs >= segment.bucket.startMs && evidence.occurredAtMs < segment.bucket.endMs
-    )
-    const hybrid = hybridSegmentFromActivity(segment, segmentAssessments, segmentOcr)
-    const record: ActivityHistorySegmentRecord = {
-      id: hybrid.id,
-      bucketKind: hybrid.bucket.kind,
-      bucketStart: hybrid.bucket.startIso,
-      bucketEnd: hybrid.bucket.endIso,
-      firstEventAt: new Date(hybrid.firstEventAtMs).toISOString(),
-      lastEventAt: new Date(hybrid.lastEventAtMs).toISOString(),
-      eventCount: hybrid.eventCount,
-      meaningfulEventCount: hybrid.meaningfulEventCount,
-      semanticCompleteCount: hybrid.semanticCompleteCount,
-      semanticPartialCount: hybrid.semanticPartialCount,
-      semanticEmptyCount: hybrid.semanticEmptyCount,
-      ocrEvidenceCount: hybrid.ocrEvidenceCount,
-      triggerReasons: hybrid.triggerReasons,
-      summary: hybrid.summary,
-      closed: nowMs >= hybrid.bucket.endMs,
-      createdAt: new Date(hybrid.firstEventAtMs).toISOString(),
-      updatedAt: new Date(nowMs).toISOString()
-    }
-    const fingerprint = JSON.stringify({ ...record, updatedAt: null })
-    if (persistedSegmentFingerprints.get(record.id) === fingerprint) continue
-    persistence.upsertSegment(record)
-    persistedSegmentFingerprints.set(record.id, fingerprint)
-  }
+  return activityTracker.status(input)
 }

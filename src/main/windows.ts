@@ -65,6 +65,11 @@ const PREVIEW_W = 320
 const PREVIEW_H = 240
 /** 清单卡要列出多条候选，240 高会把列表和按钮裁掉 */
 const PREVIEW_BATCH_H = 420
+const PREVIEW_MIN_H = 96
+const PREVIEW_MAX_H = 520
+const PREVIEW_FADE_MS = 140
+
+let previewFadeTimer: ReturnType<typeof setInterval> | null = null
 
 export function getPreviewWindow(): BrowserWindow {
   if (previewWin && !previewWin.isDestroyed()) return previewWin
@@ -72,15 +77,18 @@ export function getPreviewWindow(): BrowserWindow {
     width: PREVIEW_W,
     height: PREVIEW_H,
     frame: false,
-    transparent: true,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
-    hasShadow: false,
+    // 原生磨砂 + 原生圆角/阴影（与 QuickBar/提醒窗同款）：transparent 窗拿不到原生阴影，
+    // CSS 阴影会被窗口边缘裁切出硬边。'menu' 材质透亮；从不获焦故 visualEffectState 固定 active。
+    vibrancy: 'menu',
+    visualEffectState: 'active',
+    backgroundColor: '#00000000',
+    roundedCorners: true,
     // 预览卡是常驻置顶、从不获焦的通知窗（showInactive）。默认后台节流会把不获焦窗口降到极低帧率，
-    // 导致定时器触发的滑出动画被跳帧、看起来"直接消失"（点 ✕ 时有交互才正常播放）。关掉节流，
-    // 让自动隐藏的滑出动画也能完整播放。
+    // 导致定时器驱动的倒计时进度条跳帧。关掉节流保证动画完整。
     webPreferences: { preload, backgroundThrottling: false }
   })
   previewWin.setAlwaysOnTop(true, 'screen-saver')
@@ -89,20 +97,56 @@ export function getPreviewWindow(): BrowserWindow {
   return previewWin
 }
 
+/** 窗口透明度渐变（磨砂和原生阴影只能整窗淡入淡出，CSS 动不了这两层）。 */
+function fadePreview(win: BrowserWindow, from: number, to: number, done?: () => void): void {
+  if (previewFadeTimer) clearInterval(previewFadeTimer)
+  const steps = Math.max(1, Math.round(PREVIEW_FADE_MS / 16))
+  let i = 0
+  win.setOpacity(from)
+  previewFadeTimer = setInterval(() => {
+    i++
+    if (win.isDestroyed()) {
+      if (previewFadeTimer) clearInterval(previewFadeTimer)
+      previewFadeTimer = null
+      return
+    }
+    win.setOpacity(from + ((to - from) * i) / steps)
+    if (i >= steps) {
+      if (previewFadeTimer) clearInterval(previewFadeTimer)
+      previewFadeTimer = null
+      done?.()
+    }
+  }, 16)
+}
+
 /** 弹出预览/通知卡，不抢焦点。桌宠可见时贴到桌宠图标旁（气泡感），否则回退右下角默认位置。 */
 export function showPreview(payload: unknown): void {
   const win = getPreviewWindow()
   const batch = !!(payload as { localBatch?: unknown } | null)?.localBatch
-  win.setSize(PREVIEW_W, batch ? PREVIEW_BATCH_H : PREVIEW_H)
+  // 首帧用预估高度，渲染层 ResizeObserver 汇报实际内容高度后再校正；
+  // 已可见时不重设尺寸，避免和 preview:resize 互相拉扯
+  if (!win.isVisible()) win.setSize(PREVIEW_W, batch ? PREVIEW_BATCH_H : PREVIEW_H)
   const petMode = positionPreview(win)
   const enriched =
     payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>), petMode } : payload
   const send = (): void => {
     win.webContents.send('guzi-assistant:preview', enriched)
+    if (win.isVisible()) return
+    win.setOpacity(0)
     win.showInactive()
+    fadePreview(win, 0, 1)
   }
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
   else send()
+}
+
+/** 渲染层内容高度变化：底边固定（贴桌宠/右下角都是底对齐），向上调整窗口高度。 */
+export function resizePreview(height: number): void {
+  if (!previewWin || previewWin.isDestroyed()) return
+  const h = Math.max(PREVIEW_MIN_H, Math.min(PREVIEW_MAX_H, Math.round(height)))
+  const b = previewWin.getBounds()
+  if (h === b.height) return
+  previewWin.setBounds({ x: b.x, y: b.y + b.height - h, width: b.width, height: h })
 }
 
 /** 定位通知卡；返回是否已贴到桌宠旁（true=桌宠模式，渲染层据此隐藏冗余品牌行）。
@@ -146,7 +190,14 @@ export function repositionPreviewNearPet(): void {
 }
 
 export function hidePreview(): void {
-  if (previewWin && !previewWin.isDestroyed()) previewWin.hide()
+  if (!previewWin || previewWin.isDestroyed() || !previewWin.isVisible()) return
+  const win = previewWin
+  fadePreview(win, win.getOpacity(), 0, () => {
+    if (!win.isDestroyed()) {
+      win.hide()
+      win.setOpacity(1)
+    }
+  })
 }
 
 /** 预览卡（建议/结果卡）当前是否可见——持续监控用它避免覆盖用户正在看的卡 */

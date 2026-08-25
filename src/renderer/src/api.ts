@@ -62,6 +62,7 @@ export const api = {
 
   listTasks: () => inv<TaskRecord[]>('tasks:list'),
   updateTask: (id: string, patch: Partial<TaskRecord>) => inv<void>('tasks:update', id, patch),
+  deleteTask: (id: string) => inv<void>('tasks:delete', id),
   bulkTasks: (ids: string[], status: TaskStatus) => inv<void>('tasks:bulk', ids, status),
   quickAddTask: (text: string) => inv<{ added: number; titles: string[] }>('tasks:quick-add', text),
 
@@ -72,6 +73,7 @@ export const api = {
   previewSubmit: (captureId: string) => inv<ParseSummary>('preview:submit', captureId),
   previewCancel: (captureId: string) => inv<void>('preview:cancel', captureId),
   previewHide: () => inv<void>('preview:hide'),
+  previewResize: (height: number) => inv<void>('preview:resize', height),
 
   getSource: (id: string) => inv<SourceRecord | null>('source:get', id),
   deleteSource: (id: string) => inv<void>('source:delete', id),
@@ -142,6 +144,9 @@ export const api = {
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),
+  // 快捷提问框专用：输入框收起后处理照常完成，结果由桌宠气泡播报
+  assistantQuickChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
+    inv<AssistantTurnResult>('assistant:quick-chat', payload),
   assistantAdd: (payload: { sourceText: string; item: ParsedItem; force?: boolean }) =>
     inv<AddedInfo>('assistant:add', payload),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
