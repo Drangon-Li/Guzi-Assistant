@@ -8,6 +8,7 @@ import TaskDetailModal from '../components/TaskDetailModal'
 import Timeline, { type TimelineMode } from './Timeline'
 import QuickAddTask from '../components/QuickAddTask'
 import { Segmented } from '../components/ui'
+import ContextMenu, { type MenuEntry } from '../components/ContextMenu'
 import { rankTaskSuggestions } from '@shared/task-suggest'
 
 interface Props {
@@ -123,6 +124,28 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
     window.setTimeout(() => setNote(''), 3500)
   }
 
+  // 右键菜单：任务行 / 顶部标签两种目标；菜单内删除走两步确认
+  const [menu, setMenu] = useState<
+    | { kind: 'task'; taskId: string; x: number; y: number }
+    | { kind: 'tag'; tag: string; x: number; y: number }
+    | null
+  >(null)
+  const [menuConfirm, setMenuConfirm] = useState(false)
+  const openTaskMenu =
+    (t: TaskRecord) =>
+    (e: React.MouseEvent): void => {
+      e.preventDefault()
+      setMenuConfirm(false)
+      setMenu({ kind: 'task', taskId: t.id, x: e.clientX, y: e.clientY })
+    }
+  const openTagMenu =
+    (tag: string) =>
+    (e: React.MouseEvent): void => {
+      e.preventDefault()
+      setMenuConfirm(false)
+      setMenu({ kind: 'tag', tag, x: e.clientX, y: e.clientY })
+    }
+
   const active = tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).sort(byTime)
   const pending = tasks.filter((t) => t.status === 'pending')
   const done = tasks.filter((t) => t.status === 'done')
@@ -182,6 +205,95 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
       list: active.filter((t) => !expiredIds.has(t.id)),
       empty: '没有未完成的任务'
     })
+  }
+
+  function taskMenuEntries(t: TaskRecord | undefined): MenuEntry[] {
+    if (!t) return []
+    const isDone = t.status === 'done'
+    const sid = t.sourceId
+    const entries: MenuEntry[] = [
+      {
+        label: isDone ? '取消完成' : '标记完成',
+        onClick: () =>
+          void api.updateTask(t.id, {
+            status: isDone ? (t.dueTime || t.startTime ? 'scheduled' : 'not_started') : 'done'
+          })
+      },
+      { label: '编辑', onClick: () => setEditing(t) },
+      { label: '查看详情', onClick: () => setDetail(t) }
+    ]
+    if (sid) entries.push({ label: '查看来源', onClick: () => setSourceId(sid) })
+    if (t.startTime || t.dueTime)
+      entries.push({ label: '加入日历（.ics）', onClick: () => void api.exportTaskIcs(t) })
+    if (!isDone && timeOf(t))
+      entries.push(
+        { type: 'separator' },
+        { type: 'header', label: '推迟' },
+        { label: '到明天', onClick: () => postponeTask(t, '1') },
+        { label: '到后天', onClick: () => postponeTask(t, '2') },
+        { label: '到下周一', onClick: () => postponeTask(t, 'monday') }
+      )
+    if (allTags.length) {
+      entries.push({ type: 'separator' }, { type: 'header', label: '标签（点选切换）' })
+      for (const tag of allTags.slice(0, 8)) {
+        const has = t.tags.includes(tag)
+        entries.push({
+          label: `#${tag}`,
+          checked: has,
+          keepOpen: true,
+          onClick: () =>
+            void api.updateTask(t.id, { tags: has ? t.tags.filter((x) => x !== tag) : [...t.tags, tag] })
+        })
+      }
+    }
+    entries.push({ type: 'separator' })
+    if (t.status !== 'ignored')
+      entries.push({ label: '忽略', onClick: () => void api.updateTask(t.id, { status: 'ignored' }) })
+    entries.push(
+      menuConfirm
+        ? {
+            label: '确认删除',
+            danger: true,
+            onClick: () => {
+              void api.deleteTask(t.id)
+              flash('任务已删除')
+            }
+          }
+        : { label: '删除…', danger: true, keepOpen: true, onClick: () => setMenuConfirm(true) }
+    )
+    return entries
+  }
+
+  function tagMenuEntries(tag: string): MenuEntry[] {
+    return [
+      {
+        label: starredTags.includes(tag) ? '取消重点标签' : '设为重点（谷子建议加分）',
+        checked: starredTags.includes(tag),
+        onClick: () => toggleStar(tag)
+      },
+      {
+        label: tagFilter === tag ? '取消筛选' : '仅看此标签',
+        onClick: () => setTagFilter(tagFilter === tag ? null : tag)
+      },
+      { type: 'separator' },
+      menuConfirm
+        ? {
+            label: '确认移除',
+            danger: true,
+            onClick: () => {
+              for (const t of tasks)
+                if (t.tags.includes(tag)) void api.updateTask(t.id, { tags: t.tags.filter((x) => x !== tag) })
+              if (starredTags.includes(tag)) {
+                const next = starredTags.filter((x) => x !== tag)
+                setStarredTags(next)
+                void api.saveSettings({ starredTags: next })
+              }
+              if (tagFilter === tag) setTagFilter(null)
+              flash(`已移除标签 #${tag}`)
+            }
+          }
+        : { label: '从所有任务移除…', danger: true, keepOpen: true, onClick: () => setMenuConfirm(true) }
+    ]
   }
 
   return (
@@ -244,6 +356,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
                     tagFilter === t ? 'bg-brand text-white' : 'bg-brand-soft text-brand hover:bg-brand-soft/70'
                   }`}
                   onClick={() => setTagFilter(tagFilter === t ? null : t)}
+                  onContextMenu={openTagMenu(t)}
                 >
                   #{t}
                   <span
@@ -323,6 +436,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
                   selectMode={multiMode}
                   selected={selected.has(t.id)}
                   onToggleSelect={() => toggleSelect(t.id)}
+                  onContextMenu={openTaskMenu(t)}
                   onOpen={() => setDetail(t)}
                   onEdit={() => setEditing(t)}
                   onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
@@ -347,6 +461,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
                 <TaskRow
                   key={t.id}
                   task={t}
+                  onContextMenu={openTaskMenu(t)}
                   onOpen={() => setDetail(t)}
                   onEdit={() => setEditing(t)}
                   onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
@@ -396,6 +511,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
                 <TaskRow
                   key={t.id}
                   task={t}
+                  onContextMenu={openTaskMenu(t)}
                   onOpen={() => setDetail(t)}
                   onEdit={() => setEditing(t)}
                   onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
@@ -498,6 +614,19 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
         </div>
       )}
 
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          entries={
+            menu.kind === 'task'
+              ? taskMenuEntries(tasks.find((t) => t.id === menu.taskId))
+              : tagMenuEntries(menu.tag)
+          }
+          onClose={() => setMenu(null)}
+        />
+      )}
+
       {/* 悬浮加号：随手记（自然语言解析）/ 表单 两种方式手动建日程 */}
       <QuickAddTask onAdded={flash} />
       {note && (
@@ -555,6 +684,7 @@ function TaskRow({
   selectMode,
   selected,
   onToggleSelect,
+  onContextMenu,
   onOpen,
   onEdit,
   onShowSource
@@ -565,6 +695,7 @@ function TaskRow({
   selectMode?: boolean
   selected?: boolean
   onToggleSelect?: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
   onOpen: () => void
   onEdit: () => void
   onShowSource: () => void
@@ -621,6 +752,7 @@ function TaskRow({
       className={`flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-4 py-3 shadow-sm ${
         leaving === 'done' ? 'animate-task-done' : leaving === 'restore' ? 'animate-task-restore' : ''
       }`}
+      onContextMenu={onContextMenu}
     >
       <input
         type="checkbox"
