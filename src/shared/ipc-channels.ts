@@ -74,6 +74,7 @@ export const INVOKE_CHANNELS = [
   'reports:delete',
   'report:export',
   'assistant:chat',
+  'assistant:quick-chat',
   'assistant:add',
   'app:focus-main',
   'task:export-ics',

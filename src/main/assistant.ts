@@ -10,7 +10,8 @@ import {
 } from './db'
 import { createTaskFromItem, scheduledStatus } from './task-ingest'
 import { broadcast } from './windows'
-import { applyExternalPetReaction } from './pet/controller'
+import { applyExternalPetReaction, applyExternalPetSay } from './pet/controller'
+import { buildDetectionCards, parsedToExtraction, showDetectedCards } from './detection-cards'
 import { callModel } from './parser'
 import {
   buildAssistantInstructions,
@@ -64,6 +65,56 @@ export function assistantAdd(payload: {
   return addCandidates(payload.sourceText, [
     { item: payload.item, candidate: 0, force: !!payload.force }
   ])[0]
+}
+
+/**
+ * 快捷提问框的后台结果播报：用户发完就把输入框关了（点外面/Esc），处理在主进程照常完成，
+ * 结束后用桌宠气泡回报结果；模型给出的待确认候选转入检测卡 + 日程页「待确认」兜底区
+ * （与屏幕感知/剪贴板同一条确认轨道），不会因为输入框关了而丢失。
+ */
+export function notifyQuickChatResult(
+  res: AssistantTurnResult,
+  lastUserText: string,
+  hadPriorCandidates: boolean
+): void {
+  if (res.error) {
+    applyExternalPetSay(`刚才那条没处理成功：${res.error.slice(0, 60)}`, 'waiting', { durationMs: 12_000 })
+    return
+  }
+  const added = res.added.filter((a) => !a.duplicate)
+  const dups = res.added.filter((a) => a.duplicate)
+  const parts: string[] = []
+  if (added.length === 1) parts.push(`已帮你记下「${added[0].title}」`)
+  else if (added.length > 1) parts.push(`已帮你记下 ${added.length} 件事`)
+  if (dups.length === 1) parts.push(`「${dups[0].title}」已经在日程里`)
+  else if (dups.length > 1) parts.push(`${dups.length} 条已在日程里`)
+  const doneOps = res.ops.filter((o) => o.action === 'done').length
+  if (doneOps) parts.push(`标记完成 ${doneOps} 条`)
+  if (res.ops.length - doneOps > 0) parts.push(`忽略 ${res.ops.length - doneOps} 条`)
+
+  // 本轮新给出、且没有当轮直接入库的候选：added 的序号只在「无上一轮候选上下文」时指向本轮候选
+  const addedIdx = new Set(res.added.map((a) => a.candidate))
+  const leftovers = (res.candidates ?? []).filter((_, i) => hadPriorCandidates || !addedIdx.has(i + 1))
+  if (leftovers.length) {
+    const cards = buildDetectionCards({
+      hits: leftovers.map((item) => ({ extraction: parsedToExtraction(item), item })),
+      sourceText: lastUserText,
+      app: null,
+      popup: true
+    })
+    showDetectedCards(cards)
+    parts.push(leftovers.length > 1 ? `还有 ${leftovers.length} 条等你确认` : `「${leftovers[0].title}」等你确认`)
+  }
+
+  if (parts.length) {
+    applyExternalPetSay(`${parts.join('，')}～`, added.length || doneOps ? 'success' : 'waiting', {
+      durationMs: 12_000
+    })
+    return
+  }
+  // 纯问答（没有任何日程动作）：气泡给出回答摘要，避免用户以为发丢了
+  const reply = res.reply.replace(/\s+/g, ' ').trim()
+  if (reply) applyExternalPetSay(reply.length > 80 ? `${reply.slice(0, 80)}…` : reply, 'waiting', { durationMs: 12_000 })
 }
 
 export async function assistantChat(payload: {

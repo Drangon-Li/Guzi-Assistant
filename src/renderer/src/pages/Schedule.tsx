@@ -371,8 +371,8 @@ function TaskRow({
 }): React.JSX.Element {
   const isDone = task.status === 'done'
   const isOverdue = task.status === 'overdue'
-  const [leaving, setLeaving] = useState(false)
-  const completing = !isDone
+  // 'done'=勾选完成（划线停留后向右淡出收拢）；'restore'=取消完成（勾选/划线立即消失，向左淡出收拢）
+  const [leaving, setLeaving] = useState<null | 'done' | 'restore'>(null)
 
   const toggle = (): void => {
     if (leaving) return
@@ -381,23 +381,19 @@ function TaskRow({
         ? 'scheduled'
         : 'not_started'
       : 'done'
-    // 取消勾选：立即恢复，不播完成动画——收拢再在上方重现的双段位移正是卡顿感的来源
-    if (isDone) {
-      void api.updateTask(task.id, { status: next })
-      return
-    }
-    // 勾选完成：先播完成动画（勾选+划线短暂停留 → 淡出 → 高度收拢），
-    // 收拢完成后再改状态，列表刷新时该行已零高度，下方任务不会跳一下
-    setLeaving(true)
-    window.setTimeout(() => void api.updateTask(task.id, { status: next }), 400)
+    // 动画播完（该行已收拢到零高度）再真正改状态，列表刷新时下方任务不会跳动；
+    // 完成/取消方向相反，示意「归档」和「退回」
+    const kind = isDone ? 'restore' : 'done'
+    setLeaving(kind)
+    window.setTimeout(() => void api.updateTask(task.id, { status: next }), kind === 'done' ? 400 : 300)
   }
-  const checked = leaving ? completing : isDone
-  const strike = isDone || (leaving && completing)
+  const checked = leaving === 'done' ? true : leaving === 'restore' ? false : isDone
+  const strike = leaving === 'restore' ? false : isDone || leaving === 'done'
 
   return (
     <div
       className={`flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-4 py-3 shadow-sm ${
-        leaving ? 'animate-task-done' : ''
+        leaving === 'done' ? 'animate-task-done' : leaving === 'restore' ? 'animate-task-restore' : ''
       }`}
     >
       <input

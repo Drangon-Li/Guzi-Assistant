@@ -137,6 +137,11 @@ export function resizeQuickBar(height: number): void {
   qbWin.setBounds({ x: b.x, y: b.y + b.height - h, width: b.width, height: h })
 }
 
+/** 快捷提问是否还开着——后台处理完成时据此决定「条内显示」还是「桌宠气泡播报」。 */
+export function isQuickBarVisible(): boolean {
+  return !!qbWin && !qbWin.isDestroyed() && qbWin.isVisible()
+}
+
 export function toggleQuickBar(): void {
   if (qbWin && !qbWin.isDestroyed() && qbWin.isVisible()) hideQuickBar()
   else showQuickBar()

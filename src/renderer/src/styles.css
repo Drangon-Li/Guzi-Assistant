@@ -131,6 +131,28 @@ textarea {
   animation: task-done-out 0.4s ease-in-out forwards;
 }
 
+/* 取消完成：勾选/划线已即时消失，行向左淡出收拢（与完成方向相反，示意退回未完成列表）。
+   比完成动画短——没有「确认勾选」的停留拍。 */
+@keyframes task-restore-out {
+  0% { opacity: 1; max-height: 88px; transform: none; margin-top: 0; }
+  25% { opacity: 1; max-height: 88px; transform: none; }
+  65% { opacity: 0; max-height: 88px; transform: translateX(-16px); margin-top: 0; }
+  100% {
+    opacity: 0;
+    max-height: 0;
+    transform: translateX(-16px);
+    margin-top: -8px;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+  }
+}
+.animate-task-restore {
+  overflow: hidden;
+  animation: task-restore-out 0.3s ease-in-out forwards;
+}
+
 /* 列表错位进场：父级加 .stagger，子项依次淡入 */
 .stagger > * { animation: item-in 0.18s var(--ease-spring) both; }
 .stagger > *:nth-child(1) { animation-delay: 0.02s; }

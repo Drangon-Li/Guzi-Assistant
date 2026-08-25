@@ -81,7 +81,8 @@ export default function QuickBar(): React.JSX.Element {
       const history = nextMsgs.map((m) => ({ role: m.role, content: m.content }))
       // 最近一轮候选作为上下文传回：用户可以用嘴确认（「把第一个加上」）
       const ctx = [...msgs].reverse().find((m) => m.candidates)?.candidates?.ctx ?? null
-      const res = await api.assistantChat({ history, candidates: ctx })
+      // 专用后台通道：输入框收起后处理照常完成，结果由桌宠气泡播报（发完即可点别处关闭）
+      const res = await api.assistantQuickChat({ history, candidates: ctx })
       const reply: Msg = {
         id: ++idRef.current,
         role: 'assistant',
@@ -259,7 +260,11 @@ export default function QuickBar(): React.JSX.Element {
             onKeyDown={onKeyDown}
           />
           <div className="shrink-0 text-[11px] text-slate-600">
-            {msgs.length ? '⏎ 发送 · Esc 退出' : '⏎ 问助手或记日程 · Esc 关闭'}
+            {busy
+              ? '处理中…可直接关闭，完成后桌宠会告诉你'
+              : msgs.length
+                ? '⏎ 发送 · Esc 退出'
+                : '⏎ 问助手或记日程 · Esc 关闭'}
           </div>
         </div>
         </div>

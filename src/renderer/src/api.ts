@@ -143,6 +143,9 @@ export const api = {
 
   assistantChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
     inv<AssistantTurnResult>('assistant:chat', payload),
+  // 快捷提问框专用：输入框收起后处理照常完成，结果由桌宠气泡播报
+  assistantQuickChat: (payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
+    inv<AssistantTurnResult>('assistant:quick-chat', payload),
   assistantAdd: (payload: { sourceText: string; item: ParsedItem; force?: boolean }) =>
     inv<AddedInfo>('assistant:add', payload),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),

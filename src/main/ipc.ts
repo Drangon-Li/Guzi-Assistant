@@ -48,7 +48,7 @@ import {
   takeScreenshot
 } from './capture'
 import { parseToItems, probeModelEndpoint } from './parser'
-import { assistantAdd, assistantChat } from './assistant'
+import { assistantAdd, assistantChat, notifyQuickChatResult } from './assistant'
 import { exportTaskIcs } from './export'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
 import { setHotkey, setNamedHotkey, setScreenshotHotkey } from './hotkey'
@@ -94,7 +94,7 @@ import { applyTaskReminderSchedule } from './task-reminder'
 import { applyClipWatchSettings } from './clipwatch'
 import { localIso } from '@shared/task-reminder'
 import { hidePetChat } from './pet/pet-chat-window'
-import { hideQuickBar, resizeQuickBar } from './quickbar'
+import { hideQuickBar, isQuickBarVisible, resizeQuickBar } from './quickbar'
 import { applyMcpSettings } from './mcp-server'
 import { checkForUpdates } from './updater'
 import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
@@ -493,6 +493,19 @@ export function registerIpc(): void {
     'assistant:chat',
     (_e, payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) =>
       assistantChat(payload)
+  )
+  // 快捷提问框：发送后即可关闭输入框——处理在主进程完成；结束时输入框已收起则改由桌宠气泡播报，
+  // 未确认候选转入检测卡/日程页待确认区，不随输入框关闭丢失
+  ipcMain.handle(
+    'assistant:quick-chat',
+    async (_e, payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) => {
+      const res = await assistantChat(payload)
+      if (!isQuickBarVisible()) {
+        const lastUserText = [...payload.history].reverse().find((m) => m.role === 'user')?.content ?? ''
+        notifyQuickChatResult(res, lastUserText, payload.candidates != null)
+      }
+      return res
+    }
   )
   ipcMain.handle(
     'assistant:add',
