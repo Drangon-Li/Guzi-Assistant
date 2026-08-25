@@ -7,7 +7,7 @@ import { captureScreenSilently, emptyParseSummary, HINTS } from './capture'
 import { shouldTodoScan, todoScanAppKind } from '@shared/todo-scan'
 import { ocrImageDetailed } from './ocr'
 import { cloudReady, parseToItemsRaw } from './parser'
-import { addOcrEvidence, getSettings, getSource, listFocusTaskCandidates, upsertActivitySegment } from './db'
+import { addOcrEvidence, getSettings, getSource, listFocusTaskCandidates } from './db'
 import { applyReportSchedule } from './report-scheduler'
 import { debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
@@ -51,14 +51,7 @@ import {
 } from './work-records'
 import { privacyForContext } from './privacy'
 import { IDLE_SKIP_SEC, startUsageSampler, stopUsageSampler } from './usage-sampler'
-import {
-  appendHistoryEventIfRunning,
-  configureWatchStateProvider,
-  startHistoryPersistence,
-  startLegacyHistorySync,
-  stopHistoryPersistence,
-  stopLegacyHistorySync
-} from './history/service.ts'
+import { appendHistoryEventIfRunning, startHistoryPersistence, stopHistoryPersistence } from './history/service.ts'
 
 
 const FG_X_CUT = 0.18 // 裁前景图：去左侧栏/会话列表
@@ -260,9 +253,6 @@ let previewBlockLogged = false // 调试日志：预览卡占用导致跳过只�
 let cloudBlockLogged = false // 调试日志：解析服务未就绪导致跳过只记一次，恢复后重置
 const cooldown = new CooldownMap(COOLDOWN_MS)
 let trayRefresh: (() => void) | null = null
-
-// legacy 双写对比需要监控运行态；注入 provider 避免 history/service 反向依赖本模块。
-configureWatchStateProvider(() => ({ running: isWatchActive(), paused: watchPaused }))
 
 /** index.ts 注入：监控状态变化（开/停/暂停）时刷新托盘菜单 */
 export function setTrayRefresh(fn: () => void): void {
@@ -548,15 +538,12 @@ function configureHistoryCollector(): void {
   const historyEnabled = getSettings().historyV2Enabled
   startHistoryPersistence()
   configureActivityHistoryPersistence({
-    upsertSegment: upsertActivitySegment,
     addOcrEvidence,
     appendHistoryEvent: appendHistoryEventIfRunning
   })
   // History-specific App/host filters are opt-in; keep the legacy screen
   // sensing privacy behavior unchanged while History v2 is disabled.
   startActivityCollector((context) => privacyForContext(context, historyEnabled))
-  if (historyEnabled) startLegacyHistorySync()
-  else stopLegacyHistorySync()
 }
 
 function startSampler(): void {
@@ -573,10 +560,9 @@ function startHistoryCollectorOnly(): void {
 }
 function stopSampler(): void {
   stopUsageSampler()
-  stopLegacyHistorySync()
   stopActivityCollector()
   void stopHistoryPersistence()
-  configureActivityHistoryPersistence({ upsertSegment: upsertActivitySegment, addOcrEvidence })
+  configureActivityHistoryPersistence({ addOcrEvidence })
   configureSemanticWorkClassifier(null)
   stopSemanticWorkClassifier()
 }

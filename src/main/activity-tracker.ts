@@ -22,7 +22,6 @@ import { redactSensitive } from '../shared/sensitive.ts'
 import { emptyHistoryStoreHealth } from '../shared/history.ts'
 import type { SemanticWorkEvidence } from '../shared/semantic-work.ts'
 import type {
-  ActivityHistorySegmentRecord,
   HistoryStoreHealth,
   OcrEvidenceRecord,
   ScreenActivityStatus
@@ -101,7 +100,6 @@ let workClassificationDetail: string | null = null
 let workClassificationCount = 0
 
 interface ActivityHistoryPersistence {
-  upsertSegment: (record: ActivityHistorySegmentRecord) => void
   addOcrEvidence: (record: OcrEvidenceRecord) => void
   appendHistoryEvent?: (event: ActivityEvent) => void
 }
@@ -122,17 +120,10 @@ function isCurrentCollectorGeneration(generation: number): boolean {
 }
 
 let persistence: ActivityHistoryPersistence | null = null
-let persistedSegmentFingerprints = new Map<string, string>()
 let historyHealthProvider: (() => HistoryStoreHealth) | null = null
 
 export function configureActivityHistoryPersistence(next: ActivityHistoryPersistence | null): void {
-  if (persistence !== next) persistedSegmentFingerprints.clear()
   persistence = next
-}
-
-/** Clear the process-local baseline cache after an external database wipe. */
-export function invalidateActivityHistoryPersistenceCache(): void {
-  persistedSegmentFingerprints.clear()
 }
 
 export function configureHistoryHealthProvider(next: (() => HistoryStoreHealth) | null): void {
@@ -644,7 +635,6 @@ export function resetActivityGate(nowMs = Date.now()): void {
   lastOcrContextKey = null
   collectorPolicy.reset()
   collectorPolicyMetrics = collectorPolicy.snapshot()
-  persistedSegmentFingerprints.clear()
   observerFailureOcrUsed = false
   workClassificationStatus = 'idle'
   workClassificationSource = null
@@ -666,7 +656,6 @@ export function getScreenActivityStatus(input: {
   ocrEvidence = ocrEvidence.filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
   const tenMinuteSegments = buildActivitySegments(events, '10m')
   const sixHourSegments = buildActivitySegments(events, '6h')
-  persistSegments(tenMinuteSegments, sixHourSegments, nowMs)
   const latestSegment = tenMinuteSegments.at(-1)
   const latestHybrid = latestSegment
     ? hybridSegmentFromActivity(
@@ -726,53 +715,5 @@ export function getScreenActivityStatus(input: {
     workClassificationDetail,
     workClassificationCount,
     history: readHistoryHealth()
-  }
-}
-
-function persistSegments(
-  tenMinuteSegments: ReturnType<typeof buildActivitySegments>,
-  sixHourSegments: ReturnType<typeof buildActivitySegments>,
-  nowMs: number
-): void {
-  if (!persistence) return
-  const all = [...tenMinuteSegments, ...sixHourSegments]
-  const activeIds = new Set(all.map((segment) => segment.id))
-  for (const id of persistedSegmentFingerprints.keys()) {
-    if (!activeIds.has(id)) persistedSegmentFingerprints.delete(id)
-  }
-  for (const segment of all) {
-    const segmentEvents = events.filter(
-      (event) => event.occurredAtMs >= segment.bucket.startMs && event.occurredAtMs < segment.bucket.endMs
-    )
-    const segmentAssessments = segmentEvents
-      .map((event) => assessments.get(event.id))
-      .filter((item): item is SemanticAssessment => !!item)
-    const segmentOcr = ocrEvidence.filter(
-      (evidence) => evidence.occurredAtMs >= segment.bucket.startMs && evidence.occurredAtMs < segment.bucket.endMs
-    )
-    const hybrid = hybridSegmentFromActivity(segment, segmentAssessments, segmentOcr)
-    const record: ActivityHistorySegmentRecord = {
-      id: hybrid.id,
-      bucketKind: hybrid.bucket.kind,
-      bucketStart: hybrid.bucket.startIso,
-      bucketEnd: hybrid.bucket.endIso,
-      firstEventAt: new Date(hybrid.firstEventAtMs).toISOString(),
-      lastEventAt: new Date(hybrid.lastEventAtMs).toISOString(),
-      eventCount: hybrid.eventCount,
-      meaningfulEventCount: hybrid.meaningfulEventCount,
-      semanticCompleteCount: hybrid.semanticCompleteCount,
-      semanticPartialCount: hybrid.semanticPartialCount,
-      semanticEmptyCount: hybrid.semanticEmptyCount,
-      ocrEvidenceCount: hybrid.ocrEvidenceCount,
-      triggerReasons: hybrid.triggerReasons,
-      summary: hybrid.summary,
-      closed: nowMs >= hybrid.bucket.endMs,
-      createdAt: new Date(hybrid.firstEventAtMs).toISOString(),
-      updatedAt: new Date(nowMs).toISOString()
-    }
-    const fingerprint = JSON.stringify({ ...record, updatedAt: null })
-    if (persistedSegmentFingerprints.get(record.id) === fingerprint) continue
-    persistence.upsertSegment(record)
-    persistedSegmentFingerprints.set(record.id, fingerprint)
   }
 }

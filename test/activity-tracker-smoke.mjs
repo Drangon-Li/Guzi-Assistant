@@ -10,7 +10,6 @@ import {
   configureSemanticWorkClassifier,
   startActivityCollector,
   stopActivityCollector,
-  invalidateActivityHistoryPersistenceCache,
   resetActivityGate
 } from '../src/main/activity-tracker.ts'
 
@@ -72,7 +71,6 @@ check(
 
 let persistedOcrEvidence = null
 configureActivityHistoryPersistence({
-  upsertSegment: () => {},
   addOcrEvidence: (record) => { persistedOcrEvidence = record }
 })
 const savedOcrEvidence = recordOcrEvidence({
@@ -106,36 +104,8 @@ check(
 )
 check('secure OCR 证据不落库', blockedOcrEvidence === null)
 
-let segmentWrites = 0
-configureActivityHistoryPersistence({
-  upsertSegment: () => { segmentWrites += 1 },
-  addOcrEvidence: () => {}
-})
-const stableAt = Date.now() + 100
-resetActivityGate(stableAt)
-recordFrontmostContext(
-  { name: 'Code', bundleId: 'com.microsoft.VSCode', windowTitle: 'stable.ts' },
-  { suppressed: false, privacyState: 'normal', nowMs: stableAt }
-)
-getScreenActivityStatus({ eventDriven: true, hybridV2: true, running: true, paused: false })
-const firstSegmentWriteCount = segmentWrites
-getScreenActivityStatus({ eventDriven: true, hybridV2: true, running: true, paused: false })
-check('unchanged activity segments skip repeated persistence callbacks', firstSegmentWriteCount > 0 && segmentWrites === firstSegmentWriteCount)
-recordFrontmostContext(
-  { name: 'Code', bundleId: 'com.microsoft.VSCode', windowTitle: 'changed.ts' },
-  { suppressed: false, privacyState: 'normal', nowMs: stableAt + 1_000 }
-)
-getScreenActivityStatus({ eventDriven: true, hybridV2: true, running: true, paused: false })
-check('changed activity segments are persisted again', segmentWrites > firstSegmentWriteCount)
-const writesBeforeExternalWipe = segmentWrites
-invalidateActivityHistoryPersistenceCache()
-getScreenActivityStatus({ eventDriven: true, hybridV2: true, running: true, paused: false })
-check('external database wipe invalidates baseline fingerprints', segmentWrites > writesBeforeExternalWipe)
-configureActivityHistoryPersistence(null)
-
 const persistedEvents = []
 configureActivityHistoryPersistence({
-  upsertSegment: () => {},
   addOcrEvidence: () => {},
   appendHistoryEvent: (event) => persistedEvents.push(event)
 })

@@ -18,7 +18,6 @@ import type {
   AppCategoryOverride,
   AppSwitchRecord,
   AppUsageEntry,
-  ActivityHistorySegmentRecord,
   DetectionRecord,
   MemoryHit,
   ReportRecord,
@@ -1162,60 +1161,6 @@ export function setAppCategoryOverride(app: string, category: string | null): vo
 
 // ---------- Hybrid History v2（只持久化聚合片段和脱敏 OCR 证据，不落盘原始事件） ----------
 
-export function upsertActivitySegment(segment: ActivityHistorySegmentRecord): void {
-  db.prepare(
-    `INSERT INTO activity_segments (
-      id, bucket_kind, bucket_start, bucket_end, first_event_at, last_event_at,
-      event_count, meaningful_event_count, semantic_complete_count, semantic_partial_count,
-      semantic_empty_count, ocr_evidence_count, trigger_reasons, summary, closed, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      bucket_end = excluded.bucket_end,
-      first_event_at = excluded.first_event_at,
-      last_event_at = excluded.last_event_at,
-      event_count = excluded.event_count,
-      meaningful_event_count = excluded.meaningful_event_count,
-      semantic_complete_count = excluded.semantic_complete_count,
-      semantic_partial_count = excluded.semantic_partial_count,
-      semantic_empty_count = excluded.semantic_empty_count,
-      ocr_evidence_count = excluded.ocr_evidence_count,
-      trigger_reasons = excluded.trigger_reasons,
-      summary = excluded.summary,
-      closed = excluded.closed,
-      updated_at = excluded.updated_at
-    WHERE activity_segments.bucket_end IS NOT excluded.bucket_end
-      OR activity_segments.first_event_at IS NOT excluded.first_event_at
-      OR activity_segments.last_event_at IS NOT excluded.last_event_at
-      OR activity_segments.event_count IS NOT excluded.event_count
-      OR activity_segments.meaningful_event_count IS NOT excluded.meaningful_event_count
-      OR activity_segments.semantic_complete_count IS NOT excluded.semantic_complete_count
-      OR activity_segments.semantic_partial_count IS NOT excluded.semantic_partial_count
-      OR activity_segments.semantic_empty_count IS NOT excluded.semantic_empty_count
-      OR activity_segments.ocr_evidence_count IS NOT excluded.ocr_evidence_count
-      OR activity_segments.trigger_reasons IS NOT excluded.trigger_reasons
-      OR activity_segments.summary IS NOT excluded.summary
-      OR activity_segments.closed IS NOT excluded.closed`
-  ).run(
-    segment.id,
-    segment.bucketKind,
-    segment.bucketStart,
-    segment.bucketEnd,
-    segment.firstEventAt,
-    segment.lastEventAt,
-    segment.eventCount,
-    segment.meaningfulEventCount,
-    segment.semanticCompleteCount,
-    segment.semanticPartialCount,
-    segment.semanticEmptyCount,
-    segment.ocrEvidenceCount,
-    JSON.stringify(segment.triggerReasons),
-    segment.summary.slice(0, 1000),
-    segment.closed ? 1 : 0,
-    segment.createdAt,
-    segment.updatedAt
-  )
-}
-
 export function addOcrEvidence(evidence: OcrEvidenceRecord): void {
   db.prepare(
     `INSERT INTO ocr_evidence (
@@ -1236,59 +1181,6 @@ export function addOcrEvidence(evidence: OcrEvidenceRecord): void {
     evidence.redactedText.slice(0, 20_000),
     evidence.createdAt
   )
-}
-
-export function listActivitySegments(limit = 40): ActivityHistorySegmentRecord[] {
-  const rows = db
-    .prepare('SELECT * FROM activity_segments ORDER BY bucket_start DESC LIMIT ?')
-    .all(limit) as Array<Record<string, unknown>>
-  return rows.map((row) => ({
-    id: String(row.id),
-    bucketKind: String(row.bucket_kind) as '10m' | '6h',
-    bucketStart: String(row.bucket_start),
-    bucketEnd: String(row.bucket_end),
-    firstEventAt: String(row.first_event_at),
-    lastEventAt: String(row.last_event_at),
-    eventCount: Number(row.event_count),
-    meaningfulEventCount: Number(row.meaningful_event_count),
-    semanticCompleteCount: Number(row.semantic_complete_count),
-    semanticPartialCount: Number(row.semantic_partial_count),
-    semanticEmptyCount: Number(row.semantic_empty_count),
-    ocrEvidenceCount: Number(row.ocr_evidence_count),
-    triggerReasons: JSON.parse(String(row.trigger_reasons || '[]')) as string[],
-    summary: String(row.summary),
-    closed: Number(row.closed) === 1,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at)
-  }))
-}
-
-/** Aggregate legacy segments for a bounded rollout comparison window. */
-export function listActivitySegmentsSince(fromIso: string, toIso: string): ActivityHistorySegmentRecord[] {
-  const rows = db
-    .prepare(
-      "SELECT * FROM activity_segments WHERE bucket_kind = '10m' AND bucket_end > ? AND bucket_start < ? ORDER BY bucket_start"
-    )
-    .all(fromIso, toIso) as Array<Record<string, unknown>>
-  return rows.map((row) => ({
-    id: String(row.id),
-    bucketKind: String(row.bucket_kind) as '10m' | '6h',
-    bucketStart: String(row.bucket_start),
-    bucketEnd: String(row.bucket_end),
-    firstEventAt: String(row.first_event_at),
-    lastEventAt: String(row.last_event_at),
-    eventCount: Number(row.event_count),
-    meaningfulEventCount: Number(row.meaningful_event_count),
-    semanticCompleteCount: Number(row.semantic_complete_count),
-    semanticPartialCount: Number(row.semantic_partial_count),
-    semanticEmptyCount: Number(row.semantic_empty_count),
-    ocrEvidenceCount: Number(row.ocr_evidence_count),
-    triggerReasons: JSON.parse(String(row.trigger_reasons || '[]')) as string[],
-    summary: String(row.summary),
-    closed: Number(row.closed) === 1,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at)
-  }))
 }
 
 export function listOcrEvidence(limit = 40): OcrEvidenceRecord[] {

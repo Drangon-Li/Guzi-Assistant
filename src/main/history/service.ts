@@ -6,26 +6,20 @@ import {
   getHistorySegmentIndex,
   getHistorySummaryIndex,
   getSettings,
-  listActivitySegmentsSince,
   listFocusTaskCandidates,
   listKnownAppNames,
-  listWorkRecordsSince,
   removeHistoryWorkRecord,
   removeHistoryWorkRecords,
   upsertHistoryWorkRecord
 } from '../db'
 import { getSession } from '../session'
 import { broadcast, debugEvent } from '../windows'
-import {
-  configureHistoryHealthProvider,
-  getScreenActivityStatus as getActivityRuntimeStatus
-} from '../activity-tracker'
+import { configureHistoryHealthProvider } from '../activity-tracker'
 import { HistorySegmentStore } from './event-store.ts'
 import { HistorySummarizer, runHistorySummaryAfterStoreStart, type SummaryRunResult } from './summarizer.ts'
 import { deriveHistoryWorkRecord } from './work-derivation.ts'
 import { HistoryQueryService } from './query-service.ts'
-import { buildRolloutComparison } from './rollout-comparison.ts'
-import { ACTIVITY_RETENTION_MS, type ActivityEvent } from '@shared/activity-events'
+import type { ActivityEvent } from '@shared/activity-events'
 import type { HistoryStoreHealth } from '@shared/types'
 import {
   emptyHistoryStoreHealth,
@@ -44,7 +38,6 @@ export function historyDerivedWorkActive(): boolean {
 let historyStore: HistorySegmentStore | null = null
 let historyCleanupTimer: ReturnType<typeof setInterval> | null = null
 let historySummaryTimer: ReturnType<typeof setInterval> | null = null
-let historyLegacySyncTimer: ReturnType<typeof setInterval> | null = null
 let historySummarizer: HistorySummarizer | null = null
 let historyCloseTail: Promise<void> = Promise.resolve()
 let historyMutationTail: Promise<void> = Promise.resolve()
@@ -52,14 +45,6 @@ let historyMutationPending = 0
 let historyMutationEpoch = 0
 let historyPaused = false
 let historyQueryService: HistoryQueryService | null = null
-let historyRolloutCache: { atMs: number; value: HistoryStatus['rolloutComparison'] } = { atMs: 0, value: null }
-
-// legacy 双写对比需要屏幕监控的运行态；由 screenwatch 在模块加载时注入，避免反向依赖。
-let watchState: () => { running: boolean; paused: boolean } = () => ({ running: false, paused: false })
-
-export function configureWatchStateProvider(next: () => { running: boolean; paused: boolean }): void {
-  watchState = next
-}
 
 /** collector 的 History 事件落盘回调：暂停时丢弃，否则写入当前 store 单例。 */
 export function appendHistoryEventIfRunning(event: ActivityEvent): void {
@@ -110,13 +95,8 @@ function historyStatusSnapshot(): HistoryStatus {
     paused: historyPaused,
     health,
     retentionExpiresAt,
-    summaryCounts: { tenMinute, sixHour },
-    rolloutComparison: historyRolloutComparisonSnapshot()
+    summaryCounts: { tenMinute, sixHour }
   }
-}
-
-function invalidateHistoryRolloutComparison(): void {
-  historyRolloutCache = { atMs: 0, value: null }
 }
 
 function notifyAutomaticHistorySummary(result: SummaryRunResult): void {
@@ -128,75 +108,7 @@ function notifyAutomaticHistorySummary(result: SummaryRunResult): void {
     result.modelFailures <= 0
   )
     return
-  invalidateHistoryRolloutComparison()
   broadcast('guzi-assistant:history-updated')
-}
-
-/** Keep the legacy activity_segments baseline current while History runs alone. */
-function syncLegacyHistorySegments(): void {
-  const settings = getSettings()
-  if (!settings.historyV2Enabled || historyPaused) return
-  try {
-    const watch = watchState()
-    getActivityRuntimeStatus({
-      eventDriven: settings.screenSenseEventDriven,
-      hybridV2: settings.screenSenseHybridV2,
-      running: watch.running || !historyPaused,
-      paused: watch.paused || historyPaused
-    })
-  } catch (error) {
-    debugEvent('error', `History 旧链路双写失败：${error instanceof Error ? error.message : String(error)}`)
-  }
-}
-
-export function stopLegacyHistorySync(): void {
-  if (!historyLegacySyncTimer) return
-  clearInterval(historyLegacySyncTimer)
-  historyLegacySyncTimer = null
-}
-
-export function startLegacyHistorySync(): void {
-  stopLegacyHistorySync()
-  syncLegacyHistorySegments()
-  historyLegacySyncTimer = setInterval(syncLegacyHistorySegments, 5_000)
-  historyLegacySyncTimer.unref?.()
-}
-
-/** Build a bounded, aggregate-only comparison for the current 48-hour rollout window. */
-function historyRolloutComparisonSnapshot(nowMs = Date.now()): HistoryStatus['rolloutComparison'] {
-  if (!getSettings().historyV2Enabled) return null
-  if (historyRolloutCache.value && nowMs - historyRolloutCache.atMs < 5_000) return historyRolloutCache.value
-  const fromMs = nowMs - ACTIVITY_RETENTION_MS
-  const fromIso = new Date(nowMs - ACTIVITY_RETENTION_MS).toISOString()
-  const toIso = new Date(nowMs).toISOString()
-  try {
-    const comparison = buildRolloutComparison({
-      nowMs,
-      retentionMs: ACTIVITY_RETENTION_MS,
-      legacySegments: listActivitySegmentsSince(fromIso, toIso),
-      // Keep the comparison bounded before materializing aggregate inputs;
-      // retention cleanup is best-effort and stale rows may survive a crash.
-      historySegments: getHistorySegmentIndex().list().filter((row) => summaryOverlapsRange(row, fromMs, nowMs)),
-      summaries: getHistorySummaryIndex().list().filter((row) => summaryOverlapsRange(row, fromMs, nowMs)),
-      workRecords: listWorkRecordsSince(fromIso.slice(0, 10)).map((record) => ({
-        id: record.id,
-        derivedBy: record.derivedBy,
-        segmentId: record.segmentId,
-        app: record.app,
-        task: record.task,
-        content: record.content,
-        startAt: record.startAt,
-        endAt: record.endAt,
-        summaryHash: record.summaryHash
-      }))
-    })
-    historyRolloutCache = { atMs: nowMs, value: comparison }
-    return comparison
-  } catch (error) {
-    debugEvent('error', `History 双写对比失败：${error instanceof Error ? error.message : String(error)}`)
-    historyRolloutCache = { atMs: nowMs, value: null }
-    return null
-  }
 }
 
 async function historyStoreForQuery(allowPaused = false, allowDisabled = false): Promise<HistorySegmentStore | null> {
@@ -438,7 +350,6 @@ export function historySearch(options: HistorySearchOptions = {}) {
 
 export async function historySummarize(options: HistoryQueryOptions = {}) {
   const result = await ensureHistoryQueryService().summarize(options)
-  invalidateHistoryRolloutComparison()
   broadcast('guzi-assistant:history-updated')
   return result
 }
@@ -448,7 +359,6 @@ export async function pauseHistory(): Promise<HistoryStatus> {
   historyPaused = true
   historyMutationEpoch += 1
   await stopHistoryPersistence()
-  invalidateHistoryRolloutComparison()
   broadcast('guzi-assistant:history-updated')
   return historyStatusSnapshot()
 }
@@ -460,21 +370,18 @@ export async function resumeHistory(): Promise<HistoryStatus> {
     const store = startHistoryPersistence()
     if (store) await store.start()
   }
-  invalidateHistoryRolloutComparison()
   broadcast('guzi-assistant:history-updated')
   return historyStatusSnapshot()
 }
 
 export async function clearHistory() {
   const result = await ensureHistoryQueryService().clear()
-  invalidateHistoryRolloutComparison()
   broadcast('guzi-assistant:history-updated')
   return result
 }
 
 export async function deleteHistoryRange(options: HistoryQueryOptions) {
   const result = await ensureHistoryQueryService().deleteRange(options)
-  invalidateHistoryRolloutComparison()
   broadcast('guzi-assistant:history-updated')
   return result
 }

@@ -33,12 +33,6 @@ const checks = [
     (historyService.match(/broadcast\('guzi-assistant:history-updated'\)/g) ?? []).length >= 4 &&
       /api\.on\('guzi-assistant:history-updated'/.test(page) &&
       /api\.on\('guzi-assistant:history-updated'/.test(settings)],
-  ['rollout 摘要按 10 分钟与 6 小时分开对比',
-    /摘要（10 分钟）/.test(settings) &&
-      /legacy\.tenMinuteSummaryCount/.test(settings) &&
-      /history\.tenMinuteSummaryCount/.test(settings) &&
-      /摘要（6 小时）/.test(settings) &&
-      /history\.sixHourSummaryCount/.test(settings)],
   ['两个 History 开关默认关闭且可独立回滚',
     /historyV2Enabled: map\.historyV2Enabled === 'true'/.test(db) &&
       /historyDerivedWorkEnabled: map\.historyDerivedWorkEnabled === 'true'/.test(db) &&

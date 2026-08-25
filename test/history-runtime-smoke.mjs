@@ -30,9 +30,6 @@ check('legacy data wipe clears History before SQLite VACUUM',
 check('legacy memory wipe clears History before SQLite VACUUM',
   memoryWipeBlock.includes("async ()") && memoryWipeBlock.includes('acquireHistoryMutationBarrier()') &&
     memoryWipeBlock.includes('await clearHistory()') && memoryWipeBlock.indexOf('await clearHistory()') < memoryWipeBlock.indexOf('wipeMemory()'))
-check('legacy wipes invalidate the in-memory baseline fingerprint cache',
-  dataWipeBlock.includes('invalidateActivityHistoryPersistenceCache()') &&
-    memoryWipeBlock.includes('invalidateActivityHistoryPersistenceCache()'))
 check('History deletion raises a barrier and invalidates active summaries',
   /let historyMutationPending = 0/.test(service) &&
     /historySummarizer\?\.invalidateAndWait\(\)/.test(service) &&
@@ -47,20 +44,10 @@ check('History v2 can run the native collector without the legacy OCR watcher',
   /function startHistoryCollectorOnly\(\)/.test(screenwatch) &&
     /configureHistoryCollector\(\)/.test(screenwatch) &&
     /if \(historyV2Enabled\) startHistoryCollectorOnly\(\)/.test(screenwatch))
-check('History-only keeps the legacy 10-minute baseline synchronized in the background',
-  /let historyLegacySyncTimer/.test(service) &&
-    /function startLegacyHistorySync\(\)/.test(service) &&
-    /getActivityRuntimeStatus\(\{/.test(service) &&
-    /historyLegacySyncTimer = setInterval\(syncLegacyHistorySegments, 5_000\)/.test(service) &&
-    /if \(historyEnabled\) startLegacyHistorySync\(\)/.test(screenwatch))
-check('Legacy sync timer is released with the collector lifecycle',
-  /function stopLegacyHistorySync\(\)/.test(service) &&
-    /clearInterval\(historyLegacySyncTimer\)/.test(service) &&
-    /stopLegacyHistorySync\(\)\s+stopActivityCollector\(\)/.test(screenwatch))
-check('automatic summary completion invalidates rollout cache and refreshes History',
+check('automatic summary completion refreshes History',
   /function notifyAutomaticHistorySummary\(result: SummaryRunResult\)/.test(service) &&
     /notifyAutomaticHistorySummary\(result\)/.test(service) &&
-    /invalidateHistoryRolloutComparison\(\)\s+broadcast\('guzi-assistant:history-updated'\)/.test(service))
+    /broadcast\('guzi-assistant:history-updated'\)/.test(service))
 check('automatic summary refresh only considers actual changes',
   /result\.tenMinuteChanged <= 0/.test(service) &&
     /result\.sixHourChanged <= 0/.test(service) &&

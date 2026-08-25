@@ -74,7 +74,6 @@ import {
   resumeHistory
 } from './history/service.ts'
 import { pickHistoryApps } from './history/app-picker.ts'
-import { invalidateActivityHistoryPersistenceCache } from './activity-tracker'
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
@@ -317,7 +316,6 @@ export function registerIpc(): void {
     try {
       await clearHistory()
       wipeAll()
-      invalidateActivityHistoryPersistenceCache()
       clearAllShots() // 一键清除覆盖加密截图（#53）
       broadcast('guzi-assistant:tasks-updated')
     } finally {
@@ -331,7 +329,6 @@ export function registerIpc(): void {
     try {
       await clearHistory()
       wipeMemory()
-      invalidateActivityHistoryPersistenceCache()
       clearAllShots()
       broadcast('guzi-assistant:tasks-updated')
     } finally {
