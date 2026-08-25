@@ -9,8 +9,11 @@ import {
   nativeHelperSourceHash
 } from '../src/main/native-helper-cache.ts'
 
-const source = readFileSync(new URL('../src/main/frontapp.ts', import.meta.url), 'utf8')
-const nativeSource = source.slice(0, source.indexOf('export interface FrontmostContext'))
+const ts = readFileSync(new URL('../src/main/frontapp.ts', import.meta.url), 'utf8')
+const collectorSource = readFileSync(new URL('../src/main/native/frontmost-collector.m', import.meta.url), 'utf8')
+const oneshotSource = readFileSync(new URL('../src/main/native/frontmost-oneshot.m', import.meta.url), 'utf8')
+const nativeSource = `${collectorSource}\n${oneshotSource}`
+const source = `${ts}\n${nativeSource}`
 
 const checks = [
   ['使用 NSWorkspace 读取前台应用', /frontmostApplication/.test(source)],
@@ -23,7 +26,7 @@ const checks = [
   ['Objective-C 输出 JSON', /NSJSONSerialization dataWithJSONObject/.test(source)],
   ['使用 xcrun clang 构建 helper', /xcrun[\s\S]*clang[\s\S]*AppKit[\s\S]*CoreGraphics/.test(source)],
   ['缓存二进制保留兼容版本并新增长驻版本', /frontmost-context-v3/.test(source) && /frontmost-context-v4/.test(source)],
-  ['collector 缓存按源码 hash 校验并重编', /ensureNativeHelperBinary/.test(source) && /COLLECTOR_OBJC_SRC/.test(source)],
+  ['collector 缓存按源码 hash 校验并重编', /ensureNativeHelperBinary/.test(ts) && /frontmost-collector\.m\?raw/.test(ts)],
   ['导出完整前台上下文', /export async function getFrontmostContext/.test(source)],
   ['完整上下文包含三个约定字段', /name: string[\s\S]*bundleId: string[\s\S]*windowTitle: string/.test(source)],
   ['保留 getFrontmostApp 兼容出口', /export async function getFrontmostApp/.test(source)],
