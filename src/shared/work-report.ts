@@ -482,6 +482,8 @@ export interface ReportMaterial {
   usage: AppUsageEntry[]
   tasksDone: string[]
   tasksOpen: string[]
+  /** 按标签的任务统计行（如「#课程：完成 2 / 待办 3」），无标签时为空 */
+  tagSummary?: string[]
 }
 
 /** 拼日报生成的 系统提示词 + 用户内容。只依据给定数据，不让模型编造。 */
@@ -493,6 +495,7 @@ export function buildDailyReportPrompt(
 要求：
 - 结构依次为：## 今日概览（2~3 句总结）、## 主要工作（把时间线上的记录按事项归并、合并同类项后条目化）、## 完成事项（来自已完成任务；没有则省略本节）、## 时间分配（主要应用及时长，一行一条；没有则省略本节）、## 明日计划（从待办任务中挑 3~5 条最要紧的；没有则省略本节）
 - 只依据给定数据组织内容，不要编造不存在的工作
+- 若「任务标签统计」非空，在今日概览末尾用一句话概括各类别的进展
 - 语言简洁专业，条目以「- 」开头
 - 只输出 Markdown 正文，不要输出代码块围栏或其他说明文字`
   // 用时段而非逐条喂模型：更贴近「某时段在做什么」，也省 token
@@ -514,6 +517,9 @@ ${usage.join('\n') || '（无）'}
 ${m.tasksDone.join('\n') || '（无）'}
 
 # 待办任务（明日计划候选）
-${m.tasksOpen.join('\n') || '（无）'}`
+${m.tasksOpen.join('\n') || '（无）'}
+
+# 任务标签统计
+${m.tagSummary?.join('\n') || '（无）'}`
   return { instructions, text }
 }

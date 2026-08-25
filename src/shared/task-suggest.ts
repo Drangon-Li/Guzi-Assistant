@@ -26,7 +26,12 @@ function dayOf(iso: string): string {
   return iso.slice(0, 10)
 }
 
-export function rankTaskSuggestions(tasks: TaskRecord[], nowIso: string): SuggestionTier[] {
+export function rankTaskSuggestions(
+  tasks: TaskRecord[],
+  nowIso: string,
+  opts: { starredTags?: string[] } = {}
+): SuggestionTier[] {
+  const starred = new Set(opts.starredTags ?? [])
   const nowMs = Date.parse(nowIso)
   const today = dayOf(nowIso)
   const base = new Date(nowMs)
@@ -83,6 +88,10 @@ export function rankTaskSuggestions(tasks: TaskRecord[], nowIso: string): Sugges
       if (t.status === 'in_progress') {
         score += 6
         reasons.push('进行中')
+      }
+      if (t.tags.some((tag) => starred.has(tag))) {
+        score += 12
+        reasons.push('重点标签')
       }
       return { task: t, score, reasons }
     })

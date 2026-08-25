@@ -235,6 +235,43 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                   </div>
                 )}
 
+                {current.checklist.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-xs font-medium text-slate-400">
+                      检查清单（{current.checklist.filter((c) => c.done).length}/{current.checklist.length}）
+                    </h4>
+                    <div className="flex flex-col gap-1.5">
+                      {current.checklist.map((c, i) => (
+                        <label key={i} className="flex cursor-pointer items-start gap-2 text-sm leading-6">
+                          <input
+                            type="checkbox"
+                            className="mt-1 size-3.5 shrink-0 accent-brand"
+                            checked={c.done}
+                            onChange={() => {
+                              const checklist = current.checklist.map((x, j) =>
+                                j === i ? { ...x, done: !x.done } : x
+                              )
+                              void api.updateTask(current.id, { checklist })
+                              setCurrent({ ...current, checklist })
+                            }}
+                          />
+                          <span className={c.done ? 'text-slate-400 line-through' : 'text-slate-700'}>{c.text}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {current.tags.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-1.5">
+                    {current.tags.map((t) => (
+                      <span key={t} className="rounded-md bg-brand-soft px-2 py-0.5 text-xs text-brand">
+                        #{t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {current.notes.length > 0 && (
                   <div className="mt-4">
                     <h4 className="mb-2 text-xs font-medium text-slate-400">注意事项</h4>

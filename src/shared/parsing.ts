@@ -15,6 +15,8 @@ export interface ParsedItem {
   evidence: string[]
   notes: string[]
   duplicate_of: string | null
+  /** 分类标签建议（可选；用户可改），入库为任务 tags */
+  tags?: string[]
 }
 
 /** 本地时区 ISO 到秒：亚分钟排序场景用（如 app_switches——同一分钟内多次切换需稳定有序） */
@@ -71,7 +73,7 @@ function timeRules(): string {
   return `当前时间是 ${now}（${weekday}）。把"明天""周五前""6月20日"等相对时间解析为本地时间，格式 YYYY-MM-DDTHH:mm。考试/会议等有明确开始时间的填 start_time；"X 前完成"类填 due_time；只有日期没有具体时间的截止，时间用 23:59。日期明确但只说"全天"或具体钟点待通知的活动，start_time 填当天 00:00，不要因为钟点未定就留 null。原文连日期都没有提到的字段必须为 null，不要编造。`
 }
 
-const ITEM_FIELDS = `{"title":"任务标题","item_type":"deadline|meeting|reminder|preparation|follow_up|other","belongs_to_user":"yes|no|uncertain","belonging_reason":"判断依据","user_role":"owner|participant|notified|helper|unclear","start_time":"YYYY-MM-DDTHH:mm 或 null","due_time":"YYYY-MM-DDTHH:mm 或 null","location":"地点或 null","priority":"high|medium|low|unknown","confidence":0.0,"suggested_action":"add|confirm|ignore|ask_user","notes":["注意事项，可为空数组"],"evidence":["原文片段"],"duplicate_of":"疑似与已有任务重复时填其标题，否则 null"}`
+const ITEM_FIELDS = `{"title":"任务标题","item_type":"deadline|meeting|reminder|preparation|follow_up|other","belongs_to_user":"yes|no|uncertain","belonging_reason":"判断依据","user_role":"owner|participant|notified|helper|unclear","start_time":"YYYY-MM-DDTHH:mm 或 null","due_time":"YYYY-MM-DDTHH:mm 或 null","location":"地点或 null","priority":"high|medium|low|unknown","confidence":0.0,"suggested_action":"add|confirm|ignore|ask_user","notes":["注意事项，可为空数组"],"evidence":["原文片段"],"duplicate_of":"疑似与已有任务重复时填其标题，否则 null","tags":["1-2 个简短分类标签，可为空数组"]}`
 
 const DUP_RULE = `查重：把每个提取出的事项与「用户已有任务」对照，若明显是同一件事（同一事件的不同表述、同一时间点的同名活动），在 duplicate_of 字段填对应已有任务的标题；否则为 null。疑似重复的事项仍然要输出，由用户决定是否重复添加。`
 
@@ -91,7 +93,8 @@ export function buildInstructions(
   profile: Profile,
   existingTasks: ExistingTaskBrief[] = [],
   belongingPrior = '',
-  personalMemory = ''
+  personalMemory = '',
+  tagCandidates: string[] = []
 ): string {
   return `你是 谷子助手（个人事项捕获助手）的解析引擎。用户会提交剪切板文本、聊天截图、通知、邮件或文件内容，你需要从中提取「行动项/待办」，并判断每一项是否属于该用户本人。
 
@@ -110,6 +113,13 @@ ${EXTRACT_RULES}
 
 # 时间解析
 ${timeRules()}
+
+# 分类标签
+每项可选地给 1-2 个简短的名词类分类标签（tags 字段）。${
+    tagCandidates.length
+      ? `用户已有标签：${tagCandidates.slice(0, 20).join('、')}。内容明确对应某个已有标签时必须原样复用该名字，不要另起近义新名；`
+      : ''
+  }对应不上可给新的简短标签或留空数组，不要为了打标签而硬凑。
 
 # 输出格式
 只输出一个 JSON 对象，不要输出任何其他文字或代码块标记：
@@ -303,7 +313,15 @@ export function normalizeItem(raw: Record<string, unknown>): ParsedItem | null {
     suggested_action: oneOf(raw.suggested_action, ['add', 'confirm', 'ignore', 'ask_user'] as const, 'confirm'),
     evidence: Array.isArray(raw.evidence) ? raw.evidence.filter((e): e is string => typeof e === 'string').slice(0, 5) : [],
     notes: Array.isArray(raw.notes) ? raw.notes.filter((n): n is string => typeof n === 'string').slice(0, 10) : [],
-    duplicate_of: typeof raw.duplicate_of === 'string' && raw.duplicate_of ? raw.duplicate_of : null
+    duplicate_of: typeof raw.duplicate_of === 'string' && raw.duplicate_of ? raw.duplicate_of : null,
+    tags: Array.isArray(raw.tags)
+      ? [...new Set(
+          raw.tags
+            .filter((t): t is string => typeof t === 'string')
+            .map((t) => t.trim().replace(/^#/, '').slice(0, 16))
+            .filter(Boolean)
+        )].slice(0, 3)
+      : []
   }
 }
 

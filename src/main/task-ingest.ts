@@ -20,6 +20,7 @@ export function createTaskFromItem(sourceId: string, item: ParsedItem, status: T
     suggestedAction: item.suggested_action,
     evidence: item.evidence,
     notes: item.notes,
+    tags: item.tags ?? [],
     duplicateOf: item.duplicate_of,
     status,
     feedback: null

@@ -9,6 +9,8 @@ interface Props {
   confirmLabel: string
   onSave: (patch: Partial<TaskRecord>) => void
   onClose: () => void
+  /** 传入即显示「删除任务」（两步确认后触发）；不传则不显示 */
+  onDelete?: () => void
 }
 
 const input =
@@ -19,7 +21,8 @@ export default function EditTaskModal({
   heading,
   confirmLabel,
   onSave,
-  onClose
+  onClose,
+  onDelete
 }: Props): React.JSX.Element {
   const [title, setTitle] = useState(task.title)
   const [itemType, setItemType] = useState<ItemType>(task.itemType)
@@ -28,6 +31,16 @@ export default function EditTaskModal({
   const [location, setLocation] = useState(task.location ?? '')
   const [priority, setPriority] = useState<Priority>(task.priority)
   const [remind, setRemind] = useState(remindToInput(task.remindOffsetMin))
+  const [tags, setTags] = useState<string[]>(task.tags)
+  const [tagDraft, setTagDraft] = useState('')
+  const [checklistText, setChecklistText] = useState(task.checklist.map((c) => c.text).join('\n'))
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const addTag = (): void => {
+    const t = tagDraft.trim().replace(/^#/, '')
+    if (t && !tags.includes(t) && tags.length < 8) setTags([...tags, t])
+    setTagDraft('')
+  }
 
   const save = (): void => {
     if (!title.trim()) return
@@ -38,6 +51,13 @@ export default function EditTaskModal({
       dueTime: dueTime || null,
       location: location.trim() || null,
       priority,
+      tags,
+      // 按行重建清单；同名条目保留原勾选状态
+      checklist: checklistText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((text) => ({ text, done: task.checklist.find((c) => c.text === text)?.done ?? false })),
       remindOffsetMin: remindFromInput(remind)
     })
   }
@@ -117,8 +137,64 @@ export default function EditTaskModal({
               </select>
             </label>
           </div>
+          <label className="flex flex-col gap-1">
+            <span className="text-slate-500">检查清单（每行一条，详情页可逐项勾选）</span>
+            <textarea
+              className={`${input} min-h-16 resize-y leading-6`}
+              value={checklistText}
+              onChange={(e) => setChecklistText(e.target.value)}
+              placeholder="如：订会议室&#10;准备幻灯片"
+            />
+          </label>
+          <div className="flex flex-col gap-1">
+            <span className="text-slate-500">标签</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {tags.map((t) => (
+                <span key={t} className="flex items-center gap-1 rounded-md bg-brand-soft px-2 py-0.5 text-xs text-brand">
+                  #{t}
+                  <button
+                    className="text-brand/60 hover:text-brand"
+                    onClick={() => setTags(tags.filter((x) => x !== t))}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+              <input
+                className="min-w-24 flex-1 rounded-lg border border-slate-300 px-2 py-1 text-xs focus:border-slate-400 focus:outline-none"
+                placeholder="回车添加标签，如 课程"
+                value={tagDraft}
+                onChange={(e) => setTagDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing) return
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault()
+                    addTag()
+                  }
+                }}
+                onBlur={addTag}
+              />
+            </div>
+          </div>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-5 flex items-center gap-2">
+          {onDelete &&
+            (confirmDelete ? (
+              <button
+                className="rounded-lg bg-red-500 px-3 py-1.5 text-sm text-white hover:bg-red-600"
+                onClick={onDelete}
+              >
+                确认删除
+              </button>
+            ) : (
+              <button
+                className="rounded-lg px-3 py-1.5 text-sm text-red-400 hover:bg-red-50 hover:text-red-600"
+                onClick={() => setConfirmDelete(true)}
+              >
+                删除任务
+              </button>
+            ))}
+          <div className="flex-1" />
           <button
             className="rounded-lg px-4 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
             onClick={close}

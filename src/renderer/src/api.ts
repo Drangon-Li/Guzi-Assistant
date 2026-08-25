@@ -62,6 +62,7 @@ export const api = {
 
   listTasks: () => inv<TaskRecord[]>('tasks:list'),
   updateTask: (id: string, patch: Partial<TaskRecord>) => inv<void>('tasks:update', id, patch),
+  deleteTask: (id: string) => inv<void>('tasks:delete', id),
   bulkTasks: (ids: string[], status: TaskStatus) => inv<void>('tasks:bulk', ids, status),
   quickAddTask: (text: string) => inv<{ added: number; titles: string[] }>('tasks:quick-add', text),
 

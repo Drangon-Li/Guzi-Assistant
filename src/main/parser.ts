@@ -1,4 +1,4 @@
-import { getProfile, getSettings, listTasks, personalMemoryText } from './db'
+import { getProfile, getSettings, listTasks, listTaskTags, personalMemoryText } from './db'
 import {
   buildInstructions,
   extractText,
@@ -228,7 +228,7 @@ export async function parseToItemsRaw(input: {
     .map((t) => ({ title: t.title, due_time: t.dueTime }))
 
   const output = await callModel(
-    buildInstructions(profile, existing, belongingPriorFromProfile(profile), personalMemoryText()),
+    buildInstructions(profile, existing, belongingPriorFromProfile(profile), personalMemoryText(), listTaskTags()),
     [{ role: 'user', content }],
     input.imageDataUrl ? 'parse_vision' : 'parse_text',
     input.signal

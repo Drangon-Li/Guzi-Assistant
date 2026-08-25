@@ -20,6 +20,8 @@ const base = {
   duplicateOf: null,
   feedback: null,
   sourceId: null,
+  tags: [],
+  checklist: [],
   createdAt: '2026-08-20T09:00',
   updatedAt: '2026-08-20T09:00'
 }
@@ -79,6 +81,20 @@ check(
 check(
   '空输入返回空数组',
   rankTaskSuggestions([], NOW).length === 0
+)
+
+const starredTiers = rankTaskSuggestions(
+  [
+    task('plain-today', { dueTime: '2026-08-25T20:00' }),
+    task('starred-today', { dueTime: '2026-08-25T20:00', tags: ['课程'] })
+  ],
+  NOW,
+  { starredTags: ['课程'] }
+)
+const starredFlat = starredTiers.flatMap((t) => t.items)
+check(
+  '重点标签加分并给出理由',
+  starredFlat[0].task.id === 'starred-today' && starredFlat[0].reasons.includes('重点标签')
 )
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')

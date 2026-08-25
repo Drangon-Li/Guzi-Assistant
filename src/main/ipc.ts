@@ -6,6 +6,7 @@ import {
   bulkUpdateStatus,
   deleteReport,
   deleteSourceContent,
+  deleteTask,
   deleteWorkRecord,
   appUsageRange,
   exportRange,
@@ -285,6 +286,10 @@ export function registerIpc(): void {
   ipcMain.handle('tasks:bulk', (_e, ids: string[], status: TaskStatus) => {
     if (!STATUSES.includes(status)) return
     bulkUpdateStatus(ids, status)
+    broadcast('guzi-assistant:tasks-updated')
+  })
+  ipcMain.handle('tasks:delete', (_e, id: string) => {
+    deleteTask(String(id))
     broadcast('guzi-assistant:tasks-updated')
   })
 

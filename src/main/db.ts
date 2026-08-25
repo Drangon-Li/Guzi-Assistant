@@ -12,7 +12,7 @@ import { resolveDirectModelSettings } from '@shared/model-configuration'
 import { normalizeHistoryHost } from '@shared/history'
 import { createSqliteHistorySegmentIndex, type HistorySegmentIndex } from './history/segment-index.ts'
 import { createSqliteHistorySummaryIndex, type HistorySummaryIndex } from './history/summary-index.ts'
-import { migrateTaskReminders, migrateWorkRecords, scrubInvalidTaskNames } from './db-migrations.ts'
+import { migrateTaskExtras, migrateTaskReminders, migrateWorkRecords, scrubInvalidTaskNames } from './db-migrations.ts'
 import type {
   AppSettings,
   AppCategoryOverride,
@@ -185,6 +185,7 @@ export function initDb(): void {
   migrateWorkRecords(db)
   // 老库迁移：tasks 加提醒三列（纯加列，旧客户端 SELECT * 忽略即可）
   migrateTaskReminders(db)
+  migrateTaskExtras(db)
   // 老数据清理：裸 App 名/泛化名/窗口标题残片的 task 标签置空（不进统计、不进模型候选）
   scrubInvalidTaskNames(db)
   const pmCols = (db.prepare('PRAGMA table_info(personal_memory)').all() as { name: string }[]).map((c) => c.name)
@@ -295,6 +296,7 @@ export function getSettings(): AppSettings {
     cmd_shift_c: 'CommandOrControl+Shift+C'
   }
   return {
+    starredTags: parseList(map.starredTags),
     hotkey: map.hotkey || legacy[map.hotkeyMode] || 'Control+\\',
     screenshotHotkey: map.screenshotHotkey || 'Control+Shift+\\',
     mainWindowHotkey: map.mainWindowHotkey || 'Alt+G',
@@ -401,6 +403,13 @@ export function saveSettings(patch: Partial<AppSettings>): void {
   )
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) continue
+    if (k === 'starredTags') {
+      const values = Array.isArray(v)
+        ? v.filter((item): item is string => typeof item === 'string').map((item) => item.trim().replace(/,/g, '')).filter(Boolean)
+        : []
+      stmt.run(k, [...new Set(values)].join(','))
+      continue
+    }
     if (k === 'historyIncludedHosts' || k === 'historyExcludedHosts') {
       const values = Array.isArray(v)
         ? v.map((item) => normalizeHistoryHost(item)).filter((item): item is string => item !== null)
@@ -559,6 +568,8 @@ interface TaskRow {
   duplicate_of: string | null
   status: string
   feedback: string | null
+  tags: string
+  checklist: string
   remind_offset_min: number | null
   reminded_at: string | null
   snoozed_until: string | null
@@ -586,6 +597,8 @@ function rowToTask(r: TaskRow): TaskRecord {
     duplicateOf: r.duplicate_of,
     status: r.status as TaskStatus,
     feedback: r.feedback,
+    tags: JSON.parse(r.tags || '[]') as string[],
+    checklist: JSON.parse(r.checklist || '[]') as TaskRecord['checklist'],
     remindOffsetMin: r.remind_offset_min,
     remindedAt: r.reminded_at,
     snoozedUntil: r.snoozed_until,
@@ -594,14 +607,18 @@ function rowToTask(r: TaskRow): TaskRecord {
   }
 }
 
-/** 提醒三字段是簿记状态，捕获链路的调用方不必关心，缺省即 null。 */
-type NewTask = Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt' | 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'> &
-  Partial<Pick<TaskRecord, 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'>>
+/** 提醒三字段是簿记状态、标签/清单可缺省，捕获链路的调用方不必关心。 */
+type NewTask = Omit<
+  TaskRecord,
+  'id' | 'createdAt' | 'updatedAt' | 'tags' | 'checklist' | 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'
+> & Partial<Pick<TaskRecord, 'tags' | 'checklist' | 'remindOffsetMin' | 'remindedAt' | 'snoozedUntil'>>
 
 export function createTask(t: NewTask): TaskRecord {
   const now = localNow()
   const rec: TaskRecord = {
     ...t,
+    tags: t.tags ?? [],
+    checklist: t.checklist ?? [],
     remindOffsetMin: t.remindOffsetMin ?? null,
     remindedAt: t.remindedAt ?? null,
     snoozedUntil: t.snoozedUntil ?? null,
@@ -613,14 +630,15 @@ export function createTask(t: NewTask): TaskRecord {
     INSERT INTO tasks (
       id, source_id, title, item_type, belongs_to_user, belonging_reason, user_role,
       start_time, due_time, location, priority, confidence, suggested_action,
-      evidence, notes, duplicate_of, status, feedback,
+      evidence, notes, duplicate_of, status, feedback, tags, checklist,
       remind_offset_min, reminded_at, snoozed_until, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     rec.id, rec.sourceId, rec.title, rec.itemType, rec.belongsToUser, rec.belongingReason,
     rec.userRole, rec.startTime, rec.dueTime, rec.location, rec.priority, rec.confidence,
     rec.suggestedAction, JSON.stringify(rec.evidence), JSON.stringify(rec.notes), rec.duplicateOf,
-    rec.status, rec.feedback, rec.remindOffsetMin, rec.remindedAt, rec.snoozedUntil,
+    rec.status, rec.feedback, JSON.stringify(rec.tags), JSON.stringify(rec.checklist),
+    rec.remindOffsetMin, rec.remindedAt, rec.snoozedUntil,
     rec.createdAt, rec.updatedAt
   )
   return rec
@@ -682,6 +700,8 @@ const TASK_EDITABLE: Record<string, string> = {
   status: 'status',
   feedback: 'feedback',
   notes: 'notes',
+  tags: 'tags',
+  checklist: 'checklist',
   belongsToUser: 'belongs_to_user', // #15：允许用户改判归属（驱动个性化学习）
   remindOffsetMin: 'remind_offset_min'
 }
@@ -724,7 +744,7 @@ export function updateTask(id: string, patch: Partial<TaskRecord>): void {
     if (k in patch) {
       sets.push(`${col} = ?`)
       const v = (patch as Record<string, unknown>)[k]
-      values.push(k === 'notes' ? JSON.stringify(v) : v)
+      values.push(k === 'notes' || k === 'tags' || k === 'checklist' ? JSON.stringify(v) : v)
     }
   }
   if (!sets.length) return
@@ -769,6 +789,32 @@ export function bulkUpdateStatus(ids: string[], status: TaskStatus): void {
     for (const id of list) stmt.run(status, localNow(), id)
   })
   run(ids)
+}
+
+/** 彻底删除任务；其来源若再无其他任务引用，连来源和证据截图一并清掉。 */
+export function deleteTask(id: string): void {
+  const t = db.prepare('SELECT source_id FROM tasks WHERE id = ?').get(id) as
+    | { source_id: string | null }
+    | undefined
+  if (!t) return
+  db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
+  if (t.source_id) {
+    const n = (db.prepare('SELECT count(*) AS n FROM tasks WHERE source_id = ?').get(t.source_id) as { n: number }).n
+    if (n === 0) {
+      deleteSourceRow(t.source_id)
+      deleteShot(t.source_id)
+    }
+  }
+}
+
+/** 用户标签词表（按使用频次降序）：筛选条展示 + 解析预打标签的候选。 */
+export function listTaskTags(): string[] {
+  const rows = db.prepare("SELECT tags FROM tasks WHERE status != 'ignored'").all() as { tags: string }[]
+  const freq = new Map<string, number>()
+  for (const row of rows) {
+    for (const tag of JSON.parse(row.tags || '[]') as string[]) freq.set(tag, (freq.get(tag) ?? 0) + 1)
+  }
+  return [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([tag]) => tag)
 }
 
 // ---------- detections（屏幕感知本地检测历史，被动留存进「记忆」页）----------
