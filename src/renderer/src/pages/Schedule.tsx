@@ -8,6 +8,7 @@ import TaskDetailModal from '../components/TaskDetailModal'
 import Timeline, { type TimelineMode } from './Timeline'
 import QuickAddTask from '../components/QuickAddTask'
 import { Segmented } from '../components/ui'
+import { rankTaskSuggestions } from '@shared/task-suggest'
 
 interface Props {
   tasks: TaskRecord[]
@@ -15,11 +16,29 @@ interface Props {
   onOpenAssistant: () => void
 }
 
-type Tab = 'today' | 'next3' | 'week' | 'all'
+type Tab = 'suggest' | 'today' | 'next3' | 'week' | 'all'
 type View = 'list' | 'timeline'
 
 const ACTIVE_STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'overdue']
 const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+/** 视图/筛选选择持久化：切页会卸载组件，重进时恢复上一次的选择。 */
+function readPref<T extends string>(key: string, valid: readonly T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(key)
+    return valid.includes(v as T) ? (v as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writePref(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* 隐私模式等场景写不进就算了，不影响功能 */
+  }
+}
 
 function timeOf(t: TaskRecord): string | null {
   return t.dueTime ?? t.startTime
@@ -41,9 +60,25 @@ function nowLocal(): string {
 }
 
 export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props): React.JSX.Element {
-  const [view, setView] = useState<View>('list')
-  const [tab, setTab] = useState<Tab>('today')
-  const [tlMode, setTlMode] = useState<TimelineMode>('day')
+  const [view, setViewRaw] = useState<View>(() => readPref('schedule.view', ['list', 'timeline'], 'list'))
+  const [tab, setTabRaw] = useState<Tab>(() =>
+    readPref('schedule.tab', ['suggest', 'today', 'next3', 'week', 'all'], 'today')
+  )
+  const [tlMode, setTlModeRaw] = useState<TimelineMode>(() =>
+    readPref('schedule.tlMode', ['day', 'week', 'month'], 'day')
+  )
+  const setView = (v: View): void => {
+    setViewRaw(v)
+    writePref('schedule.view', v)
+  }
+  const setTab = (v: Tab): void => {
+    setTabRaw(v)
+    writePref('schedule.tab', v)
+  }
+  const setTlMode = (v: TimelineMode): void => {
+    setTlModeRaw(v)
+    writePref('schedule.tlMode', v)
+  }
   const [editing, setEditing] = useState<TaskRecord | null>(null)
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
@@ -60,10 +95,28 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
   const ignored = tasks.filter((t) => t.status === 'ignored')
   const overdue = active.filter((t) => t.status === 'overdue')
   const unscheduled = active.filter((t) => !timeOf(t) && t.status !== 'overdue')
+  // 已过期：时间在今天之前、但既没完成也没进 overdue 的任务（典型是只有开始时间的「开过的会」，
+  // 不会被 due_time 驱动的 overdue 扫描抓到）。单独归入折叠区，与已完成/已忽略并列，不再滞留「全部」。
+  const today = todayKey()
+  const expired = active.filter((t) => {
+    if (t.status === 'overdue') return false
+    const d = dayKey(timeOf(t))
+    return d !== null && d < today
+  })
+  const expiredIds = new Set(expired.map((t) => t.id))
 
-  const sections: { title: string; list: TaskRecord[]; empty?: string }[] = []
-  if (tab === 'today') {
-    const today = todayKey()
+  const sections: { title: string; list: TaskRecord[]; empty?: string; hints?: Map<string, string> }[] = []
+  if (tab === 'suggest') {
+    // 谷子建议：时间紧迫度 + 优先级本地打分，分档给出「先办什么」；含已过期/未排期的候选
+    const tiers = rankTaskSuggestions(tasks, nowLocal())
+    if (!tiers.length) sections.push({ title: '谷子建议', list: [], empty: '没有待办任务，休息一下吧' })
+    for (const tier of tiers)
+      sections.push({
+        title: tier.title,
+        list: tier.items.map((s) => s.task),
+        hints: new Map(tier.items.map((s) => [s.task.id, s.reasons.slice(0, 2).join(' · ')]))
+      })
+  } else if (tab === 'today') {
     if (overdue.length) sections.push({ title: '已延期', list: overdue })
     sections.push({
       title: '今日',
@@ -87,7 +140,11 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
     }
     if (unscheduled.length) sections.push({ title: '未排期', list: unscheduled })
   } else {
-    sections.push({ title: '全部未完成', list: active, empty: '没有未完成的任务' })
+    sections.push({
+      title: '全部未完成',
+      list: active.filter((t) => !expiredIds.has(t.id)),
+      empty: '没有未完成的任务'
+    })
   }
 
   return (
@@ -111,6 +168,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
             value={tab}
             onChange={setTab}
             options={[
+              ['suggest', '谷子建议'],
               ['today', '今日'],
               ['next3', '近三天'],
               ['week', '本周'],
@@ -175,6 +233,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
                 <TaskRow
                   key={t.id}
                   task={t}
+                  hint={sec.hints?.get(t.id)}
                   onOpen={() => setDetail(t)}
                   onEdit={() => setEditing(t)}
                   onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
@@ -188,6 +247,25 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
             </div>
           </section>
         ))}
+
+        {view === 'list' && expired.length > 0 && (
+          <details>
+            <summary className="cursor-pointer text-xs text-slate-400 select-none">
+              已过期（{expired.length}）
+            </summary>
+            <div className="mt-2 flex flex-col gap-2">
+              {expired.map((t) => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  onOpen={() => setDetail(t)}
+                  onEdit={() => setEditing(t)}
+                  onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
+                />
+              ))}
+            </div>
+          </details>
+        )}
 
         {view === 'list' && ignored.length > 0 && (
           <details>
@@ -279,11 +357,14 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
 
 function TaskRow({
   task,
+  hint,
   onOpen,
   onEdit,
   onShowSource
 }: {
   task: TaskRecord
+  /** 「谷子建议」里的推荐理由，如「今天截止 · 高优先级」 */
+  hint?: string
   onOpen: () => void
   onEdit: () => void
   onShowSource: () => void
@@ -293,16 +374,22 @@ function TaskRow({
   const [leaving, setLeaving] = useState(false)
   const completing = !isDone
 
-  // 勾选后先播完成动画（保持勾选/划线），动画结束再真正改状态，避免任务瞬间消失
   const toggle = (): void => {
     if (leaving) return
-    setLeaving(true)
     const next: TaskStatus = isDone
       ? task.dueTime || task.startTime
         ? 'scheduled'
         : 'not_started'
       : 'done'
-    window.setTimeout(() => void api.updateTask(task.id, { status: next }), 340)
+    // 取消勾选：立即恢复，不播完成动画——收拢再在上方重现的双段位移正是卡顿感的来源
+    if (isDone) {
+      void api.updateTask(task.id, { status: next })
+      return
+    }
+    // 勾选完成：先播完成动画（勾选+划线短暂停留 → 淡出 → 高度收拢），
+    // 收拢完成后再改状态，列表刷新时该行已零高度，下方任务不会跳一下
+    setLeaving(true)
+    window.setTimeout(() => void api.updateTask(task.id, { status: next }), 400)
   }
   const checked = leaving ? completing : isDone
   const strike = isDone || (leaving && completing)
@@ -328,7 +415,12 @@ function TaskRow({
         >
           {task.title}
         </button>
-        <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-slate-400">
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-slate-400">
+          {hint && (
+            <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand">
+              {hint}
+            </span>
+          )}
           <span>{TYPE_LABELS[task.itemType]}</span>
           {task.notes.length > 0 && <span>{task.notes.length} 条注意事项</span>}
           {task.startTime && <span>开始 {fmtTime(task.startTime)}</span>}
