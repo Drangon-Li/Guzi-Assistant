@@ -343,7 +343,6 @@ async function watchTick(): Promise<void> {
     const privateWindow = privacyState === 'private'
     recordFrontmostContext(context, {
       suppressed,
-      observerHealthy: false,
       privacyState
     })
     if (excluded) {

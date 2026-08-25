@@ -22,7 +22,7 @@ import { historyDerivedWorkActive } from './history/service.ts'
 import { debugEvent } from './windows'
 
 export function legacyWorkSummaryHint(): string {
-  return historyDerivedWorkActive() ? '' : lastWorkRecordContent
+  return historyDerivedWorkActive() ? '' : lastWorkRecord.content
 }
 
 // 工作记录搭同一次识别调用的便车：让模型在 items 之外多回 work_summary + focus_task 两个顶层字段。
@@ -47,10 +47,7 @@ export function workSummaryHint(prevSummary: string, taskCandidates: string[]): 
 
 // 旧 OCR/手动路径的工作记录节流。History 派生路径不使用这组全局状态，避免跨 segment 串联。
 const WORK_RECORD_MIN_GAP_MS = 60 * 1000
-let lastWorkRecordAt = 0
-let lastWorkRecordContent = ''
-let lastWorkRecordTask: string | null = null
-let lastWorkRecordApp: string | null = null
+const lastWorkRecord = { atMs: 0, content: '', task: null as string | null, app: null as string | null }
 const OCR_FALLBACK_WORK_REASONS = new Set<OcrTriggerReason>([
   'manual',
   'observer_failure',
@@ -64,10 +61,10 @@ const OCR_FALLBACK_WORK_REASONS = new Set<OcrTriggerReason>([
 
 /** startWatch/stopWatch 复位节流状态：停启之间不残留上一轮的去重基线。 */
 export function resetWorkRecordThrottle(): void {
-  lastWorkRecordAt = 0
-  lastWorkRecordContent = ''
-  lastWorkRecordTask = null
-  lastWorkRecordApp = null
+  lastWorkRecord.atMs = 0
+  lastWorkRecord.content = ''
+  lastWorkRecord.task = null
+  lastWorkRecord.app = null
 }
 
 export function shouldPersistLegacyOcrWork(reason: OcrTriggerReason): boolean {
@@ -94,17 +91,17 @@ export function maybeAddWorkRecord(
   const appKey = normalizeTaskKey(frontApp ?? '')
   const now = Date.now()
   if (
-    normalizedSummary === lastWorkRecordContent &&
-    taskKey === normalizeTaskKey(lastWorkRecordTask ?? '') &&
-    appKey === normalizeTaskKey(lastWorkRecordApp ?? '')
+    normalizedSummary === lastWorkRecord.content &&
+    taskKey === normalizeTaskKey(lastWorkRecord.task ?? '') &&
+    appKey === normalizeTaskKey(lastWorkRecord.app ?? '')
   ) return
   // Accessibility 已经按片段聚合并限制最多 8 个上下文；不同语义活动不能再被
   // OCR 路径遗留的全局 60 秒节流合并。OCR 仍保留旧节流，避免旧路径高频写入。
-  if (source === 'ocr' && now - lastWorkRecordAt < WORK_RECORD_MIN_GAP_MS) return
-  lastWorkRecordAt = now
-  lastWorkRecordContent = normalizedSummary
-  lastWorkRecordTask = normalizedTask
-  lastWorkRecordApp = frontApp
+  if (source === 'ocr' && now - lastWorkRecord.atMs < WORK_RECORD_MIN_GAP_MS) return
+  lastWorkRecord.atMs = now
+  lastWorkRecord.content = normalizedSummary
+  lastWorkRecord.task = normalizedTask
+  lastWorkRecord.app = frontApp
   addWorkRecord({
     content: normalizedSummary,
     app: frontApp,

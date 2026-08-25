@@ -4,6 +4,7 @@ import {
   getScreenActivityStatus,
   isPrivateBrowsingContext,
   markActivityObserverFailure,
+  markActivityObserverHealthy,
   markActivityScan,
   recordOcrEvidence,
   recordFrontmostContext,
@@ -24,6 +25,9 @@ const context = { name: 'Code', bundleId: 'com.microsoft.VSCode', windowTitle: '
 
 resetActivityGate(START)
 check('观察器就绪前自动扫描 fail-closed', activityScanDecision(true, 45, START).reason === 'waiting')
+// 健康态由显式来源标记（生产路径为 sampleTick 读取前台上下文成功 / collector 事件），
+// recordFrontmostContext 本身不再隐式置 healthy。
+markActivityObserverHealthy()
 recordFrontmostContext(context, { suppressed: false, nowMs: START + 1000 })
 check('首次上下文触发事件扫描', activityScanDecision(true, 45, START + 1000).reason === 'event')
 markActivityScan('event', START + 1000)

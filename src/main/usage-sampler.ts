@@ -65,7 +65,6 @@ async function sampleTick(): Promise<void> {
     const { privacyState } = privacy
     recordFrontmostContext(context, {
       suppressed: privacy.suppressed,
-      observerHealthy: false,
       privacyState,
       nowMs: now
     })

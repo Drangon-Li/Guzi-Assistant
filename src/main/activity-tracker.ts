@@ -242,8 +242,12 @@ export function recordFrontmostContext(
   options: RecordContextOptions
 ): ActivityEvent | null {
   const nowMs = options.nowMs ?? Date.now()
-  observer = options.observerHealthy === false ? 'unavailable' : 'healthy'
-  observerDetail = options.observerHealthy === false ? 'Accessibility unavailable' : null
+  // 只有显式声明健康态的来源（collector 事件带 accessibility 状态）才更新 observer；
+  // 轮询路径（watchTick/sampleTick）不传，避免与 collector 竞写导致健康态来回抖动。
+  if (options.observerHealthy !== undefined) {
+    observer = options.observerHealthy === false ? 'unavailable' : 'healthy'
+    observerDetail = options.observerHealthy === false ? 'Accessibility unavailable' : null
+  }
   const safe = safeContext({
     ...context,
     eventKind: options.eventKind ?? context.eventKind,

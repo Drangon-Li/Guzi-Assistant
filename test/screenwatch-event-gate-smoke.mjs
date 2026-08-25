@@ -42,7 +42,7 @@ check('History 原生开关与派生开关可独立保存', /patch\.historyV2Ena
 check('History 关闭时不把 History host/app 过滤带入旧屏幕感知', /const historyEnabled = getSettings\(\)\.historyV2Enabled/.test(screenwatch) && /privacyForContext\(context, historyEnabled\)/.test(screenwatch) && /historyOnly = false/.test(privacy))
 check('暂停/停止会排队关闭 History store', /stopSampler[\s\S]*stopHistoryPersistence/.test(screenwatch))
 check('History replacement waits for previous lock release', /startAfter: historyCloseTail/.test(service))
-check('旧工作记录去重同时考虑 task 和 App', /lastWorkRecordTask/.test(workRecords) && /lastWorkRecordApp/.test(workRecords) && /normalizeTaskKey\(lastWorkRecordTask/.test(workRecords))
+check('旧工作记录去重同时考虑 task 和 App', /lastWorkRecord\.task/.test(workRecords) && /lastWorkRecord\.app/.test(workRecords) && /normalizeTaskKey\(lastWorkRecord\.task/.test(workRecords))
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)
