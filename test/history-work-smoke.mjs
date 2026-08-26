@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import {
   deriveHistoryWorkRecord
 } from '../src/main/history/work-derivation.ts'
@@ -172,7 +172,11 @@ await summarizer.close()
 
 const historyService = readFileSync(new URL('../src/main/history/service.ts', import.meta.url), 'utf8')
 const workRecords = readFileSync(new URL('../src/main/work-records.ts', import.meta.url), 'utf8')
-const db = readFileSync(new URL('../src/main/db.ts', import.meta.url), 'utf8')
+// 数据层按领域拆到 src/main/db/ 下，这里把整个目录拼起来断言，避免钉死在某个文件上。
+const db = readdirSync(new URL('../src/main/db/', import.meta.url))
+  .filter((f) => f.endsWith('.ts'))
+  .map((f) => readFileSync(new URL(`../src/main/db/${f}`, import.meta.url), 'utf8'))
+  .join('\n')
 check('两个派生开关按 AND 关系独立回滚',
   /historyV2Enabled && settings\.historyDerivedWorkEnabled/.test(historyService) && /historyDerivedWorkEnabled !== undefined/.test(readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')))
 check('旧 OCR 路径明确标记 legacy', /derivedBy: 'legacy'/.test(workRecords) && /DEFAULT 'legacy'/.test(db))

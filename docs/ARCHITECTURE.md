@@ -196,6 +196,9 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 
 ### 本地 SQLite（`<userData>/eshell.db`，兼容保留的历史文件名，`db.ts`）
 
+实现按领域拆在 `src/main/db/` 下，`db.ts` 只是 re-export 的出口；唯一持有 `Database` 句柄的是
+`db/connection.ts`，其余模块通过 `getDb()` 取句柄。
+
 | 表 | 作用 |
 |---|---|
 | `profile` | 用户档案（姓名/身份/昵称/组织/确认模式…） |
@@ -278,7 +281,9 @@ src/
     index.ts             应用生命周期 / 托盘 / 单实例
     windows.ts           主窗 + 预览窗
     ipc.ts               所有 IPC handler
-    db.ts                SQLite（档案/设置/来源/任务/检测/History 索引/FTS）
+    db.ts                SQLite 数据层出口（barrel，只做 re-export；调用方一律 from './db'）
+    db/                  按表的领域拆分：connection(建表/句柄) settings sources tasks
+                         detections work-records app-usage activity reports memory maintenance
     db-migrations.ts     增量迁移 work_records 与 History 追溯字段
     capture.ts           剪贴板/截图/文件捕获、待提交项
     screenwatch.ts       legacy 屏幕感知 + History 生命周期/摘要/双写

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 
 let failed = 0
 const check = (name, ok) => {
@@ -13,7 +13,11 @@ const workRecords = readFileSync(new URL('../src/main/work-records.ts', import.m
 const privacy = readFileSync(new URL('../src/main/privacy.ts', import.meta.url), 'utf8')
 const parser = readFileSync(new URL('../src/main/parser.ts', import.meta.url), 'utf8')
 const capture = readFileSync(new URL('../src/main/capture.ts', import.meta.url), 'utf8')
-const db = readFileSync(new URL('../src/main/db.ts', import.meta.url), 'utf8')
+// 数据层按领域拆到 src/main/db/ 下，这里把整个目录拼起来断言，避免钉死在某个文件上。
+const db = readdirSync(new URL('../src/main/db/', import.meta.url))
+  .filter((f) => f.endsWith('.ts'))
+  .map((f) => readFileSync(new URL(`../src/main/db/${f}`, import.meta.url), 'utf8'))
+  .join('\n')
 const ipc = readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')
 
 const watchStart = screenwatch.indexOf('async function watchTick')
