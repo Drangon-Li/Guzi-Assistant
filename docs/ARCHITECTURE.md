@@ -247,6 +247,7 @@ History v2 另外使用两张 SQLite 索引表：
 - **历史 `History.tsx`**：展示 6 小时摘要、10 分钟活动块和未摘要 segment 统计；支持时间范围/任务线索/App 搜索、事件类型统计展开、暂停/恢复、立即摘要、App 黑名单选择和 48 小时范围清理。
 - **个人 `Account.tsx`**：账户登录 + 用户档案。
 - **设置 `Settings.tsx`**：确认模式、快捷键、系统集成、飞书、legacy 屏幕感知、独立 History v2/派生开关、collector 健康状态、权限和数据管理。二值设置统一使用可访问 Toggle。
+  分区渲染拆在 `components/settings/` 下（每个分类一个文件），状态与保存仍集中在 `Settings.tsx`，子组件只收 props。
 - **悬浮助手 `FloatingAssistant.tsx` + `AssistantChat.tsx`**：Notion 式右下角对话，点外部关闭。
 - **预览卡 `PreviewCard.tsx`**：独立无边框窗（右下角），右侧滑入/滑出；剪贴板预览 / 解析结果 / 屏幕检测「检测到日程」三态。
 
@@ -306,6 +307,7 @@ src/
     supabase.ts          Supabase 客户端 + functionsBase
     pages/               Home / Schedule(含 Timeline 视图) / Reports / Memory / History / Account / Settings / PreviewCard / Welcome / Onboarding / ScreenPermissionGate
     components/          ui.tsx(共享小组件) / FloatingAssistant / AssistantChat / AccountSection / RechargePanel / 各种 Modal …
+      settings/          设置页七个分区各一个文件（通用/快捷键/助手/集成/屏幕感知/数据/关于）
     styles.css           设计 token + 动效
   shared/                主进程与渲染层共享（纯函数为主）
     types.ts parsing.ts ipc-channels.ts suggest.ts work-report.ts sensitive.ts history.ts activity-events.ts

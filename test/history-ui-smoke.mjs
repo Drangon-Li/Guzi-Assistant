@@ -9,7 +9,9 @@ const readDir = (dir, ext) =>
     .map((f) => read(`${dir}${f}`))
     .join('\n')
 const page = read('../src/renderer/src/pages/History.tsx')
-const settings = read('../src/renderer/src/pages/Settings.tsx')
+const settings =
+  read('../src/renderer/src/pages/Settings.tsx') +
+  readDir('../src/renderer/src/components/settings/', '.tsx')
 const settingsUi = read('../src/renderer/src/components/ui.tsx')
 const app = read('../src/renderer/src/App.tsx')
 const historyService = read('../src/main/history/service.ts')
