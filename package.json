@@ -1,7 +1,7 @@
 {
   "name": "guzi-assistant",
   "productName": "谷子助手",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "谷子助手个人事项捕获助手",
   "main": "out/main/index.js",
   "private": true,
