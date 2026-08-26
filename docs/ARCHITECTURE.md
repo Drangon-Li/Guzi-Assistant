@@ -380,15 +380,15 @@ supabase functions deploy parse --project-ref <ref>
 ```bash
 npm run typecheck        # 类型检查（main + renderer 两个 tsconfig）
 npm run build            # 构建
-npm run test:unit        # 完整纯函数/History/collector/MCP/UI smoke（无需 API）
-npm run test:history     # JSONL store、48 小时保留、崩溃恢复和 metadata 对账
-npm run test:summarizer  # 10m/6h 摘要、幂等、退避和删除竞态
-npm run test:history-work # 摘要到任务工作记录派生
-npm run test:history-ui  # History 页面、设置开关和 Toggle 源码检查
-npm run test:mcp-history # MCP loopback/Bearer/权限边界
-npm run test:ipc         # IPC 通道白名单与源码一致性
+npm test                 # 全部 smoke（自动发现 test/*-smoke.mjs，无需 API；= test:unit）
+npm test history         # 只跑文件名含 history 的用例（可给多个关键词）
+npm test -- --verbose    # 打印每个用例的完整输出，而非只打印失败的
 npm run test:parser      # 解析归属判断冒烟（需 .env 配 API）
+npm test -- --all        # 连需要 .env/API 的用例一起跑
 ```
+
+测试入口是 `test/run.mjs`：遍历 `test/*-smoke.mjs` **全部跑完再汇总**，不会像旧的 `&&` 链那样中途短路，
+新增用例放进 `test/` 即自动纳入，不必登记到 `package.json`。需要真实 API 凭据的用例记在 run.mjs 的 `NEEDS_API` 里，默认跳过。
 
 CI（`.github/workflows/ci.yml`）：PR 与 push 到 main 跑 `Typecheck & Build`。`npm ci` 的 Electron postinstall 会先准备 native addon，CI 随后执行 `npm rebuild better-sqlite3` 切换到 Node 测试 ABI，再运行 `typecheck`、`test:unit` 和 `build`。本机若 Electron 与宿主 Node ABI 不同，可先执行 `npm rebuild better-sqlite3` 跑 Node smoke，打包时 Electron Builder 会重新按 Electron ABI 构建。
 

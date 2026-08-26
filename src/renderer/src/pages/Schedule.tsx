@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import type { DetectionRecord, TaskRecord, TaskStatus } from '@shared/types'
 import { api } from '../api'
 import { dayKey, fmtTime, PRIORITY_LABELS, STATUS_LABELS, todayKey, TYPE_LABELS } from '../labels'
@@ -105,13 +105,23 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
     setBatchTag('')
     setConfirmBatchDelete(false)
   }
-  const toggleSelect = (id: string): void =>
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  // 下面几个回调都用 useCallback 固定引用：TaskRow 是 memo 组件，
+  // 每渲染新建一个箭头函数会让 memo 失效，等于白包。
+  const toggleSelect = useCallback(
+    (t: TaskRecord): void =>
+      setSelected((prev) => {
+        const next = new Set(prev)
+        if (next.has(t.id)) next.delete(t.id)
+        else next.add(t.id)
+        return next
+      }),
+    []
+  )
+  const openDetail = useCallback((t: TaskRecord): void => setDetail(t), [])
+  const openEdit = useCallback((t: TaskRecord): void => setEditing(t), [])
+  const showSource = useCallback((t: TaskRecord): void => {
+    if (t.sourceId) setSourceId(t.sourceId)
+  }, [])
   const byTag = (list: TaskRecord[]): TaskRecord[] =>
     tagFilter ? list.filter((t) => t.tags.includes(tagFilter)) : list
   const [editing, setEditing] = useState<TaskRecord | null>(null)
@@ -131,13 +141,11 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
     | null
   >(null)
   const [menuConfirm, setMenuConfirm] = useState(false)
-  const openTaskMenu =
-    (t: TaskRecord) =>
-    (e: React.MouseEvent): void => {
-      e.preventDefault()
-      setMenuConfirm(false)
-      setMenu({ kind: 'task', taskId: t.id, x: e.clientX, y: e.clientY })
-    }
+  const openTaskMenu = useCallback((t: TaskRecord, e: React.MouseEvent): void => {
+    e.preventDefault()
+    setMenuConfirm(false)
+    setMenu({ kind: 'task', taskId: t.id, x: e.clientX, y: e.clientY })
+  }, [])
   const openTagMenu =
     (tag: string) =>
     (e: React.MouseEvent): void => {
@@ -435,11 +443,11 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
                   hint={sec.hints?.get(t.id)}
                   selectMode={multiMode}
                   selected={selected.has(t.id)}
-                  onToggleSelect={() => toggleSelect(t.id)}
-                  onContextMenu={openTaskMenu(t)}
-                  onOpen={() => setDetail(t)}
-                  onEdit={() => setEditing(t)}
-                  onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
+                  onToggleSelect={toggleSelect}
+                  onContextMenu={openTaskMenu}
+                  onOpen={openDetail}
+                  onEdit={openEdit}
+                  onShowSource={showSource}
                 />
               ))}
               {!sec.list.length && sec.empty && (
@@ -461,10 +469,10 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
                 <TaskRow
                   key={t.id}
                   task={t}
-                  onContextMenu={openTaskMenu(t)}
-                  onOpen={() => setDetail(t)}
-                  onEdit={() => setEditing(t)}
-                  onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
+                  onContextMenu={openTaskMenu}
+                  onOpen={openDetail}
+                  onEdit={openEdit}
+                  onShowSource={showSource}
                 />
               ))}
             </div>
@@ -511,10 +519,10 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
                 <TaskRow
                   key={t.id}
                   task={t}
-                  onContextMenu={openTaskMenu(t)}
-                  onOpen={() => setDetail(t)}
-                  onEdit={() => setEditing(t)}
-                  onShowSource={() => t.sourceId && setSourceId(t.sourceId)}
+                  onContextMenu={openTaskMenu}
+                  onOpen={openDetail}
+                  onEdit={openEdit}
+                  onShowSource={showSource}
                 />
               ))}
             </div>
@@ -678,7 +686,9 @@ function IgnoredDeleteButton({ id }: { id: string }): React.JSX.Element {
   )
 }
 
-function TaskRow({
+// 回调统一收 task 参数（而不是让父组件按行闭包），父组件才能用 useCallback 传同一个引用进来。
+// 配合 App.tsx 里「内容没变就沿用旧对象」的重建策略，勾一条任务只会重渲染那一行。
+const TaskRow = memo(function TaskRow({
   task,
   hint,
   selectMode,
@@ -694,11 +704,11 @@ function TaskRow({
   hint?: string
   selectMode?: boolean
   selected?: boolean
-  onToggleSelect?: () => void
-  onContextMenu?: (e: React.MouseEvent) => void
-  onOpen: () => void
-  onEdit: () => void
-  onShowSource: () => void
+  onToggleSelect?: (task: TaskRecord) => void
+  onContextMenu?: (task: TaskRecord, e: React.MouseEvent) => void
+  onOpen: (task: TaskRecord) => void
+  onEdit: (task: TaskRecord) => void
+  onShowSource: (task: TaskRecord) => void
 }): React.JSX.Element {
   const isDone = task.status === 'done'
   const isOverdue = task.status === 'overdue'
@@ -728,7 +738,7 @@ function TaskRow({
         className={`flex cursor-pointer items-center gap-3 rounded-xl border bg-surface px-4 py-3 shadow-sm ${
           selected ? 'border-brand ring-1 ring-brand/40' : 'border-slate-200'
         }`}
-        onClick={onToggleSelect}
+        onClick={() => onToggleSelect?.(task)}
       >
         <input type="checkbox" readOnly checked={!!selected} className="size-4 shrink-0 accent-brand" />
         <div className="min-w-0 flex-1">
@@ -752,7 +762,7 @@ function TaskRow({
       className={`flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-4 py-3 shadow-sm ${
         leaving === 'done' ? 'animate-task-done' : leaving === 'restore' ? 'animate-task-restore' : ''
       }`}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => onContextMenu?.(task, e)}
     >
       <input
         type="checkbox"
@@ -762,7 +772,7 @@ function TaskRow({
       />
       <div className="min-w-0 flex-1">
         <button
-          onClick={onOpen}
+          onClick={() => onOpen(task)}
           className={`block w-full truncate text-left text-sm hover:text-slate-900 ${
             strike ? 'text-slate-400 line-through' : ''
           }`}
@@ -835,21 +845,21 @@ function TaskRow({
       )}
       <button
         className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-        onClick={onEdit}
+        onClick={() => onEdit(task)}
       >
         编辑
       </button>
       {task.sourceId && (
         <button
           className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-          onClick={onShowSource}
+          onClick={() => onShowSource(task)}
         >
           来源
         </button>
       )}
     </div>
   )
-}
+})
 
 /**
  * 待确认检测兜底区：没弹卡（完全被动模式）或弹卡未作决定的检测在这里回看处理。

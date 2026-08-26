@@ -41,8 +41,17 @@ let dragging = false
 let dragOffset: { dx: number; dy: number } | null = null
 
 // 主进程光标轮询：决定桌宠窗口是否穿透（见 syncInteractivity）。
-let cursorPoll: ReturnType<typeof setInterval> | null = null
+let cursorPoll: ReturnType<typeof setTimeout> | null = null
 let lastInteractiveWant: boolean | null = null
+
+// 轮询节流：按「光标最快还要多久才够得着徽章」反推下一次采样时间。徽章在屏幕角落、
+// 光标多数时间离得很远，固定 10Hz 会让主进程整天空转（常驻应用的待机功耗）。
+const POLL_MIN_MS = 100
+const POLL_MAX_MS = 400
+// 甩鼠标的峰值速度上界（DIP 点/ms，约 12000 点/秒——比横扫一整块 5K 屏还快）。
+// 安全性全押在这个上界上：只要光标不比它更快，就不可能在两次采样之间「凭空出现在徽章里」，
+// 而接近过程中 gap 变小、间隔自动收紧到 POLL_MIN_MS，末段仍是全速跟手。
+const CURSOR_MAX_PX_PER_MS = 12
 
 function accessor(): BrowserWindow | null {
   return currentPet && !currentPet.isDestroyed() ? currentPet : null
@@ -98,14 +107,13 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
   })
   win.on('closed', () => {
     if (currentPet === win) currentPet = null
-    if (cursorPoll) {
-      clearInterval(cursorPoll)
-      cursorPoll = null
-    }
-    lastInteractiveWant = null
+    stopCursorPoll()
   })
-
-  if (!cursorPoll) cursorPoll = setInterval(syncInteractivity, 100)
+  // 只在桌宠真的挂在屏幕上时轮询光标。挂到窗口事件而不是 showPet/hidePet 调用点，
+  // 因为 showInactive() 也会走 'show'，新增显隐入口不必记得来这里补一刀。
+  win.on('show', startCursorPoll)
+  win.on('hide', stopCursorPoll)
+  if (win.isVisible()) startCursorPoll()
   renderInto(win)
   // 上次退出时处于吸附态：按当前屏幕重算吸附几何（也顺带矫正旧版本存的贴边坐标）
   if (prefs.dock) applyDockGeometry(win, prefs.dock)
@@ -254,27 +262,50 @@ function maybeDockAtEdge(win: BrowserWindow): void {
     applyDock(win, 'right')
 }
 
-function cursorOverBadge(): boolean {
+/** 光标到徽章圆形热区边缘的距离（px，负数=在热区内）；桌宠不可见时返回 null。 */
+function cursorGapToBadge(): number | null {
   const b = getPetBadgeBounds()
-  if (!b) return false
+  if (!b) return null
   const p = screen.getCursorScreenPoint()
   // 圆形热区：贴合可见圆徽章（外接正方形的内切圆 + 3px 便于边缘拾取）。
   // 用方形 bounds 会把四角空白也变成可点/可拖入区，与圆形视觉不一致。
   const cx = b.x + b.width / 2
   const cy = b.y + b.height / 2
   const r = b.width / 2 + 3
-  return (p.x - cx) ** 2 + (p.y - cy) ** 2 <= r * r
+  return Math.hypot(p.x - cx, p.y - cy) - r
+}
+
+function startCursorPoll(): void {
+  if (cursorPoll) return
+  syncInteractivity()
+}
+
+function stopCursorPoll(): void {
+  if (cursorPoll) clearTimeout(cursorPoll)
+  cursorPoll = null
+  lastInteractiveWant = null
 }
 
 // OS 文件拖拽期间没有 mousemove 触发渲染层 hit-test，靠主进程轮询光标：进入徽章就临时关穿透，
 // 使拖拽/drop（以及点击/拖动桌宠）能落到窗口；离开且非拖动中恢复穿透，不挡屏幕右下角。
+// 自排下一次采样（而非固定 setInterval）：间隔随光标与徽章的距离伸缩。
 function syncInteractivity(): void {
+  cursorPoll = null
   const win = accessor()
   if (!win) return
-  const want = dragging || cursorOverBadge()
-  if (want === lastInteractiveWant) return
-  lastInteractiveWant = want
-  win.setIgnoreMouseEvents(!want, { forward: true })
+  const gap = cursorGapToBadge()
+  const want = dragging || (gap !== null && gap <= 0)
+  if (want !== lastInteractiveWant) {
+    lastInteractiveWant = want
+    win.setIgnoreMouseEvents(!want, { forward: true })
+  }
+  if (gap === null) return // 桌宠已隐藏：停轮询，'show' 事件会把它拉回来
+  // 拖动中必须跟手，固定最短间隔；否则按距离放宽。
+  const delay = dragging
+    ? POLL_MIN_MS
+    : Math.min(POLL_MAX_MS, Math.max(POLL_MIN_MS, gap / CURSOR_MAX_PX_PER_MS))
+  cursorPoll = setTimeout(syncInteractivity, delay)
+  cursorPoll.unref?.()
 }
 
 function installIpc(): void {
