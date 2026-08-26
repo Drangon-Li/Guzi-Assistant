@@ -82,7 +82,7 @@ function MainApp(): React.JSX.Element | null {
   }, [])
 
   const refresh = useCallback(() => {
-    void api.listTasks().then(setTasks)
+    void api.listTasks().then((next) => setTasks((prev) => reconcileTasks(prev, next)))
   }, [])
 
   // #70：把 Supabase 登录态(functionsBase + token)推给主进程，供 parser 调 parse 网关
@@ -309,6 +309,26 @@ function MainApp(): React.JSX.Element | null {
       )}
     </div>
   )
+}
+
+/**
+ * 主进程每次广播 tasks-updated 都重拉全表，拿回来的是一整批新对象——直接 setTasks 会让
+ * 每一行的 memo 全部失效，勾一条任务要重渲染整张列表。这里逐条比对内容，没变的沿用旧引用；
+ * 整批都没变则连 state 都不动（有些广播来自与任务无关的路径）。
+ */
+function reconcileTasks(prev: TaskRecord[], next: TaskRecord[]): TaskRecord[] {
+  const before = new Map(prev.map((t) => [t.id, t]))
+  let changed = prev.length !== next.length
+  const merged = next.map((t, i) => {
+    const old = before.get(t.id)
+    if (old && JSON.stringify(old) === JSON.stringify(t)) {
+      if (prev[i] !== old) changed = true // 内容没变但顺序变了，列表仍需重排
+      return old
+    }
+    changed = true
+    return t
+  })
+  return changed ? merged : prev
 }
 
 function filesToast(results: ParseSummary[]): string {

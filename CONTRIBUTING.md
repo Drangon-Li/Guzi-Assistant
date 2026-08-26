@@ -12,11 +12,11 @@
 npm install        # Node ≥ 22.18（原生 strip-types 跑 .ts 测试）
 npm run dev        # 开发模式
 npm run typecheck  # 类型检查
-npm run test:unit  # 纯函数单测（无需 API，CI 必跑）
+npm test           # 纯函数单测（无需 API，CI 必跑）
 npm run build      # 构建
 ```
 
-提 PR 前请本地跑通 `npm run typecheck && npm run test:unit && npm run build`。
+提 PR 前请本地跑通 `npm run typecheck && npm test && npm run build`。
 
 ## CI
 

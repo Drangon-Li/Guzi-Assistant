@@ -196,6 +196,9 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 
 ### 本地 SQLite（`<userData>/eshell.db`，兼容保留的历史文件名，`db.ts`）
 
+实现按领域拆在 `src/main/db/` 下，`db.ts` 只是 re-export 的出口；唯一持有 `Database` 句柄的是
+`db/connection.ts`，其余模块通过 `getDb()` 取句柄。
+
 | 表 | 作用 |
 |---|---|
 | `profile` | 用户档案（姓名/身份/昵称/组织/确认模式…） |
@@ -244,6 +247,7 @@ History v2 另外使用两张 SQLite 索引表：
 - **历史 `History.tsx`**：展示 6 小时摘要、10 分钟活动块和未摘要 segment 统计；支持时间范围/任务线索/App 搜索、事件类型统计展开、暂停/恢复、立即摘要、App 黑名单选择和 48 小时范围清理。
 - **个人 `Account.tsx`**：账户登录 + 用户档案。
 - **设置 `Settings.tsx`**：确认模式、快捷键、系统集成、飞书、legacy 屏幕感知、独立 History v2/派生开关、collector 健康状态、权限和数据管理。二值设置统一使用可访问 Toggle。
+  分区渲染拆在 `components/settings/` 下（每个分类一个文件），状态与保存仍集中在 `Settings.tsx`，子组件只收 props。
 - **悬浮助手 `FloatingAssistant.tsx` + `AssistantChat.tsx`**：Notion 式右下角对话，点外部关闭。
 - **预览卡 `PreviewCard.tsx`**：独立无边框窗（右下角），右侧滑入/滑出；剪贴板预览 / 解析结果 / 屏幕检测「检测到日程」三态。
 
@@ -278,7 +282,9 @@ src/
     index.ts             应用生命周期 / 托盘 / 单实例
     windows.ts           主窗 + 预览窗
     ipc.ts               所有 IPC handler
-    db.ts                SQLite（档案/设置/来源/任务/检测/History 索引/FTS）
+    db.ts                SQLite 数据层出口（barrel，只做 re-export；调用方一律 from './db'）
+    db/                  按表的领域拆分：connection(建表/句柄) settings sources tasks
+                         detections work-records app-usage activity reports memory maintenance
     db-migrations.ts     增量迁移 work_records 与 History 追溯字段
     capture.ts           剪贴板/截图/文件捕获、待提交项
     screenwatch.ts       legacy 屏幕感知 + History 生命周期/摘要/双写
@@ -301,6 +307,7 @@ src/
     supabase.ts          Supabase 客户端 + functionsBase
     pages/               Home / Schedule(含 Timeline 视图) / Reports / Memory / History / Account / Settings / PreviewCard / Welcome / Onboarding / ScreenPermissionGate
     components/          ui.tsx(共享小组件) / FloatingAssistant / AssistantChat / AccountSection / RechargePanel / 各种 Modal …
+      settings/          设置页七个分区各一个文件（通用/快捷键/助手/集成/屏幕感知/数据/关于）
     styles.css           设计 token + 动效
   shared/                主进程与渲染层共享（纯函数为主）
     types.ts parsing.ts ipc-channels.ts suggest.ts work-report.ts sensitive.ts history.ts activity-events.ts
@@ -380,15 +387,15 @@ supabase functions deploy parse --project-ref <ref>
 ```bash
 npm run typecheck        # 类型检查（main + renderer 两个 tsconfig）
 npm run build            # 构建
-npm run test:unit        # 完整纯函数/History/collector/MCP/UI smoke（无需 API）
-npm run test:history     # JSONL store、48 小时保留、崩溃恢复和 metadata 对账
-npm run test:summarizer  # 10m/6h 摘要、幂等、退避和删除竞态
-npm run test:history-work # 摘要到任务工作记录派生
-npm run test:history-ui  # History 页面、设置开关和 Toggle 源码检查
-npm run test:mcp-history # MCP loopback/Bearer/权限边界
-npm run test:ipc         # IPC 通道白名单与源码一致性
+npm test                 # 全部 smoke（自动发现 test/*-smoke.mjs，无需 API；= test:unit）
+npm test history         # 只跑文件名含 history 的用例（可给多个关键词）
+npm test -- --verbose    # 打印每个用例的完整输出，而非只打印失败的
 npm run test:parser      # 解析归属判断冒烟（需 .env 配 API）
+npm test -- --all        # 连需要 .env/API 的用例一起跑
 ```
+
+测试入口是 `test/run.mjs`：遍历 `test/*-smoke.mjs` **全部跑完再汇总**，不会像旧的 `&&` 链那样中途短路，
+新增用例放进 `test/` 即自动纳入，不必登记到 `package.json`。需要真实 API 凭据的用例记在 run.mjs 的 `NEEDS_API` 里，默认跳过。
 
 CI（`.github/workflows/ci.yml`）：PR 与 push 到 main 跑 `Typecheck & Build`。`npm ci` 的 Electron postinstall 会先准备 native addon，CI 随后执行 `npm rebuild better-sqlite3` 切换到 Node 测试 ABI，再运行 `typecheck`、`test:unit` 和 `build`。本机若 Electron 与宿主 Node ABI 不同，可先执行 `npm rebuild better-sqlite3` 跑 Node smoke，打包时 Electron Builder 会重新按 Electron ABI 构建。
 

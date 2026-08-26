@@ -1,14 +1,22 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
+// 目录整体拼接：数据层/设置页按领域拆成多文件后，断言不必钉死在某一个文件上。
+const readDir = (dir, ext) =>
+  readdirSync(new URL(dir, import.meta.url))
+    .filter((f) => f.endsWith(ext))
+    .map((f) => read(`${dir}${f}`))
+    .join('\n')
 const page = read('../src/renderer/src/pages/History.tsx')
-const settings = read('../src/renderer/src/pages/Settings.tsx')
+const settings =
+  read('../src/renderer/src/pages/Settings.tsx') +
+  readDir('../src/renderer/src/components/settings/', '.tsx')
 const settingsUi = read('../src/renderer/src/components/ui.tsx')
 const app = read('../src/renderer/src/App.tsx')
 const historyService = read('../src/main/history/service.ts')
 const privacy = read('../src/main/privacy.ts')
-const db = read('../src/main/db.ts')
+const db = readDir('../src/main/db/', '.ts')
 const api = read('../src/renderer/src/api.ts')
 const ipc = read('../src/shared/ipc-channels.ts')
 const picker = read('../src/main/history/app-picker.ts')

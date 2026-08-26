@@ -52,7 +52,7 @@ npm run dev
 
 ```sh
 npm run typecheck    # 主进程与渲染层两套 tsconfig
-npm run test:unit    # 纯函数单测
+npm test             # 纯函数单测（全部跑完再汇总；`npm test history` 可按关键词筛）
 npm run build        # 构建主进程、preload 和渲染层
 npm run pack:dir     # 生成未签名的 arm64 .app 目录
 npm run pack:mac     # 生成 arm64 DMG + ZIP
