@@ -78,7 +78,9 @@ export function Segmented<T extends string>({
         <button
           key={key}
           onClick={() => onChange(key)}
-          className={`rounded-md px-3 py-1 ${
+          // whitespace-nowrap：这组 pill 常和标题、日期翻页挤在同一行，
+          // 空间一紧张标签就会从中间断行（「工作记 录」），宁可整组溢出也不断字
+          className={`rounded-md px-3 py-1 whitespace-nowrap transition-colors ${
             value === key
               ? 'bg-surface text-slate-900 font-medium shadow-sm'
               : 'text-slate-400 hover:text-slate-700'
@@ -103,14 +105,14 @@ export function DayNav({ day, onChange }: { day: string; onChange: (d: string) =
   return (
     <div className="flex items-center gap-2 text-sm">
       <button
-        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 hover:bg-slate-50"
+        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 transition-colors hover:bg-slate-50"
         onClick={() => shift(-1)}
       >
         ←
       </button>
       <span className="w-28 text-center font-medium">{day === today ? `今天 ${day.slice(5)}` : day}</span>
       <button
-        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 transition-colors hover:bg-slate-50 disabled:opacity-40"
         onClick={() => shift(1)}
         disabled={day >= today}
       >
@@ -140,8 +142,9 @@ export function BarRow({
     <li className="group flex items-center gap-3 text-sm">
       <span className="w-36 shrink-0 truncate text-slate-600">{label}</span>
       <div className="h-2 min-w-0 flex-1 rounded-full bg-slate-100">
+        {/* 宽度过渡：翻到另一天时条子长过去，而不是整排数值瞬间跳成另一组 */}
         <div
-          className="h-2 rounded-full bg-brand"
+          className="h-2 rounded-full bg-brand transition-[width] duration-300 ease-out"
           style={{ width: `${Math.max(2, Math.round((value / Math.max(max, 1)) * 100))}%` }}
         />
       </div>
@@ -151,7 +154,7 @@ export function BarRow({
       </span>
       {onDelete && (
         <button
-          className="invisible shrink-0 px-1 text-xs text-slate-400 group-hover:visible hover:text-red-500"
+          className="shrink-0 px-1 text-xs text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-500"
           onClick={onDelete}
         >
           删除

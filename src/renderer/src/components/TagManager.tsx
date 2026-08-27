@@ -196,7 +196,7 @@ export default function TagManager({
                       {hiddenTags.includes(s.tag) ? '显示' : '隐藏'}
                     </button>
                     <button
-                      className="invisible shrink-0 px-1 text-xs text-slate-400 group-hover:visible hover:text-slate-600"
+                      className="shrink-0 px-1 text-xs text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-slate-600"
                       onClick={() => {
                         setDraft(s.tag)
                         setRenaming(s.tag)
@@ -205,7 +205,7 @@ export default function TagManager({
                       重命名
                     </button>
                     <button
-                      className="invisible shrink-0 px-1 text-xs text-slate-400 group-hover:visible hover:text-red-500"
+                      className="shrink-0 px-1 text-xs text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-500"
                       disabled={busy}
                       onClick={() => void removeTags([s.tag])}
                     >

@@ -151,14 +151,15 @@ function MainApp(): React.JSX.Element | null {
     }
   }, [refresh])
 
-  // 切页过渡：先淡出旧页，再换页并淡入新页
+  // 切页过渡：旧页快速淡出，新页走 animate-page（淡入 + 轻微上移）。
+  // 淡出压到 100ms——纯淡出没有信息量，拖长了只会让切页显得迟钝。
   useEffect(() => {
     if (page === shownPage) return
     setPageVisible(false)
     const t = window.setTimeout(() => {
       setShownPage(page)
       setPageVisible(true)
-    }, 150)
+    }, 100)
     return () => window.clearTimeout(t)
   }, [page, shownPage])
 
@@ -263,7 +264,12 @@ function MainApp(): React.JSX.Element | null {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className={`transition-opacity duration-150 ${pageVisible ? 'opacity-100' : 'opacity-0'}`}>
+        {/* key 换页即重挂，animate-page 才会重播（CSS animation 只在元素插入时跑一次）；
+            切页本来就要换组件，重挂不额外损失状态 */}
+        <div
+          key={shownPage}
+          className={pageVisible ? 'animate-page' : 'opacity-0 transition-opacity duration-100'}
+        >
           {shownPage === 'home' && <Home tasks={tasks} userName={profile.name} onNavigate={setPage} />}
           {shownPage === 'schedule' && (
             <Schedule

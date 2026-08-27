@@ -26,6 +26,17 @@ interface Props {
 export default function ContextMenu({ x, y, entries, onClose }: Props): React.JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState({ x, y })
+  const [closing, setClosing] = useState(false)
+  const closingRef = useRef(false)
+
+  // 与 Modal 同样的收尾方式：先播退场动画，动画结束再让父级卸载。
+  // closingRef 挡住动画期间的重复触发（点了菜单项紧接着又点遮罩）。
+  const close = (): void => {
+    if (closingRef.current) return
+    closingRef.current = true
+    setClosing(true)
+    window.setTimeout(onClose, 100)
+  }
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -41,15 +52,17 @@ export default function ContextMenu({ x, y, entries, onClose }: Props): React.JS
   return (
     <div
       className="fixed inset-0 z-50"
-      onClick={onClose}
+      onClick={close}
       onContextMenu={(e) => {
         e.preventDefault()
-        onClose()
+        close()
       }}
     >
       <div
         ref={ref}
-        className="animate-menu absolute min-w-44 rounded-xl border border-slate-200 bg-surface py-1.5 shadow-xl"
+        className={`absolute min-w-44 rounded-xl border border-slate-200 bg-surface py-1.5 shadow-xl ${
+          closing ? 'animate-menu-out' : 'animate-menu'
+        }`}
         style={{
           left: pos.x,
           top: pos.y,
@@ -79,7 +92,7 @@ export default function ContextMenu({ x, y, entries, onClose }: Props): React.JS
               }`}
               onClick={() => {
                 entry.onClick()
-                if (!entry.keepOpen) onClose()
+                if (!entry.keepOpen) close()
               }}
             >
               <span className="w-3 shrink-0 text-brand">{entry.checked ? '✓' : ''}</span>

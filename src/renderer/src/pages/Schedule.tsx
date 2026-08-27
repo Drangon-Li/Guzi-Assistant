@@ -614,7 +614,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
       )}
 
       {multiMode && selected.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-200 bg-surface px-3 py-2 shadow-lg">
+        <div className="animate-toast fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-200 bg-surface px-3 py-2 shadow-lg">
           <span className="text-xs text-slate-500">已选 {selected.size} 条</span>
           <button
             className="rounded-lg bg-brand px-2.5 py-1 text-xs text-white hover:bg-brand-dark"

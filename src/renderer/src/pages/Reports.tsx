@@ -128,28 +128,30 @@ export default function Reports(): React.JSX.Element {
     void api.focusTaskPrefs().then(setTaskPrefs)
   }
 
+  // 标题与控件同一行、说明文字独占下一行：说明文字较长，三者挤一行会把
+  // Segmented 压到断字换行（截图反馈的「工作记 录」）。
   const header = (
-    <div className="flex items-center justify-between">
-      <div>
+    <div>
+      <div className="flex items-center justify-between gap-4">
         <h1 className="text-xl font-semibold">日报</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          {view === 'work'
-            ? '屏幕感知运行时自动记录「在做什么」，一键生成当日工作日报'
-            : '屏幕感知最近 48 小时的细粒度活动；采集开关与清理在设置 → 屏幕感知'}
-        </p>
+        <div className="flex shrink-0 items-center gap-3">
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              ['work', '工作记录'],
+              ['activity', '活动明细']
+            ]}
+          />
+          {/* 活动明细是 48 小时滚动窗口，没有「按天翻页」这回事 */}
+          {view === 'work' && <DayNav day={day} onChange={setDay} />}
+        </div>
       </div>
-      <div className="flex items-center gap-3">
-        <Segmented
-          value={view}
-          onChange={setView}
-          options={[
-            ['work', '工作记录'],
-            ['activity', '活动明细']
-          ]}
-        />
-        {/* 活动明细是 48 小时滚动窗口，没有「按天翻页」这回事 */}
-        {view === 'work' && <DayNav day={day} onChange={setDay} />}
-      </div>
+      <p className="mt-1 text-sm text-slate-400">
+        {view === 'work'
+          ? '屏幕感知运行时自动记录「在做什么」，一键生成当日工作日报'
+          : '屏幕感知最近 48 小时的细粒度活动；采集开关与清理在设置 → 屏幕感知'}
+      </p>
     </div>
   )
 
@@ -220,7 +222,7 @@ export default function Reports(): React.JSX.Element {
                       )}
                     </span>
                     <button
-                      className="invisible shrink-0 px-1 text-xs text-slate-400 group-hover:visible hover:text-red-500"
+                      className="shrink-0 px-1 text-xs text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-500"
                       onClick={() => void removePeriod(p.ids)}
                     >
                       删除
@@ -334,7 +336,7 @@ export default function Reports(): React.JSX.Element {
       })()}
 
       {note && (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg">
+        <div className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg">
           {note}
         </div>
       )}
