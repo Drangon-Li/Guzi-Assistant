@@ -24,7 +24,8 @@ const ipc = read('../src/shared/ipc-channels.ts')
 const picker = read('../src/main/history/app-picker.ts')
 
 const checks = [
-  ['活动明细并入日报页且旧 history 路由重定向', /ActivityDetail from ['"]\.\.\/components\/ActivityDetail['"]/.test(reports) && /'activity', '活动明细'/.test(reports) && !/key: 'history'/.test(app) && /route === 'history'/.test(app) && /setPage\('reports'\)/.test(app)],
+  // 只认模块路径，不钉死默认/具名导入的写法——加个具名导出不该算契约破坏
+  ['活动明细并入日报页且旧 history 路由重定向', /from ['"]\.\.\/components\/ActivityDetail['"]/.test(reports) && /'activity', '活动明细'/.test(reports) && !/key: 'history'/.test(app) && /route === 'history'/.test(app) && /setPage\('reports'\)/.test(app)],
   ['展示 6 小时摘要与 10 分钟活动块', /6 小时摘要/.test(activity) && /10 分钟活动块/.test(activity) && /result\??\.sixHour/.test(activity) && /result\??\.tenMinute/.test(activity)],
   ['摘要卡展示时间、App、置信度与来源 segment', /formatTime\(item\.startAt\)/.test(activity) && /appList\(item\.apps\)/.test(activity) && /confidenceLabel\(item\.confidence\)/.test(activity) && /sourceSegmentIds/.test(activity)],
   ['事件类型作为辅助证据展开统计', /activityTypeCounts/.test(activity) && /<details/.test(activity) && /查看事件证据统计/.test(activity) && /查看辅助证据/.test(activity)],

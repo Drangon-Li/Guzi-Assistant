@@ -10,7 +10,7 @@ import {
   type HistorySummaryView
 } from '@shared/history'
 import { api } from '../api'
-import { Section, Segmented } from './ui'
+import { Section } from './ui'
 
 function localInputValue(timestampMs: number): string {
   const d = new Date(timestampMs)
@@ -166,13 +166,56 @@ function ResultEmpty({ enabled }: { enabled: boolean }): React.JSX.Element {
   )
 }
 
-export default function ActivityDetail(): React.JSX.Element {
-  const initialRange = rangeForPreset('all')
+/** 范围档位，由页头的 ActivityRangeNav 左右翻动；与工作记录的 DayNav 占同一个位置 */
+const PRESETS: [HistoryRangePreset, string][] = [
+  ['10m', '最近 10 分钟'],
+  ['1h', '最近 1 小时'],
+  ['1d', '最近 1 天'],
+  ['all', '最近 48 小时']
+]
+
+/** 活动明细的范围翻页器。刻意做成 DayNav 的样子：两个视图的页头右侧应当是同一处控件。 */
+export function ActivityRangeNav({
+  preset,
+  onChange
+}: {
+  preset: HistoryRangePreset
+  onChange: (next: HistoryRangePreset) => void
+}): React.JSX.Element {
+  const i = PRESETS.findIndex(([k]) => k === preset)
+  const shift = (delta: number): void => {
+    const next = PRESETS[i + delta]
+    if (next) onChange(next[0])
+  }
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <button
+        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 transition-colors hover:bg-slate-50 disabled:opacity-40"
+        onClick={() => shift(-1)}
+        disabled={i <= 0}
+        title="更短的范围"
+      >
+        ←
+      </button>
+      <span className="w-28 text-center font-medium">{PRESETS[i]?.[1] ?? '自定义范围'}</span>
+      <button
+        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 transition-colors hover:bg-slate-50 disabled:opacity-40"
+        onClick={() => shift(1)}
+        disabled={i < 0 || i >= PRESETS.length - 1}
+        title="更长的范围"
+      >
+        →
+      </button>
+    </div>
+  )
+}
+
+export default function ActivityDetail({ preset }: { preset: HistoryRangePreset }): React.JSX.Element {
+  const initialRange = rangeForPreset(preset)
   const [status, setStatus] = useState<HistoryStatus | null>(null)
   const [result, setResult] = useState<HistoryRecentResult | null>(null)
   const [range, setRange] = useState(initialRange)
   const [rangeDraft, setRangeDraft] = useState(initialRange)
-  const [preset, setPreset] = useState<HistoryRangePreset>('all')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -223,6 +266,13 @@ export default function ActivityDetail(): React.JSX.Element {
     }
   }, [loadHistory, loadStatus])
 
+  // 档位由页头的翻页器控制，改档就回到对应的预设区间（会盖掉手填的自定义范围）
+  useEffect(() => {
+    const next = rangeForPreset(preset)
+    setRange(next)
+    setRangeDraft(next)
+  }, [preset])
+
   const applyRange = (): void => {
     const from = isoFromLocal(rangeDraft.from)
     const to = isoFromLocal(rangeDraft.to)
@@ -231,14 +281,6 @@ export default function ActivityDetail(): React.JSX.Element {
       return
     }
     setRange({ ...rangeDraft })
-    setPreset('all')
-  }
-
-  const choosePreset = (next: HistoryRangePreset): void => {
-    const nextRange = rangeForPreset(next)
-    setPreset(next)
-    setRangeDraft(nextRange)
-    setRange(nextRange)
   }
 
   const summarize = async (): Promise<void> => {
@@ -277,18 +319,8 @@ export default function ActivityDetail(): React.JSX.Element {
 
   return (
     <>
-      <Section title="时间范围" desc="本机保留最近 48 小时的活动摘要，不展示键盘正文或敏感原文。采集开关与清理在设置 → 屏幕感知。">
+      <Section title="自定义范围" desc="本机保留最近 48 小时的活动摘要，不展示键盘正文或敏感原文。采集开关与清理在设置 → 屏幕感知。">
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented
-            value={preset}
-            onChange={choosePreset}
-            options={[
-              ['10m', '10 分钟'],
-              ['1h', '1 小时'],
-              ['1d', '1 天'],
-              ['all', '48 小时']
-            ]}
-          />
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <input
               type="datetime-local"
@@ -328,7 +360,9 @@ export default function ActivityDetail(): React.JSX.Element {
         {result ? `${formatDate(result.range.from)} 至 ${formatDate(result.range.to)} · ${result.fallbackUsed ? '含未摘要片段' : '摘要覆盖'}` : '正在读取…'}
       </div>
 
-      {loading ? (
+      {/* 只有首次（还没有任何数据）才让位给加载态。翻范围时留着上一批内容，
+          否则每翻一档整页都要空一下再长回来，比等一会儿更晃眼。 */}
+      {loading && !result ? (
         <div className="rounded-xl border border-slate-200 bg-surface py-12 text-center text-sm text-slate-400">加载中…</div>
       ) : (
         <>
