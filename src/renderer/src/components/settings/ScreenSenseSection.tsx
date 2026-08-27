@@ -4,6 +4,7 @@ import type { AppSettings, PermissionStatus, ScreenActivityStatus } from '@share
 import type { HistoryStatus } from '@shared/history'
 import { api } from '../../api'
 import { Section, Toggle } from '../ui'
+import HistoryDataSection from './HistoryDataSection'
 
 interface Props {
   settings: AppSettings
@@ -553,6 +554,8 @@ export default function ScreenSenseSection({
         )}
         {!historyStatus && <p className="text-xs text-slate-400">正在读取 History 状态…</p>}
       </Section>
+
+      <HistoryDataSection flash={flash} />
 
       <Section title="权限状态">
         {perms && (

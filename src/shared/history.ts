@@ -92,6 +92,33 @@ export interface HistoryRange {
   to: string
 }
 
+/** History 原始事件在本机的保留窗口：超出即清理，「全部」范围也就是这么长 */
+export const HISTORY_RETENTION_MS = 48 * 60 * 60 * 1000
+
+export type HistoryRangePreset = '10m' | '1h' | '1d' | 'all'
+
+export function historyPresetMs(preset: HistoryRangePreset): number {
+  if (preset === '10m') return 10 * 60 * 1000
+  if (preset === '1h') return 60 * 60 * 1000
+  if (preset === '1d') return 86_400_000
+  return HISTORY_RETENTION_MS
+}
+
+/** 从现在往回推一个预设区间；日报页的活动明细与设置页的清理按钮共用。 */
+export function isoRangeForPreset(preset: HistoryRangePreset, nowMs = Date.now()): HistoryRange {
+  return {
+    from: new Date(nowMs - historyPresetMs(preset)).toISOString(),
+    to: new Date(nowMs).toISOString()
+  }
+}
+
+export function historyDeletionMessage(result: HistoryDeleteResult): string {
+  const segments = result.deletedSegmentIds.length
+  const summaries = result.deletedSummaryIds.length
+  const records = result.deletedWorkRecordIds.length
+  return `已清理 ${segments} 个片段、${summaries} 条摘要${records ? `、${records} 条工作记录` : ''}`
+}
+
 export interface HistoryQueryOptions {
   from?: string | null
   to?: string | null

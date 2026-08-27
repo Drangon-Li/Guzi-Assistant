@@ -70,7 +70,7 @@ src/
 │   ├── history/    # 活动历史的采集、存储、摘要与查询
 │   └── pet/        # 桌宠窗口与状态机
 ├── preload/        # contextBridge 与 IPC 通道白名单
-├── renderer/       # React 界面：日程、日报、记忆、历史、设置、悬浮助手
+├── renderer/       # React 界面：日程、日报、分析、设置、悬浮助手
 └── shared/         # 主进程与渲染层共用的纯函数和类型
 
 server/             # 计费与支付签名逻辑

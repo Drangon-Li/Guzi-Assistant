@@ -62,17 +62,6 @@ export function IconAnalysis(): React.JSX.Element {
   )
 }
 
-/** History：带回溯指针的时钟 */
-export function IconHistory(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" className={cls} {...base}>
-      <path d="M4.5 7.5V4.5h3" />
-      <path d="M4.8 8.2A8 8 0 1 1 5 15" />
-      <path d="M12 8v4l2.8 1.7" />
-    </svg>
-  )
-}
-
 /** 个人：人形 */
 export function IconAccount(): React.JSX.Element {
   return (

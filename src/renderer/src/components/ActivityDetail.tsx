@@ -1,18 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { AppSettings, HistoryAppSelection } from '@shared/types'
+// 日报页「活动明细」视图：屏幕感知最近 48 小时的 6 小时摘要 / 10 分钟活动块 / 未摘要片段。
+// 原为独立的「历史」页；采集开关、App 黑名单、清理原始数据那部分随合并移到了设置 → 屏幕感知。
+import { useCallback, useEffect, useState } from 'react'
 import {
+  historyPresetMs,
   type HistoryActivityStat,
-  type HistoryDeleteResult,
+  type HistoryRangePreset,
   type HistoryRecentResult,
   type HistoryStatus,
   type HistorySummaryView
 } from '@shared/history'
 import { api } from '../api'
-import { Section, Segmented } from '../components/ui'
-
-const RETENTION_MS = 48 * 60 * 60 * 1000
-
-type Preset = '10m' | '1h' | '1d' | 'all'
+import { Section } from './ui'
 
 function localInputValue(timestampMs: number): string {
   const d = new Date(timestampMs)
@@ -26,19 +24,11 @@ function isoFromLocal(value: string): string | null {
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null
 }
 
-function rangeForPreset(preset: Preset, nowMs = Date.now()): { from: string; to: string } {
-  const duration = preset === '10m' ? 10 * 60 * 1000 : preset === '1h' ? 60 * 60 * 1000 : preset === '1d' ? 86_400_000 : RETENTION_MS
+/** 预设区间转成 datetime-local 输入框认的本地时间串 */
+function rangeForPreset(preset: HistoryRangePreset, nowMs = Date.now()): { from: string; to: string } {
   return {
-    from: localInputValue(nowMs - duration),
+    from: localInputValue(nowMs - historyPresetMs(preset)),
     to: localInputValue(nowMs)
-  }
-}
-
-function isoRangeForPreset(preset: Preset, nowMs = Date.now()): { from: string; to: string } {
-  const duration = preset === '10m' ? 10 * 60 * 1000 : preset === '1h' ? 60 * 60 * 1000 : preset === '1d' ? 86_400_000 : RETENTION_MS
-  return {
-    from: new Date(nowMs - duration).toISOString(),
-    to: new Date(nowMs).toISOString()
   }
 }
 
@@ -56,12 +46,12 @@ function formatDate(value: string): string {
     : '未知日期'
 }
 
-function localDayKey(value: string): string {
+/** 跟在时间后面的短日期，如「8月27日」——列表是一条时间线，只需认出跨天 */
+function shortDate(value: string): string {
   const timestamp = Date.parse(value)
-  if (!Number.isFinite(timestamp)) return 'unknown'
-  const d = new Date(timestamp)
-  const pad = (part: number): string => String(part).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return Number.isFinite(timestamp)
+    ? new Date(timestamp).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+    : ''
 }
 
 function confidenceLabel(value: number): string {
@@ -146,7 +136,11 @@ function SummaryCard({ item, compact = false }: { item: HistorySummaryView; comp
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-            <span>{formatTime(item.startAt)}–{formatTime(item.endAt)}</span>
+            <span>
+              {formatTime(item.startAt)}–{formatTime(item.endAt)}
+              {/* 列表不再按天分块，跨天全靠这里区分 */}
+              <span className="ml-1.5 text-slate-300">{shortDate(item.startAt)}</span>
+            </span>
             <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-brand">{item.level === '6h' ? '6 小时' : '10 分钟'}</span>
             <span>{sourceLabel(item.source)}</span>
           </div>
@@ -176,22 +170,56 @@ function ResultEmpty({ enabled }: { enabled: boolean }): React.JSX.Element {
   )
 }
 
-function deletionMessage(result: HistoryDeleteResult): string {
-  const segments = result.deletedSegmentIds.length
-  const summaries = result.deletedSummaryIds.length
-  const records = result.deletedWorkRecordIds.length
-  return `已清理 ${segments} 个片段、${summaries} 条摘要${records ? `、${records} 条工作记录` : ''}`
+/** 范围档位，由页头的 ActivityRangeNav 左右翻动；与工作记录的 DayNav 占同一个位置 */
+const PRESETS: [HistoryRangePreset, string][] = [
+  ['10m', '最近 10 分钟'],
+  ['1h', '最近 1 小时'],
+  ['1d', '最近 1 天'],
+  ['all', '最近 48 小时']
+]
+
+/** 活动明细的范围翻页器。刻意做成 DayNav 的样子：两个视图的页头右侧应当是同一处控件。 */
+export function ActivityRangeNav({
+  preset,
+  onChange
+}: {
+  preset: HistoryRangePreset
+  onChange: (next: HistoryRangePreset) => void
+}): React.JSX.Element {
+  const i = PRESETS.findIndex(([k]) => k === preset)
+  const shift = (delta: number): void => {
+    const next = PRESETS[i + delta]
+    if (next) onChange(next[0])
+  }
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <button
+        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 transition-colors hover:bg-slate-50 disabled:opacity-40"
+        onClick={() => shift(-1)}
+        disabled={i <= 0}
+        title="更短的范围"
+      >
+        ←
+      </button>
+      <span className="w-28 text-center font-medium">{PRESETS[i]?.[1] ?? '自定义范围'}</span>
+      <button
+        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 transition-colors hover:bg-slate-50 disabled:opacity-40"
+        onClick={() => shift(1)}
+        disabled={i < 0 || i >= PRESETS.length - 1}
+        title="更长的范围"
+      >
+        →
+      </button>
+    </div>
+  )
 }
 
-export default function History(): React.JSX.Element {
-  const initialRange = rangeForPreset('all')
+export default function ActivityDetail({ preset }: { preset: HistoryRangePreset }): React.JSX.Element {
+  const initialRange = rangeForPreset(preset)
   const [status, setStatus] = useState<HistoryStatus | null>(null)
   const [result, setResult] = useState<HistoryRecentResult | null>(null)
   const [range, setRange] = useState(initialRange)
   const [rangeDraft, setRangeDraft] = useState(initialRange)
-  const [preset, setPreset] = useState<Preset>('all')
-  const [settings, setSettings] = useState<AppSettings | null>(null)
-  const [excludedApps, setExcludedApps] = useState<HistoryAppSelection[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -229,10 +257,6 @@ export default function History(): React.JSX.Element {
   }, [loadStatus, range.from, range.to])
 
   useEffect(() => {
-    void api.getSettings().then((next) => {
-      setSettings(next)
-      setExcludedApps(next.historyExcludedApps ?? [])
-    })
     void loadHistory()
     const timer = window.setInterval(() => {
       void loadStatus()
@@ -246,6 +270,13 @@ export default function History(): React.JSX.Element {
     }
   }, [loadHistory, loadStatus])
 
+  // 档位由页头的翻页器控制，改档就回到对应的预设区间（会盖掉手填的自定义范围）
+  useEffect(() => {
+    const next = rangeForPreset(preset)
+    setRange(next)
+    setRangeDraft(next)
+  }, [preset])
+
   const applyRange = (): void => {
     const from = isoFromLocal(rangeDraft.from)
     const to = isoFromLocal(rangeDraft.to)
@@ -254,29 +285,6 @@ export default function History(): React.JSX.Element {
       return
     }
     setRange({ ...rangeDraft })
-    setPreset('all')
-  }
-
-  const choosePreset = (next: Preset): void => {
-    const nextRange = rangeForPreset(next)
-    setPreset(next)
-    setRangeDraft(nextRange)
-    setRange(nextRange)
-  }
-
-  const togglePause = async (): Promise<void> => {
-    setBusy(true)
-    setError(null)
-    try {
-      const next = status?.paused ? await api.historyResume() : await api.historyPause()
-      setStatus(next)
-      setNotice(next.paused ? 'History 已暂停' : 'History 已恢复')
-      await loadHistory()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
   }
 
   const summarize = async (): Promise<void> => {
@@ -300,130 +308,12 @@ export default function History(): React.JSX.Element {
     }
   }
 
-  const cleanRange = async (kind: Preset): Promise<void> => {
-    const label = kind === 'all' ? '全部保留期历史' : kind === '10m' ? '最近 10 分钟' : kind === '1h' ? '最近 1 小时' : '最近 1 天'
-    if (!window.confirm(`将永久删除${label}及其摘要和派生工作记录，无法恢复。确定继续？`)) return
-    setBusy(true)
-    setError(null)
-    try {
-      let deleted: HistoryDeleteResult
-      if (kind === 'all') deleted = await api.historyClear()
-      else {
-        const current = isoRangeForPreset(kind)
-        deleted = await api.historyDeleteRange(current)
-      }
-      setNotice(deletionMessage(deleted))
-      await loadHistory()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const cleanCurrentRange = async (): Promise<void> => {
-    const from = isoFromLocal(range.from)
-    const to = isoFromLocal(range.to)
-    if (!from || !to || from >= to) {
-      setError('当前时间范围无效，无法清理。')
-      return
-    }
-    if (!window.confirm('将永久删除当前时间范围内的 History、摘要和派生工作记录，无法恢复。确定继续？')) return
-    setBusy(true)
-    setError(null)
-    try {
-      const deleted = await api.historyDeleteRange({ from, to })
-      setNotice(deletionMessage(deleted))
-      await loadHistory()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const saveExcludedApps = async (list: HistoryAppSelection[], notice = '已保存历史 App 黑名单'): Promise<boolean> => {
-    const ok = await api.saveSettings({ historyExcludedApps: list })
-    if (ok) {
-      setExcludedApps(list)
-      setSettings((current) => current ? { ...current, historyExcludedApps: list } : current)
-      setNotice(notice)
-      return true
-    }
-    setError('保存历史 App 黑名单失败')
-    return false
-  }
-
-  const chooseExcludedApps = async (): Promise<void> => {
-    setError(null)
-    try {
-      const picked = await api.historyPickApps()
-      if (!picked) return
-      const merged = [...excludedApps]
-      const existing = new Set(merged.map((item) => item.bundleId.toLowerCase()))
-      for (const item of picked) {
-        if (!existing.has(item.bundleId.toLowerCase())) {
-          existing.add(item.bundleId.toLowerCase())
-          merged.push(item)
-        }
-      }
-      await saveExcludedApps(merged, picked.length ? '已加入历史 App 黑名单' : '历史 App 黑名单未变更')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    }
-  }
-
-  const removeExcludedApp = async (bundleId: string): Promise<void> => {
-    const next = excludedApps.filter((item) => item.bundleId !== bundleId)
-    await saveExcludedApps(next, '已移除历史 App 黑名单项')
-  }
-
-  const dayGroups = useMemo(() => {
-    const groups = new Map<string, HistorySummaryView[]>()
-    for (const item of result?.tenMinute ?? []) {
-      const key = localDayKey(item.startAt)
-      const list = groups.get(key) ?? []
-      list.push(item)
-      groups.set(key, list)
-    }
-    return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]))
-  }, [result?.tenMinute])
-
   const enabled = status?.enabled ?? false
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-5 px-8 py-10">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold">历史</h1>
-          <p className="mt-1 text-sm text-slate-400">本机保留最近 48 小时的活动摘要，不展示键盘正文或敏感原文。</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`rounded-md px-2 py-1 text-xs ${!enabled ? 'bg-slate-100 text-slate-500' : status?.paused ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
-            {!enabled ? '未开启' : status?.paused ? '已暂停' : '采集中'}
-          </span>
-          <button
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-            disabled={!enabled || busy}
-            onClick={() => void togglePause()}
-          >
-            {status?.paused ? '恢复' : '暂停'}
-          </button>
-        </div>
-      </div>
-
-      <Section title="时间范围与筛选">
+    <>
+      <Section title="自定义范围" desc="本机保留最近 48 小时的活动摘要，不展示键盘正文或敏感原文。采集开关与清理在设置 → 屏幕感知。">
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented
-            value={preset}
-            onChange={choosePreset}
-            options={[
-              ['10m', '10 分钟'],
-              ['1h', '1 小时'],
-              ['1d', '1 天'],
-              ['all', '48 小时']
-            ]}
-          />
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <input
               type="datetime-local"
@@ -442,32 +332,15 @@ export default function History(): React.JSX.Element {
               应用范围
             </button>
           </div>
+          <div className="flex-1" />
+          <button
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            disabled={busy || loading || !enabled}
+            onClick={() => void summarize()}
+          >
+            {busy ? '处理中…' : '立即摘要'}
+          </button>
         </div>
-        {settings && (
-          <div className="mt-4 border-t border-slate-100 pt-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div>
-                <div className="text-slate-500">历史 App 黑名单</div>
-                <div className="mt-1 text-[11px] text-slate-400">选中的 App 不会写入 History；按 Bundle ID 精确匹配。</div>
-              </div>
-              <button type="button" onClick={() => void chooseExcludedApps()} disabled={busy} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-                选择 App
-              </button>
-            </div>
-            {excludedApps.length ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {excludedApps.map((item) => (
-                  <span key={item.bundleId} className="inline-flex items-center gap-1.5 rounded-md bg-rose-50 px-2 py-1 text-[11px] text-rose-700">
-                    <span title={item.bundleId}>{item.name}</span>
-                    <button type="button" aria-label={`移除 ${item.name}`} onClick={() => void removeExcludedApp(item.bundleId)} className="text-rose-500 hover:text-rose-800">移除</button>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-2 text-[11px] text-slate-400">尚未排除任何 App。</p>
-            )}
-          </div>
-        )}
       </Section>
 
       {(error || notice) && (
@@ -476,34 +349,14 @@ export default function History(): React.JSX.Element {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs text-slate-400">
-          {result ? `${formatDate(result.range.from)} 至 ${formatDate(result.range.to)} · ${result.fallbackUsed ? '含未摘要片段' : '摘要覆盖'}` : '正在读取…'}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50" disabled={busy || loading || !enabled} onClick={() => void summarize()}>
-            {busy ? '处理中…' : '立即摘要'}
-          </button>
-          <button className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-50" disabled={busy || !enabled} onClick={() => void cleanRange('10m')}>
-            清理 10 分钟
-          </button>
-          <button className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-50" disabled={busy || !enabled} onClick={() => void cleanRange('1h')}>
-            清理 1 小时
-          </button>
-          <button className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-50" disabled={busy || !enabled} onClick={() => void cleanRange('1d')}>
-            清理 1 天
-          </button>
-          <button className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-50" disabled={busy || !enabled} onClick={() => void cleanCurrentRange()}>
-            清理当前范围
-          </button>
-          <button className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50" disabled={busy || !enabled} onClick={() => void cleanRange('all')}>
-            清空 48 小时
-          </button>
-        </div>
+      <div className="text-xs text-slate-400">
+        {result ? `${formatDate(result.range.from)} 至 ${formatDate(result.range.to)} · ${result.fallbackUsed ? '含未摘要片段' : '摘要覆盖'}` : '正在读取…'}
       </div>
 
-      {loading ? (
-        <div className="rounded-xl border border-slate-200 bg-surface py-12 text-center text-sm text-slate-400">加载 History…</div>
+      {/* 只有首次（还没有任何数据）才让位给加载态。翻范围时留着上一批内容，
+          否则每翻一档整页都要空一下再长回来，比等一会儿更晃眼。 */}
+      {loading && !result ? (
+        <div className="rounded-xl border border-slate-200 bg-surface py-12 text-center text-sm text-slate-400">加载中…</div>
       ) : (
         <>
           <Section title="6 小时摘要" desc="汇总 10 分钟工作焦点和进展，不重新读取原始事件。">
@@ -516,15 +369,13 @@ export default function History(): React.JSX.Element {
           </Section>
 
           <Section title="10 分钟活动块" desc="优先展示这一时段的主要工作与进展；App、事件类型和来源仅作为可展开证据。">
-            {dayGroups.length ? dayGroups.map(([day, items]) => (
-              <div key={day}>
-                <h3 className="border-b border-slate-100 py-2 text-xs font-medium text-slate-500">{day === 'unknown' ? '未知日期' : formatDate(`${day}T12:00:00`)}</h3>
-                {/* 每天只露出约 2 个活动块的高度，其余在块内滚动 */}
-                <div className="max-h-[17rem] overflow-y-auto">
-                  {items.map((item) => <SummaryCard key={item.id} item={item} compact />)}
-                </div>
+            {/* 一条时间线滚到底，不按天切块：分天会切出多个各自滚动的小窗，
+                读起来是断的。跨天靠每条自己的日期标签区分就够了。 */}
+            {result?.tenMinute.length ? (
+              <div className="max-h-[28rem] overflow-y-auto">
+                {result.tenMinute.map((item) => <SummaryCard key={item.id} item={item} compact />)}
               </div>
-            )) : <ResultEmpty enabled={enabled} />}
+            ) : <ResultEmpty enabled={enabled} />}
           </Section>
 
           {!!result?.segments.length && (
@@ -545,6 +396,6 @@ export default function History(): React.JSX.Element {
           )}
         </>
       )}
-    </div>
+    </>
   )
 }

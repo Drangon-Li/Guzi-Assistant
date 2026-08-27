@@ -34,6 +34,8 @@ export function getSettings(): AppSettings {
   }
   return {
     starredTags: parseList(map.starredTags),
+    hiddenTags: parseList(map.hiddenTags),
+    customTags: parseList(map.customTags),
     hotkey: map.hotkey || legacy[map.hotkeyMode] || 'Control+\\',
     screenshotHotkey: map.screenshotHotkey || 'Control+Shift+\\',
     mainWindowHotkey: map.mainWindowHotkey || 'Alt+G',
@@ -140,7 +142,7 @@ export function saveSettings(patch: Partial<AppSettings>): void {
   )
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) continue
-    if (k === 'starredTags') {
+    if (k === 'starredTags' || k === 'hiddenTags' || k === 'customTags') {
       const values = Array.isArray(v)
         ? v.filter((item): item is string => typeof item === 'string').map((item) => item.trim().replace(/,/g, '')).filter(Boolean)
         : []

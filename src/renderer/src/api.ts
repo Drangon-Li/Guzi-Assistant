@@ -6,6 +6,7 @@ import type {
   AppUsageEntry,
   DetectionRecord,
   FeishuStatus,
+  LaunchAtLoginState,
   ParseSummary,
   PendingCapture,
   PermissionStatus,
@@ -171,6 +172,10 @@ export const api = {
   appVersion: () => inv<string>('app:version'),
   /** 手动检查更新：结果通过系统对话框反馈，返回值供按钮态使用 */
   checkUpdate: () => inv<{ status: 'update' | 'latest' | 'error'; version?: string }>('app:check-update'),
+  launchAtLogin: () => inv<LaunchAtLoginState>('app:launch-at-login'),
+  /** 写完回读系统的实际状态：用户可能在系统设置里拦下（requires-approval） */
+  setLaunchAtLogin: (enabled: boolean) =>
+    inv<LaunchAtLoginState>('app:set-launch-at-login', enabled),
   quickbarHide: () => inv<void>('quickbar:hide'),
   /** 快捷提问框对话展开/收起：按内容高度调整窗口（底边固定向上生长） */
   quickbarResize: (height: number) => inv<void>('quickbar:resize', height),

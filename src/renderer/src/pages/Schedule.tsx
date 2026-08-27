@@ -9,6 +9,7 @@ import Timeline, { type TimelineMode } from './Timeline'
 import QuickAddTask from '../components/QuickAddTask'
 import { Segmented } from '../components/ui'
 import ContextMenu, { type MenuEntry } from '../components/ContextMenu'
+import TagManager from '../components/TagManager'
 import { rankTaskSuggestions } from '@shared/task-suggest'
 
 interface Props {
@@ -84,8 +85,17 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   // 重点标签（星标）：谷子建议对含这些标签的任务加分；存设置，跨端生效
   const [starredTags, setStarredTags] = useState<string[]>([])
+  // 隐藏标签：不出现在标签栏（任务上的标签不动）；手动建的标签还没任务在用也要能选
+  const [hiddenTags, setHiddenTags] = useState<string[]>([])
+  const [customTags, setCustomTags] = useState<string[]>([])
+  const [tagManager, setTagManager] = useState(false)
   useEffect(() => {
-    const load = (): void => void api.getSettings().then((s) => setStarredTags(s.starredTags))
+    const load = (): void =>
+      void api.getSettings().then((s) => {
+        setStarredTags(s.starredTags)
+        setHiddenTags(s.hiddenTags)
+        setCustomTags(s.customTags)
+      })
     load()
     return api.on('guzi-assistant:settings-updated', load)
   }, [])
@@ -93,6 +103,12 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
     const next = starredTags.includes(tag) ? starredTags.filter((t) => t !== tag) : [...starredTags, tag]
     setStarredTags(next)
     void api.saveSettings({ starredTags: next })
+  }
+  const toggleHidden = (tag: string): void => {
+    const next = hiddenTags.includes(tag) ? hiddenTags.filter((t) => t !== tag) : [...hiddenTags, tag]
+    setHiddenTags(next)
+    void api.saveSettings({ hiddenTags: next })
+    if (tagFilter === tag && !hiddenTags.includes(tag)) setTagFilter(null)
   }
   // 多选批量：只作用于主列表分区（已完成/已过期/已忽略区不参与）
   const [multiMode, setMultiMode] = useState(false)
@@ -169,9 +185,13 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
     return d !== null && d < today
   })
   const expiredIds = new Set(expired.map((t) => t.id))
-  const allTags = [...new Set(tasks.filter((t) => t.status !== 'ignored').flatMap((t) => t.tags))].sort(
-    (a, b) => Number(starredTags.includes(b)) - Number(starredTags.includes(a))
-  )
+  // 标签栏只列「还要办的事」的标签：已完成/已忽略任务独有的标签沉进标签管理面板，不占筛选栏。
+  // 正在筛选的那个例外——否则筛到最后一条任务办完，标签自己消失，用户会以为筛选坏了。
+  const activeTagPool = [...active.flatMap((t) => t.tags), ...customTags]
+  const allTags = [...new Set(activeTagPool)]
+    .filter((t) => !hiddenTags.includes(t) || t === tagFilter)
+    .sort((a, b) => Number(starredTags.includes(b)) - Number(starredTags.includes(a)))
+  if (tagFilter && !allTags.includes(tagFilter)) allTags.unshift(tagFilter)
 
   const sections: { title: string; list: TaskRecord[]; empty?: string; hints?: Map<string, string> }[] = []
   if (tab === 'suggest') {
@@ -283,6 +303,13 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
         label: tagFilter === tag ? '取消筛选' : '仅看此标签',
         onClick: () => setTagFilter(tagFilter === tag ? null : tag)
       },
+      {
+        label: hiddenTags.includes(tag) ? '在标签栏显示' : '从标签栏隐藏',
+        checked: hiddenTags.includes(tag),
+        onClick: () => toggleHidden(tag)
+      },
+      { type: 'separator' },
+      { label: '标签管理…', onClick: () => setTagManager(true) },
       { type: 'separator' },
       menuConfirm
         ? {
@@ -345,13 +372,18 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
         )}
       </div>
 
-      {view === 'list' && (allTags.length > 0 || tab !== 'suggest') && (
+      {/* 这一行无条件显示：标签全被隐藏时它是唯一能进标签管理、把标签放回来的入口 */}
+      {view === 'list' && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {allTags.length > 0 && (
             <>
+              {/* 选中态用 slate-800/slate-50 而非固定 text-white：深色主题把整条 slate 色阶翻转了
+                  （slate-800 在深色下是近白），配死的白字会变成白底白字。两端都用色阶就能自动反相。 */}
               <button
                 className={`rounded-full px-2.5 py-0.5 text-[11px] ${
-                  tagFilter === null ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                  tagFilter === null
+                    ? 'bg-slate-800 text-slate-50'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                 }`}
                 onClick={() => setTagFilter(null)}
               >
@@ -385,8 +417,14 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
           )}
           <div className="flex-1" />
           <button
+            className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-200"
+            onClick={() => setTagManager(true)}
+          >
+            标签管理
+          </button>
+          <button
             className={`rounded-full px-2.5 py-0.5 text-[11px] ${
-              multiMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+              multiMode ? 'bg-slate-800 text-slate-50' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
             }`}
             onClick={() => (multiMode ? exitMulti() : setMultiMode(true))}
           >
@@ -559,9 +597,24 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
         />
       )}
       {sourceId && <SourceModal sourceId={sourceId} onClose={() => setSourceId(null)} />}
+      {tagManager && (
+        <TagManager
+          tasks={tasks}
+          starredTags={starredTags}
+          hiddenTags={hiddenTags}
+          customTags={customTags}
+          onSettings={(patch) => {
+            if (patch.starredTags) setStarredTags(patch.starredTags)
+            if (patch.hiddenTags) setHiddenTags(patch.hiddenTags)
+            if (patch.customTags) setCustomTags(patch.customTags)
+            void api.saveSettings(patch)
+          }}
+          onClose={() => setTagManager(false)}
+        />
+      )}
 
       {multiMode && selected.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-200 bg-surface px-3 py-2 shadow-lg">
+        <div className="animate-toast fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-200 bg-surface px-3 py-2 shadow-lg">
           <span className="text-xs text-slate-500">已选 {selected.size} 条</span>
           <button
             className="rounded-lg bg-brand px-2.5 py-1 text-xs text-white hover:bg-brand-dark"

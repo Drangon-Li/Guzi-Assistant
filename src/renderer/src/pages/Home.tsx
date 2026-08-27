@@ -212,7 +212,7 @@ export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.
       </Section>
 
       {note && (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg">
+        <div className="animate-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[#0f172a] px-4 py-2.5 text-sm text-white shadow-lg">
           {note}
         </div>
       )}

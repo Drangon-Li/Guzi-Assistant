@@ -11,7 +11,6 @@ import FloatingAssistant from './components/FloatingAssistant'
 import Schedule from './pages/Schedule'
 import Reports from './pages/Reports'
 import Analysis from './pages/Analysis'
-import History from './pages/History'
 import Home from './pages/Home'
 import Account from './pages/Account'
 import Settings from './pages/Settings'
@@ -24,14 +23,13 @@ import brandMark from './assets/agent-avatar.png'
 import {
   IconAccount,
   IconAnalysis,
-  IconHistory,
   IconReport,
   IconSchedule,
   IconSettings,
   IconToday
 } from './components/nav-icons'
 
-type Page = 'home' | 'schedule' | 'reports' | 'analysis' | 'history' | 'account' | 'settings'
+type Page = 'home' | 'schedule' | 'reports' | 'analysis' | 'account' | 'settings'
 
 const WELCOME_KEY = 'guzi-assistant:welcomed'
 const LEGACY_WELCOME_KEY = 'eshell:welcomed'
@@ -42,7 +40,6 @@ const NAV: { key: Page; label: string; icon: () => React.JSX.Element }[] = [
   { key: 'schedule', label: '日程', icon: IconSchedule },
   { key: 'reports', label: '日报', icon: IconReport },
   { key: 'analysis', label: '分析', icon: IconAnalysis },
-  { key: 'history', label: '历史', icon: IconHistory },
   { key: 'account', label: '个人', icon: IconAccount }
 ]
 
@@ -135,12 +132,13 @@ function MainApp(): React.JSX.Element | null {
         setPage('schedule') // 旧路由兼容：时间轴已并入日程页
       else if (route === 'memory')
         setPage('account') // 旧路由兼容：记忆页已拆解，个人记忆并入个人页
+      else if (route === 'history')
+        setPage('reports') // 旧路由兼容：历史页已并入日报页的「活动明细」
       else if (
         route === 'home' ||
         route === 'schedule' ||
         route === 'reports' ||
         route === 'analysis' ||
-        route === 'history' ||
         route === 'account' ||
         route === 'settings'
       )
@@ -153,14 +151,15 @@ function MainApp(): React.JSX.Element | null {
     }
   }, [refresh])
 
-  // 切页过渡：先淡出旧页，再换页并淡入新页
+  // 切页过渡：旧页快速淡出，新页走 animate-page（淡入 + 轻微上移）。
+  // 淡出压到 100ms——纯淡出没有信息量，拖长了只会让切页显得迟钝。
   useEffect(() => {
     if (page === shownPage) return
     setPageVisible(false)
     const t = window.setTimeout(() => {
       setShownPage(page)
       setPageVisible(true)
-    }, 150)
+    }, 100)
     return () => window.clearTimeout(t)
   }, [page, shownPage])
 
@@ -265,7 +264,12 @@ function MainApp(): React.JSX.Element | null {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className={`transition-opacity duration-150 ${pageVisible ? 'opacity-100' : 'opacity-0'}`}>
+        {/* key 换页即重挂，animate-page 才会重播（CSS animation 只在元素插入时跑一次）；
+            切页本来就要换组件，重挂不额外损失状态 */}
+        <div
+          key={shownPage}
+          className={pageVisible ? 'animate-page' : 'opacity-0 transition-opacity duration-100'}
+        >
           {shownPage === 'home' && <Home tasks={tasks} userName={profile.name} onNavigate={setPage} />}
           {shownPage === 'schedule' && (
             <Schedule
@@ -276,7 +280,6 @@ function MainApp(): React.JSX.Element | null {
           )}
           {shownPage === 'reports' && <Reports />}
           {shownPage === 'analysis' && <Analysis />}
-          {shownPage === 'history' && <History />}
           {shownPage === 'account' && <Account onProfileChange={setProfile} />}
           {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>

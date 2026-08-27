@@ -161,9 +161,22 @@ export interface PermissionStatus {
   apiConfigured: boolean
 }
 
+/** 开机自启状态。真值只存在系统登录项里，settings 表不留副本 */
+export interface LaunchAtLoginState {
+  /** 只有打包版能登记：开发环境登记进去的是 Electron 本体，不是谷子助手 */
+  supported: boolean
+  enabled: boolean
+  /** macOS 13+ SMAppService：已登记但用户在「系统设置 → 通用 → 登录项」里关掉了 */
+  requiresApproval: boolean
+}
+
 export interface AppSettings {
   /** 重点标签：谷子建议对含这些标签的任务加分 */
   starredTags: string[]
+  /** 隐藏标签：不在日程页标签栏出现（任务本身的标签不动，标签管理面板里可恢复） */
+  hiddenTags: string[]
+  /** 手动创建的标签：还没有任务在用也出现在标签栏/批量候选里 */
+  customTags: string[]
   /** Electron accelerator 字符串，如 "Alt+C"、"Command+Shift+K" */
   hotkey: string
   /** 提交屏幕截图（交互框选截图 → 解析）的全局快捷键 */
