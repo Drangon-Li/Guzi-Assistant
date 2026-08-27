@@ -11,7 +11,6 @@ import FloatingAssistant from './components/FloatingAssistant'
 import Schedule from './pages/Schedule'
 import Reports from './pages/Reports'
 import Analysis from './pages/Analysis'
-import History from './pages/History'
 import Home from './pages/Home'
 import Account from './pages/Account'
 import Settings from './pages/Settings'
@@ -24,14 +23,13 @@ import brandMark from './assets/agent-avatar.png'
 import {
   IconAccount,
   IconAnalysis,
-  IconHistory,
   IconReport,
   IconSchedule,
   IconSettings,
   IconToday
 } from './components/nav-icons'
 
-type Page = 'home' | 'schedule' | 'reports' | 'analysis' | 'history' | 'account' | 'settings'
+type Page = 'home' | 'schedule' | 'reports' | 'analysis' | 'account' | 'settings'
 
 const WELCOME_KEY = 'guzi-assistant:welcomed'
 const LEGACY_WELCOME_KEY = 'eshell:welcomed'
@@ -42,7 +40,6 @@ const NAV: { key: Page; label: string; icon: () => React.JSX.Element }[] = [
   { key: 'schedule', label: '日程', icon: IconSchedule },
   { key: 'reports', label: '日报', icon: IconReport },
   { key: 'analysis', label: '分析', icon: IconAnalysis },
-  { key: 'history', label: '历史', icon: IconHistory },
   { key: 'account', label: '个人', icon: IconAccount }
 ]
 
@@ -135,12 +132,13 @@ function MainApp(): React.JSX.Element | null {
         setPage('schedule') // 旧路由兼容：时间轴已并入日程页
       else if (route === 'memory')
         setPage('account') // 旧路由兼容：记忆页已拆解，个人记忆并入个人页
+      else if (route === 'history')
+        setPage('reports') // 旧路由兼容：历史页已并入日报页的「活动明细」
       else if (
         route === 'home' ||
         route === 'schedule' ||
         route === 'reports' ||
         route === 'analysis' ||
-        route === 'history' ||
         route === 'account' ||
         route === 'settings'
       )
@@ -276,7 +274,6 @@ function MainApp(): React.JSX.Element | null {
           )}
           {shownPage === 'reports' && <Reports />}
           {shownPage === 'analysis' && <Analysis />}
-          {shownPage === 'history' && <History />}
           {shownPage === 'account' && <Account onProfileChange={setProfile} />}
           {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
         </div>

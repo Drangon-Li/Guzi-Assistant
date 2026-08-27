@@ -12,11 +12,16 @@ import {
   timeRangeLabel
 } from '@shared/work-report'
 import { api } from '../api'
-import { BarRow, DayNav, Section } from '../components/ui'
+import { BarRow, DayNav, Section, Segmented } from '../components/ui'
 import ReportModal from '../components/ReportModal'
+import ActivityDetail from '../components/ActivityDetail'
 
-/** 「日报」页：当日工作记录时间线 + 应用/任务时长 + 生成/回看工作日报。 */
+type ReportView = 'work' | 'activity'
+
+/** 「日报」页：当日工作记录时间线 + 应用/任务时长 + 生成/回看工作日报；
+ *  「活动明细」是并进来的原「历史」页，看的是同一条屏幕感知数据流的更细粒度。 */
 export default function Reports(): React.JSX.Element {
+  const [view, setView] = useState<ReportView>('work')
   const [day, setDay] = useState(() => dayKey(new Date()))
   const [records, setRecords] = useState<WorkRecord[]>([])
   const [usage, setUsage] = useState<AppUsageEntry[]>([])
@@ -123,17 +128,42 @@ export default function Reports(): React.JSX.Element {
     void api.focusTaskPrefs().then(setTaskPrefs)
   }
 
+  const header = (
+    <div className="flex items-center justify-between">
+      <div>
+        <h1 className="text-xl font-semibold">日报</h1>
+        <p className="mt-1 text-sm text-slate-400">
+          {view === 'work'
+            ? '屏幕感知运行时自动记录「在做什么」，一键生成当日工作日报'
+            : '屏幕感知最近 48 小时的细粒度活动；采集开关与清理在设置 → 屏幕感知'}
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <Segmented
+          value={view}
+          onChange={setView}
+          options={[
+            ['work', '工作记录'],
+            ['activity', '活动明细']
+          ]}
+        />
+        {/* 活动明细是 48 小时滚动窗口，没有「按天翻页」这回事 */}
+        {view === 'work' && <DayNav day={day} onChange={setDay} />}
+      </div>
+    </div>
+  )
+
+  if (view === 'activity')
+    return (
+      <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
+        {header}
+        <ActivityDetail />
+      </div>
+    )
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">日报</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            屏幕感知运行时自动记录「在做什么」，一键生成当日工作日报
-          </p>
-        </div>
-        <DayNav day={day} onChange={setDay} />
-      </div>
+      {header}
 
       <Section
         title="工作记录"
