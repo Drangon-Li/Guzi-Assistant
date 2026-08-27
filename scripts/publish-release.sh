@@ -17,8 +17,9 @@ echo "上传 dmg（${VERSION}）…"
 supabase storage cp "$DMG_LOCAL" "ss:///releases/${DMG_KEY}" --linked --experimental
 
 echo "更新版本清单…"
-MANIFEST=$(mktemp)/latest-mac.json
-mkdir -p "$(dirname "$MANIFEST")"
+# mktemp 不带 -d 建出来的是文件，再往下拼路径会让 mkdir -p 撞上同名文件而中止（set -e），
+# 且中止点在 dmg 已上传、清单未更新之后——正是最坏的半完成状态。
+MANIFEST=$(mktemp -d)/latest-mac.json
 node -e "console.log(JSON.stringify({version: '${VERSION}', notes: process.argv[1], url: '${BASE}/${DMG_KEY}'}, null, 2))" "$NOTES" > "$MANIFEST"
 supabase storage cp "$MANIFEST" "ss:///releases/latest-mac.json" --linked --experimental
 
