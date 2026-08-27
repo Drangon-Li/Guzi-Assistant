@@ -1,6 +1,6 @@
 // 日报页「活动明细」视图：屏幕感知最近 48 小时的 6 小时摘要 / 10 分钟活动块 / 未摘要片段。
 // 原为独立的「历史」页；采集开关、App 黑名单、清理原始数据那部分随合并移到了设置 → 屏幕感知。
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   historyPresetMs,
   type HistoryActivityStat,
@@ -46,12 +46,12 @@ function formatDate(value: string): string {
     : '未知日期'
 }
 
-function localDayKey(value: string): string {
+/** 跟在时间后面的短日期，如「8月27日」——列表是一条时间线，只需认出跨天 */
+function shortDate(value: string): string {
   const timestamp = Date.parse(value)
-  if (!Number.isFinite(timestamp)) return 'unknown'
-  const d = new Date(timestamp)
-  const pad = (part: number): string => String(part).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return Number.isFinite(timestamp)
+    ? new Date(timestamp).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+    : ''
 }
 
 function confidenceLabel(value: number): string {
@@ -136,7 +136,11 @@ function SummaryCard({ item, compact = false }: { item: HistorySummaryView; comp
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-            <span>{formatTime(item.startAt)}–{formatTime(item.endAt)}</span>
+            <span>
+              {formatTime(item.startAt)}–{formatTime(item.endAt)}
+              {/* 列表不再按天分块，跨天全靠这里区分 */}
+              <span className="ml-1.5 text-slate-300">{shortDate(item.startAt)}</span>
+            </span>
             <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-brand">{item.level === '6h' ? '6 小时' : '10 分钟'}</span>
             <span>{sourceLabel(item.source)}</span>
           </div>
@@ -304,17 +308,6 @@ export default function ActivityDetail({ preset }: { preset: HistoryRangePreset 
     }
   }
 
-  const dayGroups = useMemo(() => {
-    const groups = new Map<string, HistorySummaryView[]>()
-    for (const item of result?.tenMinute ?? []) {
-      const key = localDayKey(item.startAt)
-      const list = groups.get(key) ?? []
-      list.push(item)
-      groups.set(key, list)
-    }
-    return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]))
-  }, [result?.tenMinute])
-
   const enabled = status?.enabled ?? false
 
   return (
@@ -376,15 +369,13 @@ export default function ActivityDetail({ preset }: { preset: HistoryRangePreset 
           </Section>
 
           <Section title="10 分钟活动块" desc="优先展示这一时段的主要工作与进展；App、事件类型和来源仅作为可展开证据。">
-            {dayGroups.length ? dayGroups.map(([day, items]) => (
-              <div key={day}>
-                <h3 className="border-b border-slate-100 py-2 text-xs font-medium text-slate-500">{day === 'unknown' ? '未知日期' : formatDate(`${day}T12:00:00`)}</h3>
-                {/* 每天只露出约 2 个活动块的高度，其余在块内滚动 */}
-                <div className="max-h-[17rem] overflow-y-auto">
-                  {items.map((item) => <SummaryCard key={item.id} item={item} compact />)}
-                </div>
+            {/* 一条时间线滚到底，不按天切块：分天会切出多个各自滚动的小窗，
+                读起来是断的。跨天靠每条自己的日期标签区分就够了。 */}
+            {result?.tenMinute.length ? (
+              <div className="max-h-[28rem] overflow-y-auto">
+                {result.tenMinute.map((item) => <SummaryCard key={item.id} item={item} compact />)}
               </div>
-            )) : <ResultEmpty enabled={enabled} />}
+            ) : <ResultEmpty enabled={enabled} />}
           </Section>
 
           {!!result?.segments.length && (
