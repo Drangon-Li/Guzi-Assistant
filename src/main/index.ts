@@ -154,7 +154,8 @@ if (!app.requestSingleInstanceLock()) {
     nativeTheme.themeSource = getSettings().theme // 应用主题设置：驱动渲染层 prefers-color-scheme + 桌宠/窗口深浅色
     installAppMenu()
     registerIpc()
-    createMainWindow()
+    // 开机自启拉起的这次不弹主窗：桌宠和托盘照常在，用户要用时自己叫出来
+    createMainWindow(!app.getLoginItemSettings().wasOpenedAtLogin)
     createPetWindow({
       onClick: () => togglePetChat(),
       onDblClick: () => toggleMainWindow(),

@@ -92,6 +92,8 @@ export const INVOKE_CHANNELS = [
   'quickbar:resize',
   'app:check-update',
   'app:version',
+  'app:launch-at-login',
+  'app:set-launch-at-login',
   'theme:get'
 ] as const
 

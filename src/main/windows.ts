@@ -16,7 +16,8 @@ export function load(win: BrowserWindow, hash: string): void {
   else win.loadFile(join(__dirname, '../renderer/index.html'), { hash })
 }
 
-export function createMainWindow(): BrowserWindow {
+/** showOnReady=false 用于开机自启：窗口照建（快捷键/托盘随时能拉出来），只是不主动露脸 */
+export function createMainWindow(showOnReady = true): BrowserWindow {
   if (mainWin && !mainWin.isDestroyed()) return mainWin
   mainWin = new BrowserWindow({
     width: 1100,
@@ -31,7 +32,9 @@ export function createMainWindow(): BrowserWindow {
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#161719' : '#ffffff',
     webPreferences: { preload }
   })
-  mainWin.on('ready-to-show', () => mainWin?.show())
+  mainWin.on('ready-to-show', () => {
+    if (showOnReady) mainWin?.show()
+  })
   // 关窗只隐藏，应用常驻托盘，否则快捷键入口会随窗口一起消失
   mainWin.on('close', (e) => {
     if (!appState.quitting) {

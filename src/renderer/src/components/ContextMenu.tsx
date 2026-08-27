@@ -49,8 +49,14 @@ export default function ContextMenu({ x, y, entries, onClose }: Props): React.JS
     >
       <div
         ref={ref}
-        className="absolute min-w-44 rounded-xl border border-slate-200 bg-surface py-1.5 shadow-xl"
-        style={{ left: pos.x, top: pos.y }}
+        className="animate-menu absolute min-w-44 rounded-xl border border-slate-200 bg-surface py-1.5 shadow-xl"
+        style={{
+          left: pos.x,
+          top: pos.y,
+          // 从光标所在的那一角展开。夹位把菜单推离光标时（pos < 原始坐标）origin 翻到对侧，
+          // 否则贴着屏幕边缘弹出的菜单会从背离光标的角展开，看着像凭空冒出来。
+          transformOrigin: `${pos.x < x ? 'right' : 'left'} ${pos.y < y ? 'bottom' : 'top'}`
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {entries.map((entry, i) => {

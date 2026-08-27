@@ -82,6 +82,11 @@ textarea {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+/* 右键菜单：从光标那一角展开。transform-origin 由 ContextMenu 按夹位后的方向就地设置 */
+@keyframes menu-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
 @keyframes toast-in {
   from { opacity: 0; transform: translate(-50%, 10px); }
   to { opacity: 1; transform: translate(-50%, 0); }
@@ -102,6 +107,7 @@ textarea {
 .animate-modal-in { animation: modal-in 0.26s var(--ease-spring); }
 .animate-modal-out { animation: modal-out 0.16s ease-in forwards; }
 .animate-page { animation: page-in 0.26s var(--ease-spring); }
+.animate-menu { animation: menu-in 0.12s var(--ease-spring); }
 .animate-toast { animation: toast-in 0.2s var(--ease-spring); }
 .animate-card-in { animation: card-in 0.3s var(--ease-spring); }
 .animate-card-out { animation: card-out 0.24s ease-in forwards; }

@@ -98,7 +98,14 @@ import { hidePetChat } from './pet/pet-chat-window'
 import { hideQuickBar, isQuickBarVisible, resizeQuickBar } from './quickbar'
 import { applyMcpSettings } from './mcp-server'
 import { checkForUpdates } from './updater'
-import type { AppSettings, PermissionStatus, Profile, TaskRecord, TaskStatus } from '@shared/types'
+import type {
+  AppSettings,
+  LaunchAtLoginState,
+  PermissionStatus,
+  Profile,
+  TaskRecord,
+  TaskStatus
+} from '@shared/types'
 import type { HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
 
 const STATUSES: TaskStatus[] = [
@@ -126,6 +133,17 @@ export function triggerScreenshotCapture(): void {
 
 // 到期提醒每次运行只发一次（应用常驻，重启即重置）
 let renewReminded = false
+
+// 开机自启的真值只存在系统登录项里（macOS 13+ 走 SMAppService），settings 表不留副本——
+// 用户随时可能在「系统设置 → 通用 → 登录项」里手动增删，那边不会回调应用，留副本必然对不上。
+function readLaunchAtLogin(): LaunchAtLoginState {
+  const s = app.getLoginItemSettings()
+  return {
+    supported: app.isPackaged,
+    enabled: s.openAtLogin,
+    requiresApproval: s.status === 'requires-approval'
+  }
+}
 
 export function registerIpc(): void {
   ipcMain.handle('profile:get', () => getProfile())
@@ -309,6 +327,11 @@ export function registerIpc(): void {
   ipcMain.handle('pet:chat-hide', () => hidePetChat())
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('app:check-update', () => checkForUpdates(true))
+  ipcMain.handle('app:launch-at-login', () => readLaunchAtLogin())
+  ipcMain.handle('app:set-launch-at-login', (_e, enabled: boolean) => {
+    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: enabled })
+    return readLaunchAtLogin()
+  })
   ipcMain.handle('quickbar:hide', () => hideQuickBar())
   ipcMain.handle('quickbar:resize', (_e, height: number) => {
     if (typeof height === 'number' && Number.isFinite(height)) resizeQuickBar(height)

@@ -1,6 +1,6 @@
 // 设置页「通用」分区。状态仍由 pages/Settings.tsx 持有，这里只负责这一段的渲染与保存。
-import type { Dispatch, SetStateAction } from 'react'
-import type { AppSettings, Profile } from '@shared/types'
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import type { AppSettings, LaunchAtLoginState, Profile } from '@shared/types'
 import { api } from '../../api'
 import { CONFIRM_MODES, formatHotkey } from '../../labels'
 import { Section, Toggle } from '../ui'
@@ -16,6 +16,12 @@ interface Props {
 export default function GeneralSection({
   profile, settings, setSettings, flash, saveProfile
 }: Props): React.JSX.Element {
+  // 开机自启不进 settings 表：真值在系统登录项里，单独读
+  const [launch, setLaunch] = useState<LaunchAtLoginState | null>(null)
+  useEffect(() => {
+    void api.launchAtLogin().then(setLaunch)
+  }, [])
+
   return (
     <>
       <Section title="外观">
@@ -44,6 +50,31 @@ export default function GeneralSection({
             </button>
           ))}
         </div>
+      </Section>
+
+      <Section title="启动">
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <span>
+            开机自动启动
+            <span className="ml-2 text-xs text-slate-400">
+              {launch && !launch.supported
+                ? '开发环境登记的会是 Electron 本体，装成应用后才可用'
+                : launch?.requiresApproval
+                  ? '已登记，但被「系统设置 → 通用 → 登录项」拦下，需去那里放行'
+                  : '登录后静默启动到托盘，不弹主界面'}
+            </span>
+          </span>
+          <Toggle
+            checked={launch?.enabled ?? false}
+            disabled={!launch?.supported}
+            ariaLabel="开机自动启动"
+            onChange={async (next) => {
+              const state = await api.setLaunchAtLogin(next)
+              setLaunch(state)
+              flash(state.enabled ? '开机时会自动启动' : '已关闭开机自启')
+            }}
+          />
+        </label>
       </Section>
 
       <Section title="任务提醒" desc="到点前弹置顶提醒卡 + 桌宠气泡 + 系统通知；不点不消失。">
