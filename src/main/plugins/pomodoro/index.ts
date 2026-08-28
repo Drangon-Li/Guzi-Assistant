@@ -8,18 +8,32 @@ import type Database from 'better-sqlite3'
 import { getDb } from '../../db/connection.ts'
 import { readPluginSetting, writePluginSetting } from '../../db/plugins.ts'
 import { applyExternalPetSay } from '../../pet/controller'
+import { getProfile, listAppSwitchesSince, listWorkRecords } from '../../db'
+import { callModel } from '../../parser'
 import { localNowSec } from '@shared/parsing'
 import { dayKey } from '@shared/work-report'
 import {
   DEFAULT_PREFS,
+  RANGE_DAYS,
+  actualMinutes,
   breakdownByTask,
+  byHour,
+  byWeekday,
   dayStats,
   normalizePrefs,
   pausedMsAfterResume,
+  rangeByTask,
+  rangeStats,
   type PomodoroKind,
   type PomodoroPrefs,
-  type PomodoroSession
+  type PomodoroSession,
+  type StatsRange
 } from '@shared/pomodoro'
+import {
+  buildRoundEvidence,
+  buildRoundReviewPrompt,
+  hasEnoughEvidence
+} from '@shared/pomodoro-review'
 import type { AchievementCounter, PluginMainModule } from '../types.ts'
 
 interface SessionRow {
@@ -35,6 +49,7 @@ interface SessionRow {
   task_id: string | null
   task_title: string | null
   note: string | null
+  review: string | null
 }
 
 function toSession(r: SessionRow): PomodoroSession {
@@ -50,7 +65,8 @@ function toSession(r: SessionRow): PomodoroSession {
     blockId: r.block_id,
     taskId: r.task_id,
     taskTitle: r.task_title,
-    note: r.note
+    note: r.note,
+    review: r.review
   }
 }
 
@@ -79,6 +95,23 @@ function readPrefs(): PomodoroPrefs {
   }
 }
 
+/** 区间内每天一行，缺的日子补零——图表要连续的横轴。 */
+function dailySeries(
+  sessions: PomodoroSession[],
+  fromDate: string,
+  span: number,
+  goal: number
+): { date: string; rounds: number; focusMinutes: number; hitGoal: boolean }[] {
+  const out: { date: string; rounds: number; focusMinutes: number; hitGoal: boolean }[] = []
+  const base = new Date(`${fromDate}T12:00:00`).getTime()
+  for (let i = 0; i < span; i++) {
+    const date = dayKey(new Date(base + i * 86_400_000))
+    const s = dayStats(sessions, date, goal)
+    out.push({ date, rounds: s.rounds, focusMinutes: s.focusMinutes, hitGoal: s.rounds >= goal })
+  }
+  return out
+}
+
 const initTables = (db: Database.Database): void => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS p_pomodoro_session (
@@ -102,6 +135,7 @@ const initTables = (db: Database.Database): void => {
   if (!cols.includes('paused_at')) db.exec('ALTER TABLE p_pomodoro_session ADD COLUMN paused_at TEXT')
   if (!cols.includes('task_title')) db.exec('ALTER TABLE p_pomodoro_session ADD COLUMN task_title TEXT')
   if (!cols.includes('note')) db.exec('ALTER TABLE p_pomodoro_session ADD COLUMN note TEXT')
+  if (!cols.includes('review')) db.exec('ALTER TABLE p_pomodoro_session ADD COLUMN review TEXT')
 }
 
 const pomodoro: PluginMainModule = {
@@ -207,6 +241,79 @@ const pomodoro: PluginMainModule = {
         sessions: sessions.filter((s) => s.kind === 'focus').reverse(),
         stats: dayStats(sessions, today, prefs.dailyGoal),
         byTask: breakdownByTask(sessions, today)
+      }
+    },
+
+    /**
+     * 生成一轮的复盘。事实（切换次数、短停留占比、打断判定）全在本地算好，
+     * 模型只负责组织语言和给建议——让它自己数会数错，数错的复盘比没有更糟。
+     * 复盘**不入库**，交给渲染层问用户保留还是丢弃。
+     */
+    review: async (id: string) => {
+      const s = getSession(id)
+      if (!s || !s.endAt) return { ok: false, error: '这一轮还没结束' }
+      const profile = getProfile()
+      if (!profile) return { ok: false, error: '尚未完成用户档案设置' }
+
+      const day = dayKey(new Date(s.startAt))
+      const evidence = buildRoundEvidence({
+        from: s.startAt,
+        to: s.endAt,
+        minutes: s.minutes,
+        actualMinutes: actualMinutes(s, new Date(s.endAt).getTime()),
+        taskTitle: s.taskTitle,
+        paused: s.pausedMs > 0,
+        switches: listAppSwitchesSince(day),
+        records: listWorkRecords(day)
+      })
+      // 屏幕感知没开时证据是空的，硬生成只会得到一段编造的空话
+      if (!hasEnoughEvidence(evidence))
+        return { ok: false, error: '这一轮没采到足够的活动记录，写不出有依据的复盘' }
+
+      try {
+        const { instructions, text } = buildRoundReviewPrompt(profile.name, evidence)
+        const output = await callModel(
+          instructions,
+          [{ role: 'user', content: [{ type: 'input_text', text }] }],
+          'parse_text'
+        )
+        const content = output.trim().replace(/^```\w*\n?/, '').replace(/\n?```$/, '').trim()
+        if (!content) return { ok: false, error: '模型没有输出' }
+        return { ok: true, review: content, evidence }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+
+    /** 用户点「保留」才落库；丢弃就什么都不做。 */
+    'save-review': (id: string, review: string) => {
+      getDb()
+        .prepare('UPDATE p_pomodoro_session SET review = ? WHERE id = ?')
+        .run(String(review ?? '').slice(0, 1000) || null, id)
+      return true
+    },
+
+    'clear-review': (id: string) => {
+      getDb().prepare('UPDATE p_pomodoro_session SET review = NULL WHERE id = ?').run(id)
+      return true
+    },
+
+    /** 周/月/年的完整统计：总量、分布、按任务、按时段。 */
+    stats: (range: StatsRange) => {
+      const span = RANGE_DAYS[range] ?? RANGE_DAYS.week
+      const toDate = dayKey(new Date())
+      const fromDate = dayKey(new Date(Date.now() - (span - 1) * 86_400_000))
+      const sessions = listSince(fromDate)
+      const goal = readPrefs().dailyGoal
+      return {
+        range,
+        fromDate,
+        toDate,
+        stats: rangeStats(sessions, fromDate, toDate, goal),
+        byTask: rangeByTask(sessions, fromDate, toDate),
+        byHour: byHour(sessions, fromDate, toDate),
+        byWeekday: byWeekday(sessions, fromDate, toDate),
+        daily: dailySeries(sessions, fromDate, span, goal)
       }
     },
 

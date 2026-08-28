@@ -28,6 +28,8 @@ export interface PomodoroSession {
   taskTitle: string | null
   /** 这一轮做了什么 */
   note: string | null
+  /** 用户选择保留的 AI 复盘；丢弃或没生成为 null */
+  review: string | null
 }
 
 export interface PomodoroPrefs {
@@ -189,6 +191,157 @@ export function breakdownByTask(sessions: readonly PomodoroSession[], date: stri
     map.set(key, row)
   }
   return [...map.values()].sort((a, b) => b.minutes - a.minutes)
+}
+
+// ---------- 区间统计 ----------
+
+export type StatsRange = 'week' | 'month' | 'year'
+
+export const RANGE_DAYS: Record<StatsRange, number> = { week: 7, month: 30, year: 365 }
+
+export interface RangeStats {
+  /** 完成的专注轮数 */
+  rounds: number
+  /** 完成的专注分钟数 */
+  focusMinutes: number
+  /** 中途放弃轮数 */
+  abandoned: number
+  /** 有过专注的天数 */
+  activeDays: number
+  /** 达到每日目标的天数 */
+  goalDays: number
+  /** 有专注的那些天的日均分钟数（不把没开机的日子摊进去，否则数字会假性变低） */
+  avgMinutesPerActiveDay: number
+  /** 单日最长 */
+  bestDay: { date: string; minutes: number; rounds: number } | null
+  /** 完成率：完成 /（完成 + 放弃） */
+  completionRate: number
+  /** 最长连续达标天数 */
+  bestGoalStreak: number
+}
+
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+const dateOfIso = (iso: string): string | null => {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+const hourOfIso = (iso: string): number | null => {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d.getHours()
+}
+
+/** 只保留落在 [fromDate, toDate] 的专注会话（含休息则由调用方先过滤）。 */
+function inRange(sessions: readonly PomodoroSession[], fromDate: string, toDate: string): PomodoroSession[] {
+  return sessions.filter((s) => {
+    const d = dateOfIso(s.startAt)
+    return d !== null && d >= fromDate && d <= toDate
+  })
+}
+
+export function rangeStats(
+  sessions: readonly PomodoroSession[],
+  fromDate: string,
+  toDate: string,
+  dailyGoal = DEFAULT_PREFS.dailyGoal
+): RangeStats {
+  const focus = inRange(sessions, fromDate, toDate).filter((s) => s.kind === 'focus')
+  const done = focus.filter((s) => s.completed)
+
+  const byDay = new Map<string, { minutes: number; rounds: number }>()
+  for (const s of done) {
+    const d = dateOfIso(s.startAt)
+    if (!d) continue
+    const row = byDay.get(d) ?? { minutes: 0, rounds: 0 }
+    row.minutes += s.minutes
+    row.rounds++
+    byDay.set(d, row)
+  }
+
+  const focusMinutes = done.reduce((n, s) => n + s.minutes, 0)
+  const activeDays = byDay.size
+  const goalDates = [...byDay.entries()].filter(([, v]) => v.rounds >= dailyGoal).map(([d]) => d)
+
+  let bestDay: RangeStats['bestDay'] = null
+  for (const [date, v] of byDay) {
+    if (!bestDay || v.minutes > bestDay.minutes) bestDay = { date, minutes: v.minutes, rounds: v.rounds }
+  }
+
+  return {
+    rounds: done.length,
+    focusMinutes,
+    abandoned: focus.length - done.length,
+    activeDays,
+    goalDays: goalDates.length,
+    avgMinutesPerActiveDay: activeDays ? Math.round(focusMinutes / activeDays) : 0,
+    bestDay,
+    completionRate: focus.length ? done.length / focus.length : 0,
+    bestGoalStreak: longestConsecutive(goalDates)
+  }
+}
+
+/** 一组日期里最长的连续段长度。 */
+export function longestConsecutive(dates: readonly string[]): number {
+  const sorted = [...new Set(dates)].sort()
+  let best = 0
+  let run = 0
+  let prev: string | null = null
+  for (const d of sorted) {
+    if (prev && shiftDay(prev, 1) === d) run++
+    else run = 1
+    if (run > best) best = run
+    prev = d
+  }
+  return best
+}
+
+function shiftDay(date: string, delta: number): string {
+  const d = new Date(`${date}T12:00:00`)
+  if (Number.isNaN(d.getTime())) return date
+  d.setDate(d.getDate() + delta)
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+/** 一天 24 小时里各时段完成的专注分钟数——「你几点最专注」。 */
+export function byHour(sessions: readonly PomodoroSession[], fromDate: string, toDate: string): number[] {
+  const out = Array<number>(24).fill(0)
+  for (const s of inRange(sessions, fromDate, toDate)) {
+    if (s.kind !== 'focus' || !s.completed) continue
+    const h = hourOfIso(s.startAt)
+    if (h !== null) out[h] += s.minutes
+  }
+  return out
+}
+
+/** 周日..周六各自完成的专注分钟数。 */
+export function byWeekday(sessions: readonly PomodoroSession[], fromDate: string, toDate: string): number[] {
+  const out = Array<number>(7).fill(0)
+  for (const s of inRange(sessions, fromDate, toDate)) {
+    if (s.kind !== 'focus' || !s.completed) continue
+    const d = new Date(s.startAt)
+    if (!Number.isNaN(d.getTime())) out[d.getDay()] += s.minutes
+  }
+  return out
+}
+
+/** 区间内按关联任务聚合，用于「这个月时间都花在哪」。 */
+export function rangeByTask(
+  sessions: readonly PomodoroSession[],
+  fromDate: string,
+  toDate: string,
+  limit = 8
+): TaskBreakdown[] {
+  const map = new Map<string, TaskBreakdown>()
+  for (const s of inRange(sessions, fromDate, toDate)) {
+    if (s.kind !== 'focus' || !s.completed) continue
+    const key = s.taskId ?? '__none__'
+    const label = s.taskTitle ?? '未关联任务'
+    const row = map.get(key) ?? { key, label, rounds: 0, minutes: 0 }
+    row.rounds++
+    row.minutes += s.minutes
+    map.set(key, row)
+  }
+  return [...map.values()].sort((a, b) => b.minutes - a.minutes).slice(0, limit)
 }
 
 /** 「2 小时 5 分钟」；0 分钟说「还没开始」。 */

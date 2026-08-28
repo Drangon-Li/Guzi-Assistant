@@ -4,14 +4,20 @@
 // 且全程按 wall clock 算——合盖两小时再打开，剩余时间不能凭空少两小时。
 import {
   DEFAULT_PREFS,
+  RANGE_DAYS,
   actualMinutes,
   breakdownByTask,
+  byHour,
+  byWeekday,
   dayStats,
   focusLabel,
   formatCountdown,
+  longestConsecutive,
   nextPhase,
   normalizePrefs,
   pausedMsAfterResume,
+  rangeByTask,
+  rangeStats,
   remainingSeconds
 } from '../src/shared/pomodoro.ts'
 
@@ -125,6 +131,46 @@ check('关联任务的时长', bt[0].minutes === 30 && bt[0].rounds === 1)
 check('没关联的归到「未关联任务」而不是丢掉', bt[1].minutes === 25)
 check('未完成的不进聚合', bt.reduce((n, r) => n + r.rounds, 0) === 2)
 check('空日期返回空', breakdownByTask(sessions, '2026-08-01').length === 0)
+
+// ---------- 区间统计 ----------
+const range = [
+  s({ startAt: '2026-08-20T09:00:00', minutes: 25 }),
+  s({ startAt: '2026-08-20T10:00:00', minutes: 25 }),
+  s({ startAt: '2026-08-21T09:00:00', minutes: 60, taskId: 't1', taskTitle: '写论文' }),
+  s({ startAt: '2026-08-22T14:00:00', minutes: 25, completed: false }),
+  s({ startAt: '2026-08-23T09:00:00', minutes: 25 }),
+  s({ startAt: '2026-08-10T09:00:00', minutes: 100 }) // 区间外
+]
+const rs = rangeStats(range, '2026-08-20', '2026-08-26', 2)
+check('区间外的不计入', rs.rounds === 4)
+check('总时长', rs.focusMinutes === 135)
+check('放弃单独计数', rs.abandoned === 1)
+check('有专注的天数（放弃的那天不算）', rs.activeDays === 3)
+check('达标天数（目标 2 轮）', rs.goalDays === 1)
+check('日均按活跃天算，不把没开机的日子摊进去', rs.avgMinutesPerActiveDay === Math.round(135 / 3))
+check('完成率', Math.abs(rs.completionRate - 4 / 5) < 1e-9)
+check('最投入的一天', rs.bestDay?.date === '2026-08-21' && rs.bestDay?.minutes === 60)
+check('空区间不炸', rangeStats([], '2026-08-01', '2026-08-07').rounds === 0)
+check('空区间 bestDay 为 null', rangeStats([], '2026-08-01', '2026-08-07').bestDay === null)
+
+check('最长连续段', longestConsecutive(['2026-08-01', '2026-08-02', '2026-08-03', '2026-08-10']) === 3)
+check('跨月连续', longestConsecutive(['2026-08-31', '2026-09-01']) === 2)
+check('去重后再算', longestConsecutive(['2026-08-01', '2026-08-01']) === 1)
+check('空数组 → 0', longestConsecutive([]) === 0)
+
+const hours = byHour(range, '2026-08-20', '2026-08-26')
+check('按小时分布：9 点最多', hours[9] === 110)
+check('按小时分布：10 点', hours[10] === 25)
+check('未完成的不进小时分布', hours[14] === 0)
+const wd = byWeekday(range, '2026-08-20', '2026-08-26')
+check('按星期分布长度 7', wd.length === 7)
+check('按星期分布总和等于总时长', wd.reduce((a, b) => a + b, 0) === 135)
+
+const rbt = rangeByTask(range, '2026-08-20', '2026-08-26')
+check('未关联的归到一起（75 分钟，比写论文多，所以排前面）', rbt[0].label === '未关联任务' && rbt[0].minutes === 75)
+check('区间内按任务聚合，按时长降序', rbt[1].label === '写论文' && rbt[1].minutes === 60)
+check('limit 生效', rangeByTask(range, '2026-08-20', '2026-08-26', 1).length === 1)
+check('三档天数', RANGE_DAYS.week === 7 && RANGE_DAYS.month === 30 && RANGE_DAYS.year === 365)
 
 check('时长人话：时+分', focusLabel(125) === '2 小时 5 分钟')
 check('时长人话：整小时', focusLabel(120) === '2 小时')

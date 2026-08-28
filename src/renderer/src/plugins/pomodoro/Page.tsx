@@ -21,7 +21,9 @@ import {
 import { minutesToLabel, type TimeBlock } from '@shared/timeblock'
 import { dayKey } from '@shared/work-report'
 import { api } from '../../api'
-import { Section } from '../../components/ui'
+import { Section, Segmented } from '../../components/ui'
+import ReviewCard from './ReviewCard'
+import PomodoroStats from './Stats'
 import type { PluginPageProps } from '../types'
 
 interface TodayPayload {
@@ -58,6 +60,9 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
   const [pickedBlock, setPickedBlock] = useState<string>('')
   const [customMin, setCustomMin] = useState<number | null>(null)
   const [note, setNote] = useState('')
+  const [tab, setTab] = useState<'today' | 'stats'>('today')
+  // 刚走完的那一轮：拿来生成复盘，用户处理完（保留或丢弃）就清掉
+  const [reviewFor, setReviewFor] = useState<string | null>(null)
   const finishing = useRef(false)
 
   const refresh = useCallback(async () => {
@@ -91,8 +96,11 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
       if (!session || finishing.current) return
       finishing.current = true
       const justFinished = session.kind
-      await api.plugin('pomodoro', 'finish', session.id, completed)
+      const finishedId = session.id
+      await api.plugin('pomodoro', 'finish', finishedId, completed)
       setSession(null)
+      // 只有完整走完的专注轮才值得复盘：中途放弃的那点碎片写不出东西
+      if (completed && justFinished === 'focus') setReviewFor(finishedId)
       const after = await api.plugin<TodayPayload>('pomodoro', 'today')
       setStats(after.stats)
       setSessions(after.sessions)
@@ -188,12 +196,32 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
-      <header className="mb-6">
-        <h1 className="text-lg font-semibold">专注</h1>
-        <p className="mt-0.5 text-xs text-slate-400">
-          一轮专注加一轮休息。可以随时暂停，中途放弃也照样记下来——记录是为了看清自己，不是为了打分。
-        </p>
+      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold">专注</h1>
+          <p className="mt-0.5 text-xs text-slate-400">
+            一轮专注加一轮休息。可以随时暂停，中途放弃也照样记下来——记录是为了看清自己，不是为了打分。
+          </p>
+        </div>
+        <Segmented
+          value={tab}
+          options={[
+            ['today', '今天'],
+            ['stats', '统计']
+          ]}
+          onChange={setTab}
+        />
       </header>
+
+      {tab === 'stats' ? (
+        <PomodoroStats />
+      ) : (
+        <>
+      {/* 一轮走完后的复盘：默认不保存，用户决定保留还是丢弃 */}
+      {reviewFor && <ReviewCard sessionId={reviewFor} onDone={(kept) => {
+        setReviewFor(null)
+        if (kept) void refresh()
+      }} />}
 
       {/* ---- 计时器 ---- */}
       <div className="mb-5 flex flex-col items-center rounded-xl border border-slate-200 bg-surface px-6 py-8 shadow-sm">
@@ -418,6 +446,8 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
           </div>
         </Section>
       </div>
+        </>
+      )}
     </div>
   )
 }
@@ -478,6 +508,11 @@ function SessionRow({
           >
             {session.note || '＋ 记一句做了什么'}
           </button>
+        )}
+        {session.review && (
+          <p className="mt-1 rounded-md bg-brand-soft/50 px-2 py-1 text-xs leading-relaxed text-slate-500">
+            {session.review}
+          </p>
         )}
       </div>
       <button
