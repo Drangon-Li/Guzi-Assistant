@@ -26,6 +26,7 @@ import {
   rangeStats,
   type PomodoroKind,
   type PomodoroPrefs,
+  type DailyGoal,
   type PomodoroSession,
   type StatsRange
 } from '@shared/pomodoro'
@@ -100,14 +101,15 @@ function dailySeries(
   sessions: PomodoroSession[],
   fromDate: string,
   span: number,
-  goal: number
+  goal: DailyGoal
 ): { date: string; rounds: number; focusMinutes: number; hitGoal: boolean }[] {
   const out: { date: string; rounds: number; focusMinutes: number; hitGoal: boolean }[] = []
   const base = new Date(`${fromDate}T12:00:00`).getTime()
   for (let i = 0; i < span; i++) {
     const date = dayKey(new Date(base + i * 86_400_000))
     const s = dayStats(sessions, date, goal)
-    out.push({ date, rounds: s.rounds, focusMinutes: s.focusMinutes, hitGoal: s.rounds >= goal })
+    // 达标与否按目标口径判，不再固定看轮数
+    out.push({ date, rounds: s.rounds, focusMinutes: s.focusMinutes, hitGoal: s.goalProgress >= 1 })
   }
   return out
 }
@@ -309,6 +311,7 @@ const pomodoro: PluginMainModule = {
         range,
         fromDate,
         toDate,
+        goal,
         stats: rangeStats(sessions, fromDate, toDate, goal),
         byTask: rangeByTask(sessions, fromDate, toDate),
         byHour: byHour(sessions, fromDate, toDate),
@@ -327,7 +330,7 @@ const pomodoro: PluginMainModule = {
       for (let i = span - 1; i >= 0; i--) {
         const date = dayKey(new Date(Date.now() - i * 86_400_000))
         const s = dayStats(sessions, date, goal)
-        out.push({ date, rounds: s.rounds, focusMinutes: s.focusMinutes, hitGoal: s.rounds >= goal })
+        out.push({ date, rounds: s.rounds, focusMinutes: s.focusMinutes, hitGoal: s.goalProgress >= 1 })
       }
       return out
     }

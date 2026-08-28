@@ -7,8 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TaskRecord } from '@shared/types'
 import { isFinishedEvent } from '@shared/task-filters'
 import {
+  DEFAULT_GOAL,
   DEFAULT_PREFS,
   focusLabel,
+  goalLabel,
   formatCountdown,
   nextPhase,
   remainingSeconds,
@@ -46,7 +48,9 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
     rounds: 0,
     focusMinutes: 0,
     abandoned: 0,
-    remainingToGoal: DEFAULT_PREFS.dailyGoal,
+    goal: DEFAULT_GOAL,
+    goalCurrent: 0,
+    remainingToGoal: DEFAULT_GOAL.value,
     goalProgress: 0
   })
   const [sessions, setSessions] = useState<PomodoroSession[]>([])
@@ -366,10 +370,16 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
           <div>
             <div className="text-xs text-slate-400">今日目标</div>
             <div className="text-lg font-semibold tabular-nums">
-              {stats.rounds} / {prefs.dailyGoal} 轮
+              {stats.goal.kind === 'rounds'
+                ? `${stats.goalCurrent} / ${stats.goal.value} 轮`
+                : `${focusLabel(stats.goalCurrent)} / ${goalLabel(stats.goal)}`}
             </div>
             <div className="mt-0.5 text-xs text-slate-400">
-              {stats.remainingToGoal === 0 ? '今天达标了' : `还差 ${stats.remainingToGoal} 轮`}
+              {stats.remainingToGoal === 0
+                ? '今天达标了'
+                : stats.goal.kind === 'rounds'
+                  ? `还差 ${stats.remainingToGoal} 轮`
+                  : `还差 ${focusLabel(stats.remainingToGoal)}`}
             </div>
           </div>
         </div>

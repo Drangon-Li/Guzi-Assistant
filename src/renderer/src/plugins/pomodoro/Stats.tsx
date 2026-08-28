@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   focusLabel,
+  goalLabel,
+  type DailyGoal,
   type RangeStats,
   type StatsRange,
   type TaskBreakdown
@@ -13,6 +15,7 @@ interface StatsPayload {
   range: StatsRange
   fromDate: string
   toDate: string
+  goal: DailyGoal
   stats: RangeStats
   byTask: TaskBreakdown[]
   byHour: number[]
@@ -74,7 +77,7 @@ export default function PomodoroStats(): React.JSX.Element {
             <Stat label="总专注" value={focusLabel(s.focusMinutes)} />
             <Stat label="完成轮数" value={`${s.rounds} 轮`} />
             <Stat label="有专注的天数" value={`${s.activeDays} 天`} />
-            <Stat label="达标天数" value={`${s.goalDays} 天`} />
+            <Stat label={`达标天数（${goalLabel(data.goal)}/天）`} value={`${s.goalDays} 天`} />
             <Stat label="活跃日均" value={focusLabel(s.avgMinutesPerActiveDay)} />
             <Stat label="完成率" value={`${Math.round(s.completionRate * 100)}%`} />
             <Stat label="最长连续达标" value={`${s.bestGoalStreak} 天`} />

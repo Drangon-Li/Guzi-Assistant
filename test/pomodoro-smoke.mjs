@@ -12,7 +12,10 @@ import {
   dayStats,
   focusLabel,
   formatCountdown,
+  goalCurrentOf,
+  goalLabel,
   longestConsecutive,
+  normalizeGoal,
   nextPhase,
   normalizePrefs,
   pausedMsAfterResume,
@@ -36,8 +39,22 @@ check('非数字回落默认', normalizePrefs({ focusMin: 'abc' }).focusMin === 
 check('合法值保留', normalizePrefs({ focusMin: 50 }).focusMin === 50)
 check('小数取整', normalizePrefs({ focusMin: 25.6 }).focusMin === 26)
 check('长休息轮次下限是 2', normalizePrefs({ roundsBeforeLongBreak: 1 }).roundsBeforeLongBreak === 4)
-check('每日目标可设', normalizePrefs({ dailyGoal: 12 }).dailyGoal === 12)
-check('每日目标越界回落', normalizePrefs({ dailyGoal: 0 }).dailyGoal === DEFAULT_PREFS.dailyGoal)
+check('每日目标可设轮数', eq(normalizePrefs({ dailyGoal: { kind: 'rounds', value: 12 } }).dailyGoal, { kind: 'rounds', value: 12 }))
+check('每日目标可设时长', eq(normalizePrefs({ dailyGoal: { kind: 'minutes', value: 120 } }).dailyGoal, { kind: 'minutes', value: 120 }))
+
+// ---------- 目标口径 ----------
+// 老版本 dailyGoal 存的是一个裸数字（轮数）；升级不该把用户改过的目标悄悄重置
+check('老版本的裸数字按轮数读进来', eq(normalizeGoal(6), { kind: 'rounds', value: 6 }))
+check('老版本越界的裸数字回落默认', eq(normalizeGoal(999), { kind: 'rounds', value: 8 }))
+check('缺省是 8 轮', eq(normalizeGoal(undefined), { kind: 'rounds', value: 8 }))
+check('坏数据回落默认', eq(normalizeGoal('abc'), { kind: 'rounds', value: 8 }))
+check('时长目标保留', eq(normalizeGoal({ kind: 'minutes', value: 90 }), { kind: 'minutes', value: 90 }))
+check('时长目标越界回落到 120 分钟', eq(normalizeGoal({ kind: 'minutes', value: 5 }), { kind: 'minutes', value: 120 }))
+check('未知 kind 当轮数', normalizeGoal({ kind: 'ghost', value: 5 }).kind === 'rounds')
+check('轮数目标的文案', goalLabel({ kind: 'rounds', value: 8 }) === '8 轮')
+check('时长目标的文案', goalLabel({ kind: 'minutes', value: 120 }) === '2 小时')
+check('轮数口径取轮数', goalCurrentOf({ kind: 'rounds', value: 8 }, 3, 75) === 3)
+check('时长口径取分钟', goalCurrentOf({ kind: 'minutes', value: 120 }, 3, 75) === 75)
 check('autoStart 非布尔回落', normalizePrefs({ autoStart: 'yes' }).autoStart === false)
 check('autoStart 可设 true', normalizePrefs({ autoStart: true }).autoStart === true)
 
@@ -112,14 +129,22 @@ const sessions = [
   s({ startAt: '2026-08-28T13:00:00', kind: 'break', minutes: 5 }),
   s({ startAt: '2026-08-27T10:00:00' })
 ]
-const today = dayStats(sessions, '2026-08-28', 4)
+const today = dayStats(sessions, '2026-08-28', { kind: 'rounds', value: 4 })
 check('只数完成的专注轮', today.rounds === 2)
 check('休息不计入专注时长', today.focusMinutes === 55)
 check('中途放弃单独计数', today.abandoned === 1)
 check('距目标还差', today.remainingToGoal === 2)
 check('目标进度', today.goalProgress === 0.5)
-check('达标后不给负数', dayStats(sessions, '2026-08-28', 1).remainingToGoal === 0)
-check('达标后进度封顶 1', dayStats(sessions, '2026-08-28', 1).goalProgress === 1)
+check('达标后不给负数', dayStats(sessions, '2026-08-28', { kind: 'rounds', value: 1 }).remainingToGoal === 0)
+check('达标后进度封顶 1', dayStats(sessions, '2026-08-28', { kind: 'rounds', value: 1 }).goalProgress === 1)
+
+// 同一天、同一批数据，换成时长口径后进度完全不同——这正是要支持两种口径的理由
+const byMinutes = dayStats(sessions, '2026-08-28', { kind: 'minutes', value: 110 })
+check('时长口径下已完成量是分钟数', byMinutes.goalCurrent === 55)
+check('时长口径下还差的也是分钟数', byMinutes.remainingToGoal === 55)
+check('时长口径下的进度', byMinutes.goalProgress === 0.5)
+check('目标带回给界面用于决定单位', byMinutes.goal.kind === 'minutes')
+check('老版本裸数字传进 dayStats 也能用', dayStats(sessions, '2026-08-28', 4).remainingToGoal === 2)
 check('别的日期不混入', dayStats(sessions, '2026-08-27').rounds === 1)
 check('没有记录的日期全零', dayStats(sessions, '2026-08-01').rounds === 0)
 check('非法 startAt 被跳过', dayStats([s({ startAt: '坏数据' })], '2026-08-28').rounds === 0)
@@ -141,12 +166,16 @@ const range = [
   s({ startAt: '2026-08-23T09:00:00', minutes: 25 }),
   s({ startAt: '2026-08-10T09:00:00', minutes: 100 }) // 区间外
 ]
-const rs = rangeStats(range, '2026-08-20', '2026-08-26', 2)
+const rs = rangeStats(range, '2026-08-20', '2026-08-26', { kind: 'rounds', value: 2 })
 check('区间外的不计入', rs.rounds === 4)
 check('总时长', rs.focusMinutes === 135)
 check('放弃单独计数', rs.abandoned === 1)
 check('有专注的天数（放弃的那天不算）', rs.activeDays === 3)
 check('达标天数（目标 2 轮）', rs.goalDays === 1)
+check(
+  '换成时长口径后达标天数按分钟判（≥50 分钟的有 2 天）',
+  rangeStats(range, '2026-08-20', '2026-08-26', { kind: 'minutes', value: 50 }).goalDays === 2
+)
 check('日均按活跃天算，不把没开机的日子摊进去', rs.avgMinutesPerActiveDay === Math.round(135 / 3))
 check('完成率', Math.abs(rs.completionRate - 4 / 5) < 1e-9)
 check('最投入的一天', rs.bestDay?.date === '2026-08-21' && rs.bestDay?.minutes === 60)

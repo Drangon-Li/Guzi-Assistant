@@ -1,6 +1,7 @@
 // 今日页卡片：今天专注了多久、离目标还差多少，以及是否还有一轮在跑（含暂停态）。
 import { useEffect, useState } from 'react'
 import {
+  DEFAULT_GOAL,
   DEFAULT_PREFS,
   focusLabel,
   formatCountdown,
@@ -16,7 +17,9 @@ export default function PomodoroTodayCard(): React.JSX.Element {
     rounds: 0,
     focusMinutes: 0,
     abandoned: 0,
-    remainingToGoal: DEFAULT_PREFS.dailyGoal,
+    goal: DEFAULT_GOAL,
+    goalCurrent: 0,
+    remainingToGoal: DEFAULT_GOAL.value,
     goalProgress: 0
   })
   const [prefs, setPrefs] = useState<PomodoroPrefs>(DEFAULT_PREFS)
@@ -44,7 +47,9 @@ export default function PomodoroTodayCard(): React.JSX.Element {
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-medium text-slate-400">专注</span>
         <span className="text-xs text-slate-400 tabular-nums">
-          {stats.rounds}/{prefs.dailyGoal}
+          {stats.goal.kind === 'rounds'
+            ? `${stats.goalCurrent}/${stats.goal.value}`
+            : `${stats.goalCurrent}/${stats.goal.value} 分`}
         </span>
       </div>
       {running && remaining > 0 ? (
@@ -62,7 +67,9 @@ export default function PomodoroTodayCard(): React.JSX.Element {
           <div className="text-2xl font-semibold tabular-nums">{stats.rounds}</div>
           <div className="mt-0.5 text-xs text-slate-400">
             {focusLabel(stats.focusMinutes)}
-            {stats.remainingToGoal > 0 ? ` · 还差 ${stats.remainingToGoal} 轮达标` : ' · 今天达标了'}
+            {stats.remainingToGoal > 0
+              ? ` · 还差${stats.goal.kind === 'rounds' ? ` ${stats.remainingToGoal} 轮` : focusLabel(stats.remainingToGoal)}达标`
+              : ' · 今天达标了'}
           </div>
         </div>
       )}

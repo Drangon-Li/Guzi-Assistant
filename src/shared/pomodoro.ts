@@ -32,14 +32,30 @@ export interface PomodoroSession {
   review: string | null
 }
 
+/** 每日目标可以按轮数，也可以按时长——「今天专注两小时」和「今天做四轮」是两种人。 */
+export type GoalKind = 'rounds' | 'minutes'
+
+export interface DailyGoal {
+  kind: GoalKind
+  /** kind=rounds 时是轮数，kind=minutes 时是分钟数 */
+  value: number
+}
+
+export const DEFAULT_GOAL: DailyGoal = { kind: 'rounds', value: 8 }
+
+export const GOAL_LIMITS: Record<GoalKind, { min: number; max: number }> = {
+  rounds: { min: 1, max: 30 },
+  minutes: { min: 10, max: 960 }
+}
+
 export interface PomodoroPrefs {
   focusMin: number
   shortBreakMin: number
   longBreakMin: number
   /** 每几轮专注后给一次长休息 */
   roundsBeforeLongBreak: number
-  /** 每日目标轮数 */
-  dailyGoal: number
+  /** 每日目标：按轮数或按时长 */
+  dailyGoal: DailyGoal
   /** 一轮结束后自动开始下一轮 */
   autoStart: boolean
 }
@@ -49,8 +65,39 @@ export const DEFAULT_PREFS: PomodoroPrefs = {
   shortBreakMin: 5,
   longBreakMin: 15,
   roundsBeforeLongBreak: 4,
-  dailyGoal: 8,
+  dailyGoal: DEFAULT_GOAL,
   autoStart: false
+}
+
+/**
+ * 目标归一。老版本存的是一个裸数字（轮数），这里兼容读进来——
+ * 用户改过目标的话不该因为一次升级被悄悄重置。
+ */
+export function normalizeGoal(raw: unknown): DailyGoal {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    const v = Math.round(raw)
+    const { min, max } = GOAL_LIMITS.rounds
+    return { kind: 'rounds', value: v >= min && v <= max ? v : DEFAULT_GOAL.value }
+  }
+  if (raw && typeof raw === 'object') {
+    const g = raw as Partial<DailyGoal>
+    const kind: GoalKind = g.kind === 'minutes' ? 'minutes' : 'rounds'
+    const { min, max } = GOAL_LIMITS[kind]
+    const v = Math.round(Number(g.value))
+    if (Number.isFinite(v) && v >= min && v <= max) return { kind, value: v }
+    return { kind, value: kind === 'minutes' ? 120 : DEFAULT_GOAL.value }
+  }
+  return DEFAULT_GOAL
+}
+
+/** 目标的人话：「8 轮」/「2 小时」。 */
+export function goalLabel(goal: DailyGoal): string {
+  return goal.kind === 'rounds' ? `${goal.value} 轮` : focusLabel(goal.value)
+}
+
+/** 当天已完成的量在目标口径下是多少（轮数或分钟）。 */
+export function goalCurrentOf(goal: DailyGoal, rounds: number, focusMinutes: number): number {
+  return goal.kind === 'rounds' ? rounds : focusMinutes
 }
 
 export function normalizePrefs(patch: Partial<PomodoroPrefs>): PomodoroPrefs {
@@ -63,7 +110,7 @@ export function normalizePrefs(patch: Partial<PomodoroPrefs>): PomodoroPrefs {
     shortBreakMin: clamp(patch.shortBreakMin, 1, 60, DEFAULT_PREFS.shortBreakMin),
     longBreakMin: clamp(patch.longBreakMin, 1, 60, DEFAULT_PREFS.longBreakMin),
     roundsBeforeLongBreak: clamp(patch.roundsBeforeLongBreak, 2, 12, DEFAULT_PREFS.roundsBeforeLongBreak),
-    dailyGoal: clamp(patch.dailyGoal, 1, 30, DEFAULT_PREFS.dailyGoal),
+    dailyGoal: normalizeGoal(patch.dailyGoal),
     autoStart: typeof patch.autoStart === 'boolean' ? patch.autoStart : DEFAULT_PREFS.autoStart
   }
 }
@@ -137,7 +184,11 @@ export interface DayStats {
   focusMinutes: number
   /** 中途放弃的轮数 */
   abandoned: number
-  /** 距离每日目标还差几轮（已达成为 0） */
+  /** 生效的目标（口径 + 数值），界面据此决定显示「轮」还是时长 */
+  goal: DailyGoal
+  /** 目标口径下今天已完成的量 */
+  goalCurrent: number
+  /** 距离目标还差多少（口径同上，已达成为 0） */
   remainingToGoal: number
   /** 目标完成比例 0..1 */
   goalProgress: number
@@ -154,17 +205,22 @@ const dateOf = (iso: string): string | null => {
 export function dayStats(
   sessions: readonly PomodoroSession[],
   date: string,
-  dailyGoal = DEFAULT_PREFS.dailyGoal
+  dailyGoal: DailyGoal = DEFAULT_GOAL
 ): DayStats {
+  const goal = normalizeGoal(dailyGoal)
   const focus = sessions.filter((s) => s.kind === 'focus' && dateOf(s.startAt) === date)
   const done = focus.filter((s) => s.completed)
   const rounds = done.length
+  const focusMinutes = done.reduce((sum, s) => sum + s.minutes, 0)
+  const current = goalCurrentOf(goal, rounds, focusMinutes)
   return {
     rounds,
-    focusMinutes: done.reduce((sum, s) => sum + s.minutes, 0),
+    focusMinutes,
     abandoned: focus.length - done.length,
-    remainingToGoal: Math.max(0, dailyGoal - rounds),
-    goalProgress: dailyGoal > 0 ? Math.min(1, rounds / dailyGoal) : 0
+    goal,
+    goalCurrent: current,
+    remainingToGoal: Math.max(0, goal.value - current),
+    goalProgress: goal.value > 0 ? Math.min(1, current / goal.value) : 0
   }
 }
 
@@ -243,8 +299,9 @@ export function rangeStats(
   sessions: readonly PomodoroSession[],
   fromDate: string,
   toDate: string,
-  dailyGoal = DEFAULT_PREFS.dailyGoal
+  dailyGoal: DailyGoal = DEFAULT_GOAL
 ): RangeStats {
+  const goal = normalizeGoal(dailyGoal)
   const focus = inRange(sessions, fromDate, toDate).filter((s) => s.kind === 'focus')
   const done = focus.filter((s) => s.completed)
 
@@ -260,7 +317,9 @@ export function rangeStats(
 
   const focusMinutes = done.reduce((n, s) => n + s.minutes, 0)
   const activeDays = byDay.size
-  const goalDates = [...byDay.entries()].filter(([, v]) => v.rounds >= dailyGoal).map(([d]) => d)
+  const goalDates = [...byDay.entries()]
+    .filter(([, v]) => goalCurrentOf(goal, v.rounds, v.minutes) >= goal.value)
+    .map(([d]) => d)
 
   let bestDay: RangeStats['bestDay'] = null
   for (const [date, v] of byDay) {
