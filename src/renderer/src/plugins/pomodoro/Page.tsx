@@ -25,6 +25,7 @@ import { dayKey } from '@shared/work-report'
 import { api } from '../../api'
 import { Section, Segmented } from '../../components/ui'
 import ReviewCard from './ReviewCard'
+import PomodoroSettings from './Settings'
 import PomodoroStats from './Stats'
 import type { PluginPageProps } from '../types'
 
@@ -64,7 +65,7 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
   const [pickedBlock, setPickedBlock] = useState<string>('')
   const [customMin, setCustomMin] = useState<number | null>(null)
   const [note, setNote] = useState('')
-  const [tab, setTab] = useState<'today' | 'stats'>('today')
+  const [tab, setTab] = useState<'today' | 'stats' | 'settings'>('today')
   // 刚走完的那一轮：拿来生成复盘，用户处理完（保留或丢弃）就清掉
   const [reviewFor, setReviewFor] = useState<string | null>(null)
   const finishing = useRef(false)
@@ -211,7 +212,8 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
           value={tab}
           options={[
             ['today', '今天'],
-            ['stats', '统计']
+            ['stats', '统计'],
+            ['settings', '设置']
           ]}
           onChange={setTab}
         />
@@ -219,6 +221,14 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
 
       {tab === 'stats' ? (
         <PomodoroStats />
+      ) : tab === 'settings' ? (
+        // 改完设置回到「今天」时目标环要跟着变，所以这里回调刷新
+        <PomodoroSettings
+          onChanged={(next) => {
+            setPrefs(next)
+            void refresh()
+          }}
+        />
       ) : (
         <>
       {/* 一轮走完后的复盘：默认不保存，用户决定保留还是丢弃 */}
@@ -365,7 +375,11 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
 
       {/* ---- 今日目标 + 统计 ---- */}
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-[auto_1fr]">
-        <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-surface px-5 py-4 shadow-sm">
+        <button
+          onClick={() => setTab('settings')}
+          className="flex items-center gap-4 rounded-xl border border-slate-200 bg-surface px-5 py-4 text-left shadow-sm transition-colors hover:border-brand"
+          title="点这里改今日目标"
+        >
           <GoalRing progress={stats.goalProgress} />
           <div>
             <div className="text-xs text-slate-400">今日目标</div>
@@ -382,7 +396,7 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
                   : `还差 ${focusLabel(stats.remainingToGoal)}`}
             </div>
           </div>
-        </div>
+        </button>
         <div className="grid grid-cols-3 gap-4">
           <Stat label="专注时长" value={focusLabel(stats.focusMinutes)} />
           <Stat label="完成轮数" value={`${stats.rounds} 轮`} />

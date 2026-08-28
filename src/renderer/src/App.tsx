@@ -368,9 +368,7 @@ function MainApp(): React.JSX.Element | null {
           {shownPage === 'reports' && <Reports />}
           {shownPage === 'analysis' && <Analysis />}
           {shownPage === 'account' && <Account onProfileChange={setProfile} />}
-          {shownPage === 'settings' && (
-            <Settings onProfileChange={setProfile} enabledPlugins={enabledPlugins} />
-          )}
+          {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
           {shownPage === 'market' && <Market />}
           {/* 插件页：lazy 加载，没启用的插件不进首屏 chunk */}
           {PluginPage && (

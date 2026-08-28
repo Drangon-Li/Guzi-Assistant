@@ -48,7 +48,6 @@ export const PLUGINS = [
     enhances: ['timeblock'],
     contributes: {
       nav: { label: '专注', order: 110 },
-      settings: { label: '专注' },
       homeCards: ['pomodoro-today'],
       achievementCounters: true,
       assistantActions: [

@@ -1,4 +1,7 @@
-// 设置页的「专注」分区：时长参数 + 每日目标 + 自动开始。
+// 专注页的「设置」标签：时长参数 + 每日目标 + 自动开始。
+//
+// 刻意放在插件页内而不是核心设置页：插件的配置跟着插件走，停用插件时不会在设置里
+// 留下一个孤零零的空分区，用户找配置也不用先想「这是核心功能还是插件功能」。
 import { useEffect, useState } from 'react'
 import {
   DEFAULT_PREFS,
@@ -26,7 +29,12 @@ function convertGoal(kind: GoalKind, value: number, focusMin: number): number {
   return Math.max(min, Math.min(max, raw || min))
 }
 
-export default function PomodoroSettings(): React.JSX.Element {
+export default function PomodoroSettings({
+  onChanged
+}: {
+  /** 改完通知父页面，好让目标环和统计跟着刷新 */
+  onChanged?: (next: PomodoroPrefs) => void
+}): React.JSX.Element {
   const [prefs, setPrefs] = useState<PomodoroPrefs>(DEFAULT_PREFS)
 
   useEffect(() => {
@@ -35,7 +43,9 @@ export default function PomodoroSettings(): React.JSX.Element {
 
   const save = async (patch: Partial<PomodoroPrefs>): Promise<void> => {
     // 主进程会再夹一次范围，直接用回写值，避免本地显示和实际存的不一致
-    setPrefs(await api.plugin<PomodoroPrefs>('pomodoro', 'prefs-save', patch))
+    const next = await api.plugin<PomodoroPrefs>('pomodoro', 'prefs-save', patch)
+    setPrefs(next)
+    onChanged?.(next)
   }
 
   const goal = prefs.dailyGoal

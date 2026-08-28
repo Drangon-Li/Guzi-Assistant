@@ -18,8 +18,6 @@ export interface PluginRendererModule {
   /** 侧边栏图标；与 manifest.contributes.nav 配套 */
   Icon: () => React.JSX.Element
   Page: LazyExoticComponent<ComponentType<PluginPageProps>>
-  /** 设置页分区；与 manifest.contributes.settings 配套 */
-  Settings?: LazyExoticComponent<ComponentType>
   /** 今日页卡片，key 对应 manifest.contributes.homeCards 里的名字 */
   homeCards?: Record<string, LazyExoticComponent<ComponentType>>
 }

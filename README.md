@@ -77,7 +77,7 @@ src/
 │   └── plugins/    # 插件装配与各插件的主进程实现
 ├── preload/        # contextBridge 与 IPC 通道白名单
 ├── renderer/       # React 界面：今日、日程、日报、分析、个人、市场、设置、悬浮助手
-│   └── src/plugins/  # 各插件的界面，按需懒加载
+│   └── src/plugins/  # 各插件的界面（含各自的设置），按需懒加载
 └── shared/         # 主进程与渲染层共用的纯函数和类型（含插件契约与注册表）
 
 server/             # 计费与支付签名逻辑

@@ -28,8 +28,8 @@ export interface AssistantActionSpec {
 export interface PluginContributes {
   /** 侧边栏导航项；order 越小越靠上，核心页占 0-99，插件从 100 起 */
   nav?: { label: string; order: number }
-  /** 设置页的一个分区 */
-  settings?: { label: string }
+  // 这里刻意没有「设置分区」这个贡献点：插件的配置放在插件自己的页面里，
+  // 跟着插件走。核心设置页只管核心功能，停用插件不会在那里留下空分区。
   /** 今日页卡片 id，由渲染层注册表映射到组件 */
   homeCards?: readonly string[]
   /** 是否向「成就」插件供给计数器 */

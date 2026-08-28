@@ -213,6 +213,21 @@ for (const p of PLUGINS) {
   )
 }
 
+// 插件的配置放在插件自己的页面里，核心设置页不接插件分区。
+// 这条不是洁癖：一旦有插件往核心设置页塞分区，停用它就会留下一个空分区，
+// 而且用户找配置得先判断「这是核心功能还是插件功能」。
+check(
+  '没有插件声明 settings 贡献点',
+  PLUGINS.every((p) => !('settings' in p.contributes)),
+  JSON.stringify(PLUGINS.filter((p) => 'settings' in p.contributes).map((p) => p.id))
+)
+const coreSettingsSrc = readFileSync(join(root, 'src/renderer/src/pages/Settings.tsx'), 'utf-8')
+check(
+  '核心设置页不引用插件注册表',
+  !coreSettingsSrc.includes('plugin-registry') && !coreSettingsSrc.includes('PLUGIN_UI'),
+  '核心设置页又接上插件了'
+)
+
 // 导航项排序不撞车，否则侧边栏顺序在不同启用组合下不稳定
 const orders = PLUGINS.filter((p) => p.contributes.nav).map((p) => p.contributes.nav.order)
 check('插件导航 order 互不相同', new Set(orders).size === orders.length)

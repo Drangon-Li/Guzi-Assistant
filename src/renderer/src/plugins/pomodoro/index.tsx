@@ -6,7 +6,6 @@ const pomodoro: PluginRendererModule = {
   id: 'pomodoro',
   Icon: IconPomodoro,
   Page: lazy(() => import('./Page')),
-  Settings: lazy(() => import('./Settings')),
   homeCards: {
     'pomodoro-today': lazy(() => import('./TodayCard'))
   }
