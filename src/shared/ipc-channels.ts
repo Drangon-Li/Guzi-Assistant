@@ -1,5 +1,10 @@
 // IPC 通道单一事实源：主进程注册、preload 白名单、渲染层调用都以此为准。
 // 新增通道必须在此登记，否则 preload 白名单会拒绝（test/ipc-channels-smoke.mjs 会校验本表与源码一致）。
+//
+// 插件通道是唯一的例外：它们形如 plugin:<id>:<action>，由 main/plugins/index.ts 在插件
+// 启用时动态注册，不在本表里逐条登记。preload 改为按「形状 + 已知插件 id」放行，
+// 「是否已启用」由主进程那边决定——停用的插件根本没有 handler，invoke 会直接失败。
+// 两层缺一不可，测试 test/ipc-channels-smoke.mjs 两头都卡。
 
 /** 渲染层 → 主进程的 invoke 通道（对应 ipcMain.handle） */
 export const INVOKE_CHANNELS = [
@@ -94,7 +99,11 @@ export const INVOKE_CHANNELS = [
   'app:version',
   'app:launch-at-login',
   'app:set-launch-at-login',
-  'theme:get'
+  'theme:get',
+  'plugins:list',
+  'plugins:enable',
+  'plugins:disable',
+  'plugins:uninstall'
 ] as const
 
 /** 主进程 → 渲染层的事件通道（对应 broadcast / webContents.send 与渲染层 on） */
@@ -109,7 +118,9 @@ export const EVENT_CHANNELS = [
   'guzi-assistant:reports-updated',
   'guzi-assistant:quickbar-show',
   'guzi-assistant:reminder',
-  'guzi-assistant:theme'
+  'guzi-assistant:theme',
+  'guzi-assistant:plugins-updated',
+  'guzi-assistant:plugin-event'
 ] as const
 
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]

@@ -21,6 +21,7 @@ import type {
   HistoryAppSelection
 } from '@shared/types'
 import type { ModelProbeResult } from '@shared/model-configuration'
+import { pluginChannel, type PluginState } from '@shared/plugin-manifest'
 import type {
   HistoryDeleteResult,
   HistoryQueryOptions,
@@ -181,7 +182,28 @@ export const api = {
   quickbarResize: (height: number) => inv<void>('quickbar:resize', height),
   themeGet: () => inv<boolean>('theme:get'),
 
+  // ---------- 插件市场 ----------
+  listPlugins: () => inv<PluginState[]>('plugins:list'),
+  enablePlugin: (id: string) => inv<PluginActionResult>('plugins:enable', id),
+  disablePlugin: (id: string) => inv<PluginActionResult>('plugins:disable', id),
+  /** 不可逆：会 DROP 掉这个插件的表。调用前必须让用户二次确认。 */
+  uninstallPlugin: (id: string) => inv<PluginActionResult>('plugins:uninstall', id),
+
+  /**
+   * 调插件自己的通道。通道名由 pluginChannel 拼，不接受手写字符串——
+   * preload 只放行 plugin:<注册表里的 id>:<action> 这个形状。
+   */
+  plugin: <T>(id: string, action: string, ...args: unknown[]) =>
+    inv<T>(pluginChannel(id, action), ...args),
+
   on: (channel: string, cb: (payload: unknown) => void) => window.guziAssistant.on(channel, cb)
+}
+
+export interface PluginActionResult {
+  enabled: string[]
+  added?: string[]
+  removed?: string[]
+  states: PluginState[]
 }
 
 export type { PendingCapture }

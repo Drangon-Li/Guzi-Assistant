@@ -149,7 +149,14 @@ export default function AssistantChat({
     if (res.candidates?.length) {
       reply.candidates = { ctx: { sourceText: value, items: res.candidates }, added: {} }
     }
-    update([...store.msgs, reply, ...dupMsgs])
+    // 插件动作的结果单独一条：模型的 reply 可能只是「好的」，真正做没做成以这条为准
+    const actionMsgs: ChatMsg[] = res.actions.map((a) => ({
+      id: store.nextId++,
+      role: 'assistant' as const,
+      text: a.ok ? `✓ ${a.message}` : `没能执行：${a.message}`,
+      error: !a.ok
+    }))
+    update([...store.msgs, reply, ...actionMsgs, ...dupMsgs])
   }
 
   // 外部注入消息（桌宠拖入文件）：nonce 变化时自动发送一次

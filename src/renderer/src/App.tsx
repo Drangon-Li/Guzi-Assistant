@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { shouldRemindRenew } from '@shared/subscription'
 import { api } from './api'
@@ -14,6 +14,7 @@ import Analysis from './pages/Analysis'
 import Home from './pages/Home'
 import Account from './pages/Account'
 import Settings from './pages/Settings'
+import Market from './pages/Market'
 import PreviewCard from './pages/PreviewCard'
 import ReminderCard from './pages/ReminderCard'
 import Debug from './pages/Debug'
@@ -23,25 +24,46 @@ import brandMark from './assets/agent-avatar.png'
 import {
   IconAccount,
   IconAnalysis,
+  IconMarket,
   IconReport,
   IconSchedule,
   IconSettings,
   IconToday
 } from './components/nav-icons'
+import { PLUGINS } from '@shared/plugin-registry'
+import { PLUGIN_UI } from './plugins'
+import type { PluginRendererModule } from './plugins/types'
 
-type Page = 'home' | 'schedule' | 'reports' | 'analysis' | 'account' | 'settings'
+type CorePage = 'home' | 'schedule' | 'reports' | 'analysis' | 'account' | 'settings' | 'market'
+/** 插件页的 key 就是插件 id，所以这里必须放宽到 string。 */
+type Page = CorePage | string
+
+const CORE_PAGES: readonly CorePage[] = [
+  'home',
+  'schedule',
+  'reports',
+  'analysis',
+  'account',
+  'settings',
+  'market'
+]
 
 const WELCOME_KEY = 'guzi-assistant:welcomed'
 const LEGACY_WELCOME_KEY = 'eshell:welcomed'
 
-// 设置不在主导航里，固定在侧边栏底部
-const NAV: { key: Page; label: string; icon: () => React.JSX.Element }[] = [
+// 设置和市场不在主导航里，固定在侧边栏底部
+const NAV: { key: CorePage; label: string; icon: () => React.JSX.Element }[] = [
   { key: 'home', label: '今日', icon: IconToday },
   { key: 'schedule', label: '日程', icon: IconSchedule },
   { key: 'reports', label: '日报', icon: IconReport },
   { key: 'analysis', label: '分析', icon: IconAnalysis },
   { key: 'account', label: '个人', icon: IconAccount }
 ]
+
+const navItemClass = (active: boolean): string =>
+  `flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+    active ? 'bg-brand-soft font-medium text-brand' : 'text-slate-600 hover:bg-slate-50'
+  }`
 
 export default function App(): React.JSX.Element {
   if (window.location.hash.includes('/preview')) return <PreviewCard />
@@ -69,6 +91,7 @@ function MainApp(): React.JSX.Element | null {
   const [toast, setToast] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [hotkeyLabel, setHotkeyLabel] = useState('⌥ C')
+  const [enabledPlugins, setEnabledPlugins] = useState<string[]>([])
   const toastTimer = useRef<number | undefined>(undefined)
   const dragDepth = useRef(0)
 
@@ -77,6 +100,52 @@ function MainApp(): React.JSX.Element | null {
     window.clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 4500)
   }, [])
+
+  // 已启用插件决定导航里多出哪几项。市场里改了就广播，这里跟着重算。
+  useEffect(() => {
+    const load = (): void => {
+      void api.listPlugins().then((list) => {
+        setEnabledPlugins(list.filter((s) => s.enabled).map((s) => s.manifest.id))
+      })
+    }
+    load()
+    return api.on('guzi-assistant:plugins-updated', load)
+  }, [])
+
+  // 正停在某个插件页时把它停用了：退回今日，否则会停在一个已经没人渲染的 key 上
+  useEffect(() => {
+    if (CORE_PAGES.includes(page as CorePage)) return
+    if (!enabledPlugins.includes(page)) setPage('home')
+  }, [enabledPlugins, page])
+
+  // flatMap 而不是 map+filter：注册表是 as const，字面量类型和收窄谓词对不上，
+  // 空数组表示「跳过」既省掉谓词也省掉 null 分支。
+  const pluginNav = useMemo(
+    () =>
+      PLUGINS.filter((p) => enabledPlugins.includes(p.id))
+        .flatMap((p) => {
+          const mod: PluginRendererModule | undefined = PLUGIN_UI[p.id]
+          if (!mod) return []
+          const nav: { label: string; order: number } = p.contributes.nav
+          return [{ key: p.id as string, label: nav.label, order: nav.order, Icon: mod.Icon }]
+        })
+        .sort((a, b) => a.order - b.order),
+    [enabledPlugins]
+  )
+
+  const pluginHomeCards = useMemo(
+    () =>
+      PLUGINS.filter((p) => enabledPlugins.includes(p.id)).flatMap((p) => {
+        const mod: PluginRendererModule | undefined = PLUGIN_UI[p.id]
+        const names: readonly string[] =
+          'homeCards' in p.contributes ? p.contributes.homeCards : []
+        return names.flatMap((name) => {
+          const Card = mod?.homeCards?.[name]
+          return Card ? [{ key: name, Card: Card as React.ComponentType }] : []
+        })
+      }),
+    [enabledPlugins]
+  )
 
   const refresh = useCallback(() => {
     void api.listTasks().then((next) => setTasks((prev) => reconcileTasks(prev, next)))
@@ -134,15 +203,9 @@ function MainApp(): React.JSX.Element | null {
         setPage('account') // 旧路由兼容：记忆页已拆解，个人记忆并入个人页
       else if (route === 'history')
         setPage('reports') // 旧路由兼容：历史页已并入日报页的「活动明细」
-      else if (
-        route === 'home' ||
-        route === 'schedule' ||
-        route === 'reports' ||
-        route === 'analysis' ||
-        route === 'account' ||
-        route === 'settings'
-      )
-        setPage(route)
+      else if (typeof route === 'string' && CORE_PAGES.includes(route as CorePage)) setPage(route)
+      // 插件页也能被导航到（桌宠气泡、提醒卡都可能想跳过去）；没启用就当没这条路由
+      else if (typeof route === 'string' && PLUGINS.some((p) => p.id === route)) setPage(route)
     })
     return () => {
       offTasks()
@@ -202,6 +265,12 @@ function MainApp(): React.JSX.Element | null {
   if (screenPerm !== 'granted' && !screenGateSkipped)
     return <ScreenPermissionGate onDone={() => setScreenGateSkipped(true)} />
 
+  // 非核心页 = 插件页。停用后 PLUGIN_UI 里仍有条目，所以还要看它在不在已启用集合里。
+  const PluginPage =
+    !CORE_PAGES.includes(shownPage as CorePage) && enabledPlugins.includes(shownPage)
+      ? PLUGIN_UI[shownPage]?.Page
+      : undefined
+
   return (
     <div
       className="flex h-full bg-canvas text-slate-800"
@@ -234,26 +303,37 @@ function MainApp(): React.JSX.Element | null {
             <button
               key={item.key}
               onClick={() => setPage(item.key)}
-              className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                page === item.key
-                  ? 'bg-brand-soft font-medium text-brand'
-                  : 'text-slate-600 hover:bg-slate-50'
-              }`}
+              className={navItemClass(page === item.key)}
             >
               <item.icon />
               <span>{item.label}</span>
             </button>
           ))}
+
+          {/* 插件页单独一组：一条细线把「谷子助手自带的」和「你自己装的」分开，
+              核心导航的顺序因此永远不会因为装了插件而改变 */}
+          {pluginNav.length > 0 && (
+            <>
+              <div className="mx-3 my-1.5 border-t border-slate-200/70" />
+              {pluginNav.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setPage(item.key)}
+                  className={navItemClass(page === item.key)}
+                >
+                  <item.Icon />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </>
+          )}
         </nav>
         <div className="mt-auto flex flex-col gap-2 px-3 pb-5">
-          <button
-            onClick={() => setPage('settings')}
-            className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-              page === 'settings'
-                ? 'bg-brand-soft font-medium text-brand'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
+          <button onClick={() => setPage('market')} className={navItemClass(page === 'market')}>
+            <IconMarket />
+            <span>市场</span>
+          </button>
+          <button onClick={() => setPage('settings')} className={navItemClass(page === 'settings')}>
             <IconSettings />
             <span>设置</span>
           </button>
@@ -270,7 +350,14 @@ function MainApp(): React.JSX.Element | null {
           key={shownPage}
           className={pageVisible ? 'animate-page' : 'opacity-0 transition-opacity duration-100'}
         >
-          {shownPage === 'home' && <Home tasks={tasks} userName={profile.name} onNavigate={setPage} />}
+          {shownPage === 'home' && (
+            <Home
+              tasks={tasks}
+              userName={profile.name}
+              onNavigate={setPage}
+              pluginCards={pluginHomeCards}
+            />
+          )}
           {shownPage === 'schedule' && (
             <Schedule
               tasks={tasks}
@@ -282,6 +369,19 @@ function MainApp(): React.JSX.Element | null {
           {shownPage === 'analysis' && <Analysis />}
           {shownPage === 'account' && <Account onProfileChange={setProfile} />}
           {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
+          {shownPage === 'market' && <Market />}
+          {/* 插件页：lazy 加载，没启用的插件不进首屏 chunk */}
+          {PluginPage && (
+            <Suspense
+              fallback={
+                <div className="flex h-64 items-center justify-center">
+                  <div className="size-5 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
+                </div>
+              }
+            >
+              <PluginPage enabledPlugins={enabledPlugins} />
+            </Suspense>
+          )}
         </div>
       </main>
 

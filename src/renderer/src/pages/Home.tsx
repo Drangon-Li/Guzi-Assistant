@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import type { AppCategoryOverride, AppUsageEntry, TaskRecord, WorkRecord } from '@shared/types'
 import { dayKey, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
 import { buildOverrideMap, categoryOf, deepWorkSeconds, productiveRuns } from '@shared/attention'
@@ -12,7 +12,9 @@ const ACTIVE_STATUS = new Set(['not_started', 'scheduled', 'in_progress', 'overd
 interface Props {
   tasks: TaskRecord[]
   userName: string
-  onNavigate: (page: 'reports' | 'settings') => void
+  onNavigate: (page: string) => void
+  /** 已启用插件贡献的卡片，排在问候语之下、今日概览之上 */
+  pluginCards?: { key: string; Card: React.ComponentType }[]
 }
 
 function greeting(h: number): string {
@@ -25,7 +27,12 @@ function greeting(h: number): string {
 }
 
 /** 「今日」主界面：动态问候 + 数据叙事 + 今日概览 + 谷穗时间轴 + 最近工作记录。 */
-export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.Element {
+export default function Home({
+  tasks,
+  userName,
+  onNavigate,
+  pluginCards = []
+}: Props): React.JSX.Element {
   const [records, setRecords] = useState<WorkRecord[]>([])
   const [ytdRecords, setYtdRecords] = useState<WorkRecord[]>([])
   const [overrides, setOverrides] = useState<AppCategoryOverride[]>([])
@@ -131,6 +138,16 @@ export default function Home({ tasks, userName, onNavigate }: Props): React.JSX.
           >
             去设置开启
           </button>
+        </div>
+      )}
+
+      {pluginCards.length > 0 && (
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-4">
+          {pluginCards.map(({ key, Card }) => (
+            <Suspense key={key} fallback={null}>
+              <Card />
+            </Suspense>
+          ))}
         </div>
       )}
 

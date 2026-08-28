@@ -23,6 +23,8 @@ interface Props {
 }
 
 // 分区导航；每个分区的渲染在 components/settings/ 下各自一个文件，状态仍集中在本组件。
+// 这里只有核心功能的设置：插件的配置在各插件自己的页面里，跟着插件走，
+// 停用插件不会在这儿留下一个空分区，用户也不用先想「这是核心还是插件」。
 const CATS = ['通用', '快捷键', '助手', '集成', '屏幕感知', '数据', '关于'] as const
 
 export default function Settings({ onProfileChange }: Props): React.JSX.Element {
