@@ -2,11 +2,13 @@
 //
 // 这里卡的是插件系统的两条安全边界（表名前缀、通道前缀）和依赖启停的级联正确性。
 // 依赖图用合成注册表测，避免测试随真实插件增减而失效；真实注册表只测「自洽」。
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import {
+  assistantActionsBlock,
   channelPrefix,
+  isKnownAssistantAction,
   compareVersions,
   dependentsOf,
   disableChain,
@@ -167,6 +169,47 @@ for (const p of PLUGINS) {
     `${p.id}: 渲染层实现存在`,
     existsSync(join(root, 'src/renderer/src/plugins', p.id, 'index.tsx')),
     `缺 src/renderer/src/plugins/${p.id}/index.tsx`
+  )
+}
+
+// ---------- 助手动作 ----------
+// 只有已启用插件的动作才会被拼进提示词——没装某个插件时模型根本不知道有这个能力，
+// 就不会答应用户做不到的事。
+const withAction = {
+  ...base,
+  id: 'demo',
+  contributes: {
+    assistantActions: [{ name: 'do-it', summary: '干件事', args: '{}', when: '用户说干吧时用。' }]
+  }
+}
+const R2 = [withAction, { ...base, id: 'quiet', storage: { tables: ['p_quiet_a'] } }]
+
+check('未启用时动作清单为空', assistantActionsBlock(R2, []) === '')
+check('启用后清单里有这条动作', assistantActionsBlock(R2, ['demo']).includes('"action":"do-it"'))
+check('清单带上插件 id', assistantActionsBlock(R2, ['demo']).includes('"plugin":"demo"'))
+check('没有声明动作的插件不产出行', assistantActionsBlock(R2, ['quiet']) === '')
+
+check('已启用 + 已声明 → 认', isKnownAssistantAction(R2, ['demo'], 'demo', 'do-it'))
+check('插件没启用 → 不认', !isKnownAssistantAction(R2, [], 'demo', 'do-it'))
+check('动作没声明过 → 不认', !isKnownAssistantAction(R2, ['demo'], 'demo', 'ghost-action'))
+check('插件不存在 → 不认', !isKnownAssistantAction(R2, ['demo'], 'ghost', 'do-it'))
+
+// 真实注册表：声明了动作的插件必须在主进程有对应实现，否则模型调了会静默失灵
+for (const p of PLUGINS) {
+  const specs = 'assistantActions' in p.contributes ? p.contributes.assistantActions : []
+  if (!specs.length) continue
+  const src = readFileSync(join(root, 'src/main/plugins', p.id, 'index.ts'), 'utf-8')
+  for (const spec of specs) {
+    check(
+      `${p.id}: 声明的助手动作「${spec.name}」有实现`,
+      new RegExp(`['"]?${spec.name}['"]?\\s*:`).test(src),
+      `main/plugins/${p.id}/index.ts 的 assistantActions 里没有 ${spec.name}`
+    )
+  }
+  check(`${p.id}: 动作名不重复`, new Set(specs.map((s) => s.name)).size === specs.length)
+  check(
+    `${p.id}: 每条动作都写了触发场景`,
+    specs.every((s) => s.when.length > 4 && s.summary.length > 2)
   )
 }
 

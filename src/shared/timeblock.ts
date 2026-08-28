@@ -199,6 +199,89 @@ export function templateForDate(templates: readonly TimeTemplate[], date: string
   return hit[0] ?? null
 }
 
+// ---------- 实际投入 ----------
+
+export interface FocusSession {
+  /** 任务名；没有任务归属时退回应用名 */
+  label: string
+  startMin: number
+  endMin: number
+  /** 真正有记录覆盖的分钟数，不含中间的空隙——排序按它，跨度长但断断续续的排不到前面 */
+  activeMin: number
+}
+
+/** 一条工作记录在某天里占的分钟区间；不在这天或时间非法则返回 null。 */
+export function recordSpan(
+  record: { startAt: string | null; endAt: string | null },
+  day: string
+): { startMin: number; endMin: number } | null {
+  if (!record.startAt || !record.endAt) return null
+  const s = new Date(record.startAt)
+  const e = new Date(record.endAt)
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const key = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  if (key(s) !== day) return null
+  const startMin = s.getHours() * 60 + s.getMinutes()
+  const endMin = key(e) === day ? e.getHours() * 60 + e.getMinutes() : DAY_MINUTES
+  return endMin > startMin ? { startMin, endMin } : null
+}
+
+/**
+ * 把零碎的工作记录归并成「真正花了时间的事」。
+ *
+ * 活动历史是按 10 分钟一块产出的，原样铺到时间轴上是一串看不出意义的碎点。
+ * 这里改成：**先按任务归组**（同一任务的相邻记录才合并，不同任务不会因为挨着就并到一起），
+ * 组内间隔小于 gapMin 的接成一段，再按真实投入时长筛掉零碎的，只留最靠前的几条。
+ * 「上午看了 1 小时 40 分钟论文」比「上午有 11 个 10 分钟的活动块」有用得多。
+ */
+export function focusSessions(
+  records: readonly { startAt: string | null; endAt: string | null; task: string | null; app: string | null }[],
+  day: string,
+  opts: { gapMin?: number; minMinutes?: number; limit?: number } = {}
+): FocusSession[] {
+  const gapMin = opts.gapMin ?? 20
+  const minMinutes = opts.minMinutes ?? 30
+  const limit = opts.limit ?? 6
+
+  const byLabel = new Map<string, { startMin: number; endMin: number }[]>()
+  for (const r of records) {
+    const span = recordSpan(r, day)
+    if (!span) continue
+    const label = (r.task ?? r.app ?? '').trim() || '其它'
+    const list = byLabel.get(label) ?? []
+    list.push(span)
+    byLabel.set(label, list)
+  }
+
+  const sessions: FocusSession[] = []
+  for (const [label, spans] of byLabel) {
+    const sorted = sortBlocks(spans)
+    let cur: { startMin: number; endMin: number; activeMin: number } | null = null
+    const flush = (): void => {
+      if (cur) sessions.push({ label, ...cur })
+      cur = null
+    }
+    for (const s of sorted) {
+      if (cur && s.startMin - cur.endMin <= gapMin) {
+        // 重叠的部分不重复计入投入时长
+        cur.activeMin += Math.max(0, s.endMin - Math.max(s.startMin, cur.endMin))
+        cur.endMin = Math.max(cur.endMin, s.endMin)
+      } else {
+        flush()
+        cur = { startMin: s.startMin, endMin: s.endMin, activeMin: s.endMin - s.startMin }
+      }
+    }
+    flush()
+  }
+
+  return sessions
+    .filter((s) => s.activeMin >= minMinutes)
+    .sort((a, b) => b.activeMin - a.activeMin)
+    .slice(0, limit)
+    .sort((a, b) => a.startMin - b.startMin)
+}
+
 /**
  * 计划块与实际工作记录的对照。actual 用的是实际起止的分钟区间，
  * 返回每个计划块被实际活动覆盖的比例（0..1）——作息页的「计划 vs 实际」就画这个。

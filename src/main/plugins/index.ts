@@ -7,9 +7,11 @@
 import { app, ipcMain } from 'electron'
 import type Database from 'better-sqlite3'
 import {
+  assistantActionsBlock,
   buildPluginStates,
   disableChain,
   enableChain,
+  isKnownAssistantAction,
   pluginChannel,
   type PluginState
 } from '@shared/plugin-manifest'
@@ -25,7 +27,7 @@ import achievement from './achievement/index.ts'
 import habit from './habit/index.ts'
 import pomodoro from './pomodoro/index.ts'
 import timeblock from './timeblock/index.ts'
-import type { PluginMainModule } from './types.ts'
+import type { AssistantActionResult, PluginMainModule } from './types.ts'
 
 export const PLUGIN_MODULES: Record<string, PluginMainModule> = {
   timeblock,
@@ -71,6 +73,31 @@ export function initPluginIpc(): void {
 
 export function states(): PluginState[] {
   return buildPluginStates(PLUGINS, readEnabledPlugins(), app.getVersion())
+}
+
+/** 已启用插件的助手动作清单，拼进对话提示词。 */
+export function assistantActions(): string {
+  return assistantActionsBlock(PLUGINS, readEnabledPlugins())
+}
+
+/**
+ * 执行一次助手动作。三道门：插件已启用、manifest 里声明过、实现里确实有这个函数。
+ * 模型可能编出不存在的插件或动作，任何一道不过就当没这回事，不让它影响这一轮对话。
+ */
+export function runAssistantAction(
+  plugin: string,
+  action: string,
+  args: Record<string, unknown>
+): AssistantActionResult | null {
+  if (!isKnownAssistantAction(PLUGINS, readEnabledPlugins(), plugin, action)) return null
+  const fn = PLUGIN_MODULES[plugin]?.assistantActions?.[action]
+  if (!fn) return null
+  try {
+    return fn(args)
+  } catch (e) {
+    console.error(`[plugins] 助手动作 ${plugin}:${action} 执行失败：`, e)
+    return { ok: false, message: '没能执行' }
+  }
 }
 
 /** 启用插件及其硬依赖；返回实际被启用的 id（依赖在前）。 */

@@ -153,11 +153,19 @@ export interface TaskOpInstruction {
   action: 'done' | 'ignored'
 }
 
+/** 助手要求某个已启用插件执行的一次动作。 */
+export interface PluginActionInstruction {
+  plugin: string
+  action: string
+  args: Record<string, unknown>
+}
+
 export interface AssistantEnvelope {
   reply: string
   candidates: ParsedItem[]
   add: AddInstruction[]
   ops: TaskOpInstruction[]
+  actions: PluginActionInstruction[]
 }
 
 export interface AddedInfo {
@@ -171,21 +179,51 @@ export interface AddedInfo {
   taskId?: string
 }
 
+/** 本轮执行过的插件动作及其结果。 */
+export interface PluginActionOutcome {
+  plugin: string
+  action: string
+  ok: boolean
+  message: string
+}
+
 export interface AssistantTurnResult {
   reply: string
   candidates: ParsedItem[] | null
   added: AddedInfo[]
   /** 本轮已执行的任务操作（标记完成/忽略）：带原状态供一键撤销 */
   ops: { id: string; title: string; action: 'done' | 'ignored'; prevStatus: TaskStatus }[]
+  /** 本轮驱动的插件动作（开番茄钟、排时间块、打卡…） */
+  actions: PluginActionOutcome[]
   error: string | null
 }
 
-/** 助手对话的系统提示词：捕获 + 日程问答 + 候选确认三合一 */
+/**
+ * 插件动作段。没有已启用的插件动作就整段省略——
+ * 与其告诉模型「你还能做这些，但现在都不可用」，不如让它根本不知道，
+ * 免得它答应用户做不到的事。
+ */
+function pluginActionsSection(pluginActions: string): string {
+  if (!pluginActions.trim()) return ''
+  return `
+## actions（用户要求执行插件功能时才填）
+用户已启用的扩展功能可以直接驱动。填写：[{"plugin":"插件 id","action":"动作名","args":{...}}]，一轮最多 3 个。
+可用动作：
+${pluginActions}
+- 只能用上面列出的 plugin/action，别的一律不填，也不要在 reply 里承诺
+- 参数缺关键信息（比如要打卡但没说哪个习惯）时不要调用，在 reply 里问清楚
+- 执行后在 reply 里用一句话确认；这类请求通常不需要同时填 candidates/add
+`
+}
+
+/** 助手对话的系统提示词：捕获 + 日程问答 + 候选确认 + 插件动作 */
 export function buildAssistantInstructions(
   profile: Profile,
   tasksJson: string,
   candidates: ParsedItem[] | null,
-  personalMemory = ''
+  personalMemory = '',
+  /** 已启用插件的可调用动作清单（assistantActionsBlock 渲染），空串表示一个都没有 */
+  pluginActions = ''
 ): string {
   const now = localNow()
   const weekday = WEEKDAYS[new Date().getDay()]
@@ -203,7 +241,7 @@ status 含义：pending=待确认（用户还没确认，不算正式日程）�
 
 # 输出格式
 每轮只输出一个 JSON 对象，不要输出任何其他文字或代码块标记：
-{"reply":"对用户说的话","candidates":[],"add":[],"ops":[]}
+{"reply":"对用户说的话","candidates":[],"add":[],"ops":[],"actions":[]}
 
 ## reply（必填）
 简洁中文，可换行。列日程时一行一条、用「· 」开头，时间写成「6月15日 14:00」这种格式，并注明剩余时间（今天/明天/还有 N 天/已延期）。不要用 markdown 表格或标题。
@@ -236,7 +274,7 @@ ${EXTRACT_RULES}
 - id 必须原样取自上方「用户的任务数据」；用户描述模糊、可能对应多条任务时**不要填 ops**，在 reply 里列出疑似项让用户确认
 - done=标记完成；ignored=忽略/不再关注（用户说"删除"也用 ignored）
 - 执行后在 reply 里用一句话确认（任务标题 + 做了什么）；找不到对应任务时 ops 为 [] 并在 reply 里直说
-
+${pluginActionsSection(pluginActions)}
 # 当前候选列表（用户上一轮收到的草稿）
 ${candidates && candidates.length ? JSON.stringify(candidates.map((c, i) => ({ 序号: i + 1, ...c }))) : '（无）'}
 
@@ -409,7 +447,7 @@ export function parseAssistantOutput(text: string): AssistantEnvelope {
   } catch {
     // 模型偶尔不守约、直接输出对话原文（无 JSON 信封）：当纯回复用，不把格式问题抛给用户
     const plain = text.replace(/```[a-z]*\n?|```/gi, '').trim()
-    return { reply: plain || '（无回复）', candidates: [], add: [], ops: [] }
+    return { reply: plain || '（无回复）', candidates: [], add: [], ops: [], actions: [] }
   }
   const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : ''
   const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : []
@@ -432,7 +470,24 @@ export function parseAssistantOutput(text: string): AssistantEnvelope {
     .filter((o): o is Record<string, unknown> => typeof o === 'object' && o !== null)
     .filter((o) => typeof o.id === 'string' && !!o.id && (o.action === 'done' || o.action === 'ignored'))
     .map((o) => ({ id: o.id as string, action: o.action as 'done' | 'ignored' }))
-  return { reply: reply || (candidates.length ? '我发现了这些事项：' : '（无回复）'), candidates, add, ops }
+  // 插件动作：这里只做形状校验，「这个插件装了没、有没有这个动作」由主进程按注册表卡
+  const rawActions = Array.isArray(parsed.actions) ? parsed.actions : []
+  const actions = rawActions
+    .filter((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
+    .filter((a) => typeof a.plugin === 'string' && !!a.plugin && typeof a.action === 'string' && !!a.action)
+    .map((a) => ({
+      plugin: a.plugin as string,
+      action: a.action as string,
+      args: typeof a.args === 'object' && a.args !== null ? (a.args as Record<string, unknown>) : {}
+    }))
+    .slice(0, 3)
+  return {
+    reply: reply || (candidates.length ? '我发现了这些事项：' : '（无回复）'),
+    candidates,
+    add,
+    ops,
+    actions
+  }
 }
 
 /** 把对话中提出的修改应用到候选事项上（字段逐一校验，非法值忽略） */

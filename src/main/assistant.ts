@@ -23,7 +23,9 @@ import {
   type ChatHistoryItem,
   type ParsedItem
 } from '@shared/parsing'
+import type { PluginActionOutcome } from '@shared/parsing'
 import type { TaskStatus } from '@shared/types'
+import { assistantActions, runAssistantAction } from './plugins/index.ts'
 
 function excerptOf(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 80)
@@ -91,6 +93,9 @@ export function notifyQuickChatResult(
   const doneOps = res.ops.filter((o) => o.action === 'done').length
   if (doneOps) parts.push(`标记完成 ${doneOps} 条`)
   if (res.ops.length - doneOps > 0) parts.push(`忽略 ${res.ops.length - doneOps} 条`)
+  // 插件动作的结果直接用它自己的话播报（「开始专注 25 分钟」），失败的也说，
+  // 否则用户以为定上了其实没有
+  for (const a of res.actions) parts.push(a.message)
 
   // 本轮新给出、且没有当轮直接入库的候选：added 的序号只在「无上一轮候选上下文」时指向本轮候选
   const addedIdx = new Set(res.added.map((a) => a.candidate))
@@ -107,9 +112,8 @@ export function notifyQuickChatResult(
   }
 
   if (parts.length) {
-    applyExternalPetSay(`${parts.join('，')}～`, added.length || doneOps ? 'success' : 'waiting', {
-      durationMs: 12_000
-    })
+    const good = added.length > 0 || doneOps > 0 || res.actions.some((a) => a.ok)
+    applyExternalPetSay(`${parts.join('，')}～`, good ? 'success' : 'waiting', { durationMs: 12_000 })
     return
   }
   // 纯问答（没有任何日程动作）：气泡给出回答摘要，避免用户以为发丢了
@@ -122,7 +126,8 @@ export async function assistantChat(payload: {
   candidates: CandidateContext | null
 }): Promise<AssistantTurnResult> {
   const profile = getProfile()
-  if (!profile) return { reply: '', candidates: null, added: [], ops: [], error: '尚未完成用户档案设置' }
+  if (!profile)
+    return { reply: '', candidates: null, added: [], ops: [], actions: [], error: '尚未完成用户档案设置' }
 
   const tasks = listTasks()
     .filter((t) => t.status !== 'done' && t.status !== 'ignored')
@@ -148,7 +153,8 @@ export async function assistantChat(payload: {
         profile,
         JSON.stringify(tasks),
         payload.candidates?.items ?? null,
-        personalMemoryText()
+        personalMemoryText(),
+        assistantActions() // 只列已启用插件的动作；一个都没启用时整段省略
       ),
       input,
       'chat' // 网关据此保留自然采样；此前默认走 parse_text 的 temperature 0，对话会发僵
@@ -183,11 +189,26 @@ export async function assistantChat(payload: {
       broadcast('guzi-assistant:tasks-updated')
     }
 
+    // 插件动作（「定个 25 分钟番茄钟」「今天的步数打卡」）：
+    // runAssistantAction 会卡「插件已启用 + manifest 声明过 + 实现里有」三道门，
+    // 模型编出来的插件或动作直接返回 null，当没这回事。
+    const actions: PluginActionOutcome[] = []
+    for (const a of env.actions) {
+      const result = runAssistantAction(a.plugin, a.action, a.args)
+      if (!result) continue
+      actions.push({ plugin: a.plugin, action: a.action, ok: result.ok, message: result.message })
+    }
+    if (actions.length) {
+      if (actions.some((a) => a.ok)) applyExternalPetReaction('success')
+      broadcast('guzi-assistant:plugins-updated') // 插件页跟着刷新
+    }
+
     return {
       reply: env.reply,
       candidates: env.candidates.length ? env.candidates : null,
       added,
       ops,
+      actions,
       error: null
     }
   } catch (e) {
@@ -196,6 +217,7 @@ export async function assistantChat(payload: {
       candidates: null,
       added: [],
       ops: [],
+      actions: [],
       error: e instanceof Error ? e.message : String(e)
     }
   }

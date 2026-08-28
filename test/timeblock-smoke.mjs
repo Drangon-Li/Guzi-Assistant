@@ -12,6 +12,8 @@ import {
   sortBlocks,
   templateForDate,
   applyTemplate,
+  focusSessions,
+  recordSpan,
   viewWindow,
   weekdaysLabel
 } from '../src/shared/timeblock.ts'
@@ -115,6 +117,91 @@ check('自定义最小跨度会把窄内容撑到该跨度', narrow[1] - narrow[
 const wide = viewWindow([600, 660], 120)
 check('自然跨度超过最小值时不压缩', wide[1] - wide[0] === 180)
 check('整天内容原样返回', eq(viewWindow([0, 1440]), [0, 1440]))
+
+// ---------- 实际投入归并 ----------
+// 活动历史按 10 分钟一块产出，原样铺到时间轴上是一串看不懂的碎点。
+// 归并的口径：先按任务分组，组内间隔小的接成一段，再按真实投入时长筛。
+const rec = (task, from, to, app = null) => ({
+  task,
+  app,
+  startAt: `2026-08-28T${from}:00`,
+  endAt: `2026-08-28T${to}:00`
+})
+const DAY = '2026-08-28'
+
+check(
+  '同一任务的相邻碎块合成一段',
+  eq(
+    focusSessions(
+      [rec('看论文', '09:00', '09:10'), rec('看论文', '09:10', '09:20'), rec('看论文', '09:20', '09:40')],
+      DAY,
+      { minMinutes: 30 }
+    ),
+    [{ label: '看论文', startMin: 540, endMin: 580, activeMin: 40 }]
+  )
+)
+check(
+  '间隔超过 gapMin 就断开成两段',
+  focusSessions(
+    [rec('看论文', '09:00', '09:40'), rec('看论文', '11:00', '11:40')],
+    DAY,
+    { gapMin: 20, minMinutes: 30 }
+  ).length === 2
+)
+check(
+  '不同任务不会因为挨着就并到一起',
+  eq(
+    focusSessions([rec('看论文', '09:00', '09:40'), rec('写代码', '09:40', '10:20')], DAY, {
+      minMinutes: 30
+    }).map((s) => s.label),
+    ['看论文', '写代码']
+  )
+)
+check(
+  '零碎的被滤掉',
+  focusSessions([rec('刷网页', '09:00', '09:10')], DAY, { minMinutes: 30 }).length === 0
+)
+check(
+  '按投入时长取前 N 名',
+  eq(
+    focusSessions(
+      [rec('A', '09:00', '10:00'), rec('B', '11:00', '13:00'), rec('C', '14:00', '14:40')],
+      DAY,
+      { minMinutes: 30, limit: 2 }
+    ).map((s) => s.label),
+    ['A', 'B'] // 取 B(120) 和 A(60)，再按开始时间排回去
+  )
+)
+check(
+  '筛完按开始时间排序，方便和左边时间轴对齐',
+  focusSessions([rec('A', '14:00', '15:00'), rec('B', '09:00', '10:30')], DAY, { minMinutes: 30 })[0]
+    .label === 'B'
+)
+check(
+  '没有任务归属时退回应用名',
+  focusSessions([rec(null, '09:00', '09:40', 'Xcode')], DAY, { minMinutes: 30 })[0].label === 'Xcode'
+)
+check(
+  '任务和应用都没有 → 其它',
+  focusSessions([rec(null, '09:00', '09:40')], DAY, { minMinutes: 30 })[0].label === '其它'
+)
+check(
+  '重叠区间不重复计入投入时长',
+  focusSessions([rec('A', '09:00', '10:00'), rec('A', '09:30', '10:30')], DAY, { minMinutes: 30 })[0]
+    .activeMin === 90
+)
+check('别的日期不混进来', focusSessions([rec('A', '09:00', '10:00')], '2026-08-27').length === 0)
+check(
+  '缺起止时间的记录被跳过',
+  focusSessions([{ task: 'A', app: null, startAt: null, endAt: null }], DAY).length === 0
+)
+check(
+  '非法时间的记录被跳过',
+  focusSessions([{ task: 'A', app: null, startAt: '坏', endAt: '更坏' }], DAY).length === 0
+)
+
+check('跨天记录截到当天末尾', recordSpan({ startAt: '2026-08-28T23:00:00', endAt: '2026-08-29T01:00:00' }, DAY)?.endMin === 1440)
+check('零长记录返回 null', recordSpan({ startAt: '2026-08-28T09:00:00', endAt: '2026-08-28T09:00:00' }, DAY) === null)
 
 // ---------- 模板 ----------
 const tpl = { id: 't1', name: '工作日', weekdays: [1, 2, 3, 4, 5], createdAt: '2026-01-01T00:00:00' }

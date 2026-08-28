@@ -226,6 +226,64 @@ const pomodoro: PluginMainModule = {
     }
   },
 
+  // 桌宠 / 悬浮助手 / 快捷提问里说「定个 25 分钟番茄钟」走到这里。
+  // 参数来自模型输出，一律当不可信输入夹范围。
+  assistantActions: {
+    'start-focus': (args) => {
+      const prefs = readPrefs()
+      const raw = Number(args.minutes)
+      const minutes = Number.isFinite(raw) ? Math.max(1, Math.min(180, Math.round(raw))) : prefs.focusMin
+      const task = typeof args.task === 'string' ? args.task.trim().slice(0, 60) : ''
+      const running = getDb()
+        .prepare('SELECT id FROM p_pomodoro_session WHERE end_at IS NULL LIMIT 1')
+        .get() as { id: string } | undefined
+      if (running) return { ok: false, message: '已经有一轮在跑了，先停掉或等它走完' }
+
+      const id = randomUUID()
+      getDb()
+        .prepare(
+          `INSERT INTO p_pomodoro_session
+             (id, start_at, end_at, minutes, kind, completed, paused_ms, paused_at, block_id, task_id, task_title, note)
+           VALUES (?, ?, NULL, ?, 'focus', 0, 0, NULL, NULL, NULL, ?, NULL)`
+        )
+        .run(id, localNowSec(), minutes, task || null)
+      return { ok: true, message: task ? `开始专注 ${minutes} 分钟：${task}` : `开始专注 ${minutes} 分钟` }
+    },
+
+    'pause-focus': () => {
+      const row = getDb()
+        .prepare('SELECT * FROM p_pomodoro_session WHERE end_at IS NULL AND paused_at IS NULL LIMIT 1')
+        .get() as SessionRow | undefined
+      if (!row) return { ok: false, message: '现在没有在跑的专注' }
+      getDb().prepare('UPDATE p_pomodoro_session SET paused_at = ? WHERE id = ?').run(localNowSec(), row.id)
+      return { ok: true, message: '已暂停，随时说继续' }
+    },
+
+    'resume-focus': () => {
+      const row = getDb()
+        .prepare('SELECT * FROM p_pomodoro_session WHERE end_at IS NULL AND paused_at IS NOT NULL LIMIT 1')
+        .get() as SessionRow | undefined
+      if (!row) return { ok: false, message: '没有暂停中的专注' }
+      const s = toSession(row)
+      getDb()
+        .prepare('UPDATE p_pomodoro_session SET paused_ms = ?, paused_at = NULL WHERE id = ?')
+        .run(pausedMsAfterResume(s, Date.now()), row.id)
+      return { ok: true, message: '继续计时' }
+    },
+
+    'stop-focus': () => {
+      const row = getDb()
+        .prepare('SELECT * FROM p_pomodoro_session WHERE end_at IS NULL LIMIT 1')
+        .get() as SessionRow | undefined
+      if (!row) return { ok: false, message: '现在没有在跑的专注' }
+      const s = toSession(row)
+      getDb()
+        .prepare('UPDATE p_pomodoro_session SET end_at = ?, completed = 0, paused_ms = ?, paused_at = NULL WHERE id = ?')
+        .run(localNowSec(), pausedMsAfterResume(s, Date.now()), row.id)
+      return { ok: true, message: '已停下这一轮' }
+    }
+  },
+
   counters: (): AchievementCounter[] => {
     const db = getDb()
     const done = db

@@ -21,9 +21,11 @@ import {
   labelToMinutes,
   minutesToLabel,
   plannedMinutes,
+  focusSessions,
   templateForDate,
   viewWindow,
   weekdaysLabel,
+  type FocusSession,
   type TemplateBlock,
   type TimeBlock,
   type TimeTemplate
@@ -125,6 +127,7 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
   const [templates, setTemplates] = useState<TimeTemplate[]>([])
   const [templateBlocks, setTemplateBlocks] = useState<TemplateBlock[]>([])
   const [actual, setActual] = useState<{ startMin: number; endMin: number }[]>([])
+  const [sessions, setSessions] = useState<FocusSession[]>([])
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [draft, setDraft] = useState<DraftState | null>(null)
   const [savingTemplate, setSavingTemplate] = useState(false)
@@ -178,9 +181,14 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
     void api.listTasks().then(setTasks)
   }, [])
 
-  // 实际活动来自屏幕感知的工作记录；没开这个功能就只画计划，不提示什么
+  // 实际活动来自屏幕感知的工作记录；没开这个功能就只画计划，不提示什么。
+  // 原始区间留着算「计划被覆盖了多少」，右侧只展示归并后的长段——
+  // 10 分钟一块的碎点铺满一列既看不懂也没用。
   useEffect(() => {
-    void api.listWorkRecords(day).then((rs) => setActual(actualSpans(rs, day)))
+    void api.listWorkRecords(day).then((rs) => {
+      setActual(actualSpans(rs, day))
+      setSessions(focusSessions(rs, day))
+    })
   }, [day])
 
   // 当前时间线每分钟走一格就够
@@ -727,24 +735,34 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
               })}
           </div>
 
-          <div className="relative ml-1 w-2 shrink-0 rounded bg-slate-50" style={{ height: laneHeight }}>
-            {actual
-              .filter((s) => s.endMin > viewStart && s.startMin < viewEnd)
-              .map((s, i) => (
-                <div
-                  key={i}
-                  title="屏幕感知记到的实际活动"
-                  className="absolute inset-x-0 rounded-sm bg-emerald-300/70"
-                  style={{ top: toY(s.startMin), height: Math.max(2, (s.endMin - s.startMin) * ppm) }}
-                />
-              ))}
-          </div>
+          {sessions.length > 0 && (
+            <div className="relative ml-3 w-32 shrink-0 border-l border-slate-100 pl-2" style={{ height: laneHeight }}>
+              {sessions.map((s, i) => {
+                const height = Math.max(18, (s.endMin - s.startMin) * ppm - 2)
+                return (
+                  <div
+                    key={`${s.label}-${i}`}
+                    title={`${s.label} · ${minutesToLabel(s.startMin)}–${minutesToLabel(s.endMin)} · 实际投入 ${durationLabel(0, s.activeMin)}`}
+                    className="absolute inset-x-0 overflow-hidden rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5"
+                    style={{ top: toY(s.startMin), height }}
+                  >
+                    <div className="truncate text-[10px] font-medium text-emerald-800">{s.label}</div>
+                    {height >= 30 && (
+                      <div className="truncate text-[10px] text-emerald-600 tabular-nums">
+                        {durationLabel(0, s.activeMin)}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 
       <p className="mt-2 text-[11px] text-slate-300">
         空白处按住往下拖可以框选一段时间建块；块本身可拖动改时间，拖下沿改时长。
-        {actual.length > 0 && ' 右侧绿条是屏幕感知记到的实际活动。'}
+        {sessions.length > 0 && ' 右侧绿色是屏幕感知记到的、你今天真正花了时间的事。'}
       </p>
 
       {draft && (

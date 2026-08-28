@@ -3,7 +3,16 @@ import { randomUUID } from 'crypto'
 import type Database from 'better-sqlite3'
 import { getDb } from '../../db/connection.ts'
 import { localNowSec } from '@shared/parsing'
-import { applyTemplate, isValidRange, type BlockDraft, type TimeBlock, type TemplateBlock, type TimeTemplate } from '@shared/timeblock'
+import { dayKey } from '@shared/work-report'
+import {
+  applyTemplate,
+  isValidRange,
+  labelToMinutes,
+  type BlockDraft,
+  type TimeBlock,
+  type TemplateBlock,
+  type TimeTemplate
+} from '@shared/timeblock'
 import type { AchievementCounter, PluginMainModule } from '../types.ts'
 
 interface BlockRow {
@@ -249,6 +258,36 @@ const timeblock: PluginMainModule = {
       return applyTemplate(tpl, templateBlocks, date)
         .map(insertBlock)
         .filter((b): b is TimeBlock => b !== null)
+    }
+  },
+
+  // 「下午两点到四点看论文」走到这里。时间一律经 labelToMinutes 解析，
+  // 解析不出来就明确失败，不去猜——排错时间比不排更糟。
+  assistantActions: {
+    'add-block': (args) => {
+      const title = typeof args.title === 'string' ? args.title.trim().slice(0, 60) : ''
+      if (!title) return { ok: false, message: '没说要做什么' }
+      const startMin = typeof args.start === 'string' ? labelToMinutes(args.start) : null
+      const endMin = typeof args.end === 'string' ? labelToMinutes(args.end) : null
+      if (startMin === null || endMin === null) return { ok: false, message: '时间没看懂' }
+      if (!isValidRange(startMin, endMin)) return { ok: false, message: '结束时间要晚于开始时间' }
+      const date =
+        typeof args.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.date)
+          ? args.date
+          : dayKey(new Date())
+      const row = insertBlock({
+        date,
+        startMin,
+        endMin,
+        title,
+        tag: null,
+        taskId: null,
+        done: false,
+        templateId: null
+      })
+      if (!row) return { ok: false, message: '没能排上' }
+      const when = date === dayKey(new Date()) ? '今天' : date
+      return { ok: true, message: `${when} ${args.start}–${args.end} 排上了：${title}` }
     }
   },
 

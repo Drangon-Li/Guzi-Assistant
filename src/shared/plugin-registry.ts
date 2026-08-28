@@ -23,7 +23,15 @@ export const PLUGINS = [
     contributes: {
       nav: { label: '作息', order: 100 },
       homeCards: ['timeblock-today'],
-      achievementCounters: true
+      achievementCounters: true,
+      assistantActions: [
+        {
+          name: 'add-block',
+          summary: '在作息表上排一段时间',
+          args: '{"title":要做什么,"start":"HH:MM","end":"HH:MM","date":可选 "YYYY-MM-DD"，默认今天}',
+          when: '用户说「下午两点到四点看论文」「帮我把明早九点排成写代码」这类带起止时间的安排时用。'
+        }
+      ]
     },
     storage: { tables: ['p_timeblock_block', 'p_timeblock_template', 'p_timeblock_template_block'] }
   },
@@ -42,7 +50,33 @@ export const PLUGINS = [
       nav: { label: '专注', order: 110 },
       settings: { label: '专注' },
       homeCards: ['pomodoro-today'],
-      achievementCounters: true
+      achievementCounters: true,
+      assistantActions: [
+        {
+          name: 'start-focus',
+          summary: '立刻开始一轮专注计时',
+          args: '{"minutes":可选，1-180，不填用用户设置的默认时长,"task":可选，这一轮要做的事}',
+          when: '用户说「定个 25 分钟番茄钟」「开始专注」「帮我计时半小时写代码」时用。'
+        },
+        {
+          name: 'pause-focus',
+          summary: '暂停正在跑的这一轮',
+          args: '{}',
+          when: '用户说「暂停一下」「先停一停」时用。'
+        },
+        {
+          name: 'resume-focus',
+          summary: '继续被暂停的这一轮',
+          args: '{}',
+          when: '用户说「继续」「接着计时」时用。'
+        },
+        {
+          name: 'stop-focus',
+          summary: '结束当前这一轮（记为中途放弃）',
+          args: '{}',
+          when: '用户说「不专注了」「停掉番茄钟」时用。'
+        }
+      ]
     },
     storage: { tables: ['p_pomodoro_session'] }
   },
@@ -60,7 +94,21 @@ export const PLUGINS = [
     contributes: {
       nav: { label: '打卡', order: 120 },
       homeCards: ['habit-today'],
-      achievementCounters: true
+      achievementCounters: true,
+      assistantActions: [
+        {
+          name: 'check',
+          summary: '给某个习惯打今天的卡',
+          args: '{"name":习惯名，模糊匹配已有习惯}',
+          when: '用户说「今天的步数打卡」「我读完了，打个卡」时用。找不到同名习惯就不要调用，在 reply 里问清楚。'
+        },
+        {
+          name: 'skip',
+          summary: '把某个习惯今天记为跳过（连续不断）',
+          args: '{"name":习惯名}',
+          when: '用户说「今天出差跑不了步，跳过」时用。'
+        }
+      ]
     },
     storage: { tables: ['p_habit_habit', 'p_habit_check'] }
   },

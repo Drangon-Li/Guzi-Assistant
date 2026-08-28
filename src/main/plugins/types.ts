@@ -13,6 +13,12 @@ export interface AchievementCounter {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PluginHandler = (...args: any[]) => unknown
 
+/** 助手动作的执行结果。message 会被拼进桌宠气泡和对话回复里。 */
+export interface AssistantActionResult {
+  ok: boolean
+  message: string
+}
+
 export interface PluginMainModule {
   id: string
   /** 幂等建表。启用时调用一次，此后每次启动也会调用。 */
@@ -21,4 +27,9 @@ export interface PluginMainModule {
   handlers: Record<string, PluginHandler>
   /** 向成就插件供给计数器。不实现就等于这个插件不带成就。 */
   counters?: () => AchievementCounter[]
+  /**
+   * 自然语言可驱动的动作，key 要与 manifest 的 contributes.assistantActions 对上。
+   * 参数来自模型输出，一律当不可信输入校验。
+   */
+  assistantActions?: Record<string, (args: Record<string, unknown>) => AssistantActionResult>
 }

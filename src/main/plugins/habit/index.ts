@@ -12,7 +12,7 @@ import {
   type HabitCheck,
   type HabitFrequency
 } from '@shared/habit'
-import type { AchievementCounter, PluginMainModule } from '../types.ts'
+import type { AchievementCounter, AssistantActionResult, PluginMainModule } from '../types.ts'
 
 interface HabitRow {
   id: string
@@ -105,6 +105,28 @@ const initTables = (db: Database.Database): void => {
   if (!cCols.includes('skipped'))
     db.exec('ALTER TABLE p_habit_check ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0')
   if (!cCols.includes('note')) db.exec('ALTER TABLE p_habit_check ADD COLUMN note TEXT')
+}
+
+/** 助手动作共用：按名字找唯一一个习惯，然后打卡或跳过。 */
+function runCheck(args: Record<string, unknown>, skipped: boolean): AssistantActionResult {
+  const name = typeof args.name === 'string' ? args.name.trim() : ''
+  if (!name) return { ok: false, message: '没说是哪个习惯' }
+  const all = listHabits()
+  if (!all.length) return { ok: false, message: '还没有建过习惯' }
+
+  const exact = all.filter((h) => h.name === name)
+  const fuzzy = all.filter((h) => h.name.includes(name) || name.includes(h.name))
+  const hits = exact.length ? exact : fuzzy
+  if (!hits.length) return { ok: false, message: `没找到叫「${name}」的习惯` }
+  if (hits.length > 1)
+    return { ok: false, message: `有好几个像「${name}」的：${hits.map((h) => h.name).join('、')}` }
+
+  const target = hits[0]
+  upsertCheck(target.id, dayKey(new Date()), skipped, null)
+  return {
+    ok: true,
+    message: skipped ? `「${target.name}」今天记为跳过，连续不断` : `「${target.name}」打卡了`
+  }
 }
 
 const habit: PluginMainModule = {
@@ -220,6 +242,13 @@ const habit: PluginMainModule = {
       ).map((r) => ({ habitId: r.habit_id, date: r.date, skipped: !!r.skipped, note: r.note })),
 
     archived: () => listHabits(true).filter((h) => h.archivedAt)
+  },
+
+  // 「今天的步数打卡」走到这里。名字用模糊匹配，但匹配到多个就明确失败——
+  // 宁可让用户再说一遍，也不要替他打错卡。
+  assistantActions: {
+    check: (args) => runCheck(args, false),
+    skip: (args) => runCheck(args, true)
   },
 
   counters: (): AchievementCounter[] => {

@@ -10,6 +10,21 @@
 
 export type PluginCategory = 'planning' | 'focus' | 'habit' | 'reward'
 
+/**
+ * 助手可调用的动作。声明会被拼进对话提示词——**只拼已启用插件的**，
+ * 所以没装某个插件时模型根本不知道有这个能力，不会承诺做不到的事。
+ */
+export interface AssistantActionSpec {
+  /** 动作名，同一插件内唯一 */
+  name: string
+  /** 一句话说明这个动作做什么 */
+  summary: string
+  /** 参数形状的人话描述，直接写进提示词 */
+  args: string
+  /** 什么样的用户说法应该触发它 */
+  when: string
+}
+
 export interface PluginContributes {
   /** 侧边栏导航项；order 越小越靠上，核心页占 0-99，插件从 100 起 */
   nav?: { label: string; order: number }
@@ -19,6 +34,8 @@ export interface PluginContributes {
   homeCards?: readonly string[]
   /** 是否向「成就」插件供给计数器 */
   achievementCounters?: boolean
+  /** 桌宠 / 悬浮助手 / 快捷提问里可以用自然语言驱动的动作 */
+  assistantActions?: readonly AssistantActionSpec[]
 }
 
 export interface PluginManifest {
@@ -228,6 +245,38 @@ export function pruneEnabled(registry: PluginRegistry, enabled: readonly string[
     if (next.length === keep.length) return next
     keep = next
   }
+}
+
+/**
+ * 已启用插件的助手动作清单，渲染成提示词里的一段。
+ * 没有任何可用动作时返回空串，调用方据此整段省略——不给模型无谓的噪音。
+ */
+export function assistantActionsBlock(
+  registry: PluginRegistry,
+  enabled: readonly string[]
+): string {
+  const lines: string[] = []
+  for (const m of registry) {
+    if (!enabled.includes(m.id)) continue
+    for (const a of m.contributes.assistantActions ?? []) {
+      lines.push(
+        `- {"plugin":"${m.id}","action":"${a.name}"}：${a.summary}。参数 args=${a.args}。${a.when}`
+      )
+    }
+  }
+  return lines.join('\n')
+}
+
+/** 校验一个动作调用是否指向已启用插件里真实存在的动作。 */
+export function isKnownAssistantAction(
+  registry: PluginRegistry,
+  enabled: readonly string[],
+  plugin: string,
+  action: string
+): boolean {
+  if (!enabled.includes(plugin)) return false
+  const m = registry.find((x) => x.id === plugin)
+  return (m?.contributes.assistantActions ?? []).some((a) => a.name === action)
 }
 
 /** 软依赖里还没启用的那些——Market 卡片用来提示「装了它会更好用」。 */
