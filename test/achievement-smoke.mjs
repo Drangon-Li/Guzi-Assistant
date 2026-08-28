@@ -4,9 +4,12 @@
 // 否则停用再启用会看到进度诡异地跳，用户会以为数据丢了。
 import {
   ACHIEVEMENTS,
+  closestToUnlock,
   computeAchievements,
+  groupAchievements,
   lockedCountByPlugin,
   newlyUnlocked,
+  recentlyUnlocked,
   summarize
 } from '../src/shared/achievement.ts'
 import { PLUGINS } from '../src/shared/plugin-registry.ts'
@@ -88,6 +91,53 @@ for (const p of PLUGINS) {
   if (!('achievementCounters' in p.contributes && p.contributes.achievementCounters)) continue
   check(`${p.id} 声明供给计数器，就该有对应成就`, lockedCountByPlugin(p.id) > 0)
 }
+
+// ---------- 分级 ----------
+// 档位由同一计数器下的阈值排名推导，不手工标注——加一条更高阈值的不用回头改别人
+const TIERED = [
+  { key: 'a1', name: '一', desc: '', howTo: '', icon: 'seed', counter: 'c', target: 1 },
+  { key: 'a3', name: '三', desc: '', howTo: '', icon: 'ear', counter: 'c', target: 200 },
+  { key: 'a2', name: '二', desc: '', howTo: '', icon: 'sprout', counter: 'c', target: 30 },
+  { key: 'b1', name: '别的', desc: '', howTo: '', icon: 'moon', counter: 'd', target: 5 }
+]
+const tv = computeAchievements({ c: 0, d: 0 }, {}, [], TIERED)
+const tierOf = (k) => tv.find((v) => v.key === k).tier
+check('最低阈值是铜', tierOf('a1') === 'bronze')
+check('次低是银（与声明顺序无关）', tierOf('a2') === 'silver')
+check('最高是金', tierOf('a3') === 'gold')
+check('另一条计数器线独立分级', tierOf('b1') === 'bronze')
+
+// ---------- 前置提示 ----------
+check('未解锁的低档条目会被列为前置', tv.find((v) => v.key === 'a2').prerequisite === '一')
+check('最低档没有前置', tv.find((v) => v.key === 'a1').prerequisite === null)
+const tv2 = computeAchievements({ c: 0 }, { a1: '2026-08-01T00:00:00' }, [], TIERED)
+check('低档已解锁则不再提示前置', tv2.find((v) => v.key === 'a2').prerequisite === null)
+
+// ---------- 分组 ----------
+const realViews = computeAchievements({}, {}, ['timeblock', 'pomodoro', 'habit'])
+const groups = groupAchievements(realViews)
+check('分组非空', groups.length > 0)
+check('组内条目数加起来等于总数', groups.reduce((n, g) => n + g.items.length, 0) === realViews.length)
+check('组名有序且不重复', new Set(groups.map((g) => g.group)).size === groups.length)
+check('每条成就都归到了某个组', realViews.every((v) => !!v.group))
+check('空组不返回', groupAchievements([]).length === 0)
+
+// ---------- 最近解锁 / 快达成 ----------
+const unlockedViews = computeAchievements(
+  { c: 250, d: 0 },
+  { a1: '2026-08-01T00:00:00', a2: '2026-08-20T00:00:00' },
+  [],
+  TIERED
+)
+check('最近解锁按时间倒序', eq(recentlyUnlocked(unlockedViews).map((v) => v.key), ['a2', 'a1']))
+check('最近解锁可限制条数', recentlyUnlocked(unlockedViews, 1).length === 1)
+check('没解锁过就返回空', recentlyUnlocked(tv).length === 0)
+
+// a1 已记过解锁——实际调用里 list 会先持久化再返回，所以满进度的条目不会滞留在这
+const near = computeAchievements({ c: 25 }, { a1: '2026-08-01T00:00:00' }, [], TIERED)
+check('快达成按进度降序', eq(closestToUnlock(near).map((v) => v.key), ['a2', 'a3']))
+check('没开始的不进「快达成」', closestToUnlock(computeAchievements({ c: 0 }, {}, [], TIERED)).length === 0)
+check('已解锁的不进「快达成」', !closestToUnlock(unlockedViews).some((v) => v.unlocked))
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

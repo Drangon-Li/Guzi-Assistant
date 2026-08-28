@@ -38,6 +38,11 @@ export interface AchievementDef {
   plugin?: string
 }
 
+/** 同一行为的阶梯档位。铜=入门、银=养成、金=长期，视觉上一眼分得出轻重。 */
+export type AchievementTier = 'bronze' | 'silver' | 'gold'
+
+export type AchievementGroup = '记录' | '规划' | '专注' | '坚持'
+
 export interface AchievementView extends AchievementDef {
   current: number
   progress: number
@@ -45,6 +50,10 @@ export interface AchievementView extends AchievementDef {
   unlockedAt: string | null
   /** 计数器来源插件没启用——墙上灰显，点开提示去 Market */
   locked: boolean
+  tier: AchievementTier
+  group: AchievementGroup
+  /** 同一计数器里排在本条之前、尚未解锁的那条——「先拿下这个」 */
+  prerequisite: string | null
 }
 
 export const ACHIEVEMENTS: readonly AchievementDef[] = [
@@ -253,6 +262,66 @@ export type CounterMap = Readonly<Record<string, number>>
 /** key → 解锁时刻 ISO */
 export type UnlockMap = Readonly<Record<string, string>>
 
+const GROUP_BY_COUNTER: Record<string, AchievementGroup> = {
+  core_tasks_confirmed: '记录',
+  core_reports: '记录',
+  core_active_days: '坚持',
+  core_active_streak: '坚持',
+  timeblock_blocks: '规划',
+  timeblock_templates: '规划',
+  timeblock_planned_days: '规划',
+  pomodoro_rounds: '专注',
+  pomodoro_focus_minutes: '专注',
+  pomodoro_best_day: '专注',
+  habit_checks: '坚持',
+  habit_best_streak: '坚持'
+}
+
+export const GROUP_ORDER: readonly AchievementGroup[] = ['记录', '规划', '专注', '坚持']
+
+/**
+ * 档位由「同一计数器下的阈值排名」推导，不手工标注——
+ * 加一条更高阈值的成就时不用回头改别人的档位，也不会出现两条金档。
+ */
+function tiersFor(defs: readonly AchievementDef[]): Map<string, AchievementTier> {
+  const byCounter = new Map<string, AchievementDef[]>()
+  for (const d of defs) {
+    const list = byCounter.get(d.counter) ?? []
+    list.push(d)
+    byCounter.set(d.counter, list)
+  }
+  const out = new Map<string, AchievementTier>()
+  for (const list of byCounter.values()) {
+    const sorted = [...list].sort((a, b) => a.target - b.target)
+    sorted.forEach((d, i) => {
+      out.set(d.key, i === 0 ? 'bronze' : i === 1 ? 'silver' : 'gold')
+    })
+  }
+  return out
+}
+
+/** 同一计数器里比本条低一档、且还没解锁的那条 key。 */
+function prerequisitesFor(
+  defs: readonly AchievementDef[],
+  unlocks: UnlockMap
+): Map<string, string | null> {
+  const byCounter = new Map<string, AchievementDef[]>()
+  for (const d of defs) {
+    const list = byCounter.get(d.counter) ?? []
+    list.push(d)
+    byCounter.set(d.counter, list)
+  }
+  const out = new Map<string, string | null>()
+  for (const list of byCounter.values()) {
+    const sorted = [...list].sort((a, b) => a.target - b.target)
+    sorted.forEach((d, i) => {
+      const prev = sorted[i - 1]
+      out.set(d.key, prev && !unlocks[prev.key] ? prev.name : null)
+    })
+  }
+  return out
+}
+
 /**
  * 算出每条成就的当前状态。计数器来源插件没启用的条目标 locked，
  * 进度按 0 算——不然停用插件再启用会看到进度诡异地跳。
@@ -264,6 +333,8 @@ export function computeAchievements(
   defs: readonly AchievementDef[] = ACHIEVEMENTS
 ): AchievementView[] {
   const enabled = new Set(enabledPlugins)
+  const tiers = tiersFor(defs)
+  const prereqs = prerequisitesFor(defs, unlocks)
   return defs.map((def) => {
     const locked = !!def.plugin && !enabled.has(def.plugin)
     const current = locked ? 0 : Math.max(0, counters[def.counter] ?? 0)
@@ -274,9 +345,38 @@ export function computeAchievements(
       progress: def.target > 0 ? Math.min(1, current / def.target) : 0,
       unlocked: !!unlockedAt,
       unlockedAt,
-      locked
+      locked,
+      tier: tiers.get(def.key) ?? 'bronze',
+      group: GROUP_BY_COUNTER[def.counter] ?? '记录',
+      prerequisite: prereqs.get(def.key) ?? null
     }
   })
+}
+
+/** 按类别分组，空组不返回。 */
+export function groupAchievements(
+  views: readonly AchievementView[]
+): { group: AchievementGroup; items: AchievementView[] }[] {
+  return GROUP_ORDER.map((group) => ({
+    group,
+    items: views.filter((v) => v.group === group)
+  })).filter((g) => g.items.length > 0)
+}
+
+/** 最近解锁的几条，最新在前。 */
+export function recentlyUnlocked(views: readonly AchievementView[], limit = 4): AchievementView[] {
+  return views
+    .filter((v) => v.unlockedAt)
+    .sort((a, b) => (b.unlockedAt ?? '').localeCompare(a.unlockedAt ?? ''))
+    .slice(0, limit)
+}
+
+/** 「离下一条最近」的几条：已开始、未解锁、按进度降序。 */
+export function closestToUnlock(views: readonly AchievementView[], limit = 3): AchievementView[] {
+  return views
+    .filter((v) => !v.locked && !v.unlocked && v.current > 0)
+    .sort((a, b) => b.progress - a.progress)
+    .slice(0, limit)
 }
 
 /** 这一轮新达成、还没记过解锁时间的成就 key——调用方据此写库并放庆祝动画。 */

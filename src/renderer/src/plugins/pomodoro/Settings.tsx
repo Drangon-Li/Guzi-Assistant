@@ -2,13 +2,16 @@
 import { useEffect, useState } from 'react'
 import { DEFAULT_PREFS, type PomodoroPrefs } from '@shared/pomodoro'
 import { api } from '../../api'
-import { Section } from '../../components/ui'
+import { Section, Toggle } from '../../components/ui'
 
-const FIELDS: { key: keyof PomodoroPrefs; label: string; hint: string; min: number; max: number }[] = [
+type NumField = 'focusMin' | 'shortBreakMin' | 'longBreakMin' | 'roundsBeforeLongBreak' | 'dailyGoal'
+
+const FIELDS: { key: NumField; label: string; hint: string; min: number; max: number }[] = [
   { key: 'focusMin', label: '一轮专注', hint: '分钟', min: 1, max: 180 },
   { key: 'shortBreakMin', label: '短休息', hint: '分钟', min: 1, max: 60 },
   { key: 'longBreakMin', label: '长休息', hint: '分钟', min: 1, max: 60 },
-  { key: 'roundsBeforeLongBreak', label: '几轮后长休息', hint: '轮', min: 2, max: 12 }
+  { key: 'roundsBeforeLongBreak', label: '几轮后长休息', hint: '轮', min: 2, max: 12 },
+  { key: 'dailyGoal', label: '每日目标', hint: '轮', min: 1, max: 30 }
 ]
 
 export default function PomodoroSettings(): React.JSX.Element {
@@ -18,11 +21,15 @@ export default function PomodoroSettings(): React.JSX.Element {
     void api.plugin<PomodoroPrefs>('pomodoro', 'prefs').then(setPrefs)
   }, [])
 
-  const save = async (key: keyof PomodoroPrefs, raw: string): Promise<void> => {
+  const save = async (key: NumField, raw: string): Promise<void> => {
     const value = Number(raw)
     if (!Number.isFinite(value)) return
     // 主进程会再夹一次范围，这里直接用回写值，避免本地显示和实际存的不一致
     setPrefs(await api.plugin<PomodoroPrefs>('pomodoro', 'prefs-save', { [key]: value }))
+  }
+
+  const toggleAutoStart = async (next: boolean): Promise<void> => {
+    setPrefs(await api.plugin<PomodoroPrefs>('pomodoro', 'prefs-save', { autoStart: next }))
   }
 
   return (
@@ -46,6 +53,19 @@ export default function PomodoroSettings(): React.JSX.Element {
           </label>
         ))}
       </div>
+      <label className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+        <span>
+          <span className="block text-sm">自动开始下一轮</span>
+          <span className="block text-xs text-slate-400">
+            一轮结束后不等确认，直接进入休息或下一轮专注
+          </span>
+        </span>
+        <Toggle
+          checked={prefs.autoStart}
+          onChange={(v) => void toggleAutoStart(v)}
+          ariaLabel="自动开始下一轮"
+        />
+      </label>
     </Section>
   )
 }

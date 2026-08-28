@@ -185,6 +185,29 @@ const timeblock: PluginMainModule = {
       return true
     },
 
+    /** 把一个块复制到另一天（默认次日），常用于「明天同样再来一遍」。 */
+    copy: (id: string, toDate: string) => {
+      const row = getDb().prepare('SELECT * FROM p_timeblock_block WHERE id = ?').get(id) as
+        | BlockRow
+        | undefined
+      if (!row) return null
+      const src = toBlock(row)
+      return insertBlock({ ...src, date: toDate, done: false, templateId: null })
+    },
+
+    /** 整天复制到另一天，跳过已存在同名同时段的块，避免重复点两次翻倍。 */
+    'copy-day': (fromDate: string, toDate: string) => {
+      const src = listBlocks(fromDate)
+      const existing = listBlocks(toDate)
+      const created = src
+        .filter(
+          (b) => !existing.some((e) => e.startMin === b.startMin && e.endMin === b.endMin && e.title === b.title)
+        )
+        .map((b) => insertBlock({ ...b, date: toDate, done: false, templateId: null }))
+        .filter((b): b is TimeBlock => b !== null)
+      return created.length
+    },
+
     'template-save': (name: string, weekdays: number[], blocks: Omit<TemplateBlock, 'id' | 'templateId'>[]) => {
       const trimmed = name.trim()
       if (!trimmed) return null

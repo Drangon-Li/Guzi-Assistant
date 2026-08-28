@@ -33,7 +33,11 @@ export function coreCounters(): AchievementCounter[] {
     },
     { key: 'core_reports', value: num('SELECT COUNT(*) AS n FROM reports') },
     { key: 'core_active_days', value: days.size },
-    { key: 'core_active_streak', value: streakOf(days, dayKey(new Date())) }
+    // 核心的「连续记录」就是最朴素的每日连续，借用打卡插件的口径（今天没记不算断）
+    {
+      key: 'core_active_streak',
+      value: streakOf({ done: days, skipped: new Set() }, { kind: 'daily' }, dayKey(new Date()))
+    }
   ]
 }
 
