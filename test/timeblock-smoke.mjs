@@ -12,6 +12,7 @@ import {
   sortBlocks,
   templateForDate,
   applyTemplate,
+  viewWindow,
   weekdaysLabel
 } from '../src/shared/timeblock.ts'
 
@@ -89,6 +90,31 @@ check(
   '实际区间互相重叠时不重复计数',
   coverageOf(block, [{ startMin: 600, endMin: 660 }, { startMin: 620, endMin: 650 }]) === 0.6
 )
+
+// ---------- 视图窗口 ----------
+// 布局的核心：整天铺满会拉出两三屏，所以按「有内容的时段」收窄。
+check('没有内容时给通用作息区间，而不是从零点开始', eq(viewWindow([]), [420, 1380]))
+check('非法标记被忽略', eq(viewWindow([NaN, Infinity]), [420, 1380]))
+check(
+  '跨度够大时按内容包络，上下各留半小时并对齐整点',
+  eq(viewWindow([9 * 60, 19 * 60]), [8 * 60, 20 * 60])
+)
+const [lo1, hi1] = viewWindow([9 * 60, 10 * 60])
+check('内容太窄时撑到最小跨度', hi1 - lo1 === 8 * 60)
+check('撑开后内容仍在窗口内', lo1 <= 9 * 60 && hi1 >= 10 * 60)
+check('撑开是以内容为中心，不是贴着顶', lo1 > 0)
+
+const [lo2, hi2] = viewWindow([10, 60])
+check('贴近零点时不越界', lo2 === 0 && hi2 === 8 * 60)
+const [lo3, hi3] = viewWindow([23 * 60, 1435])
+check('贴近午夜时不越界', hi3 === 1440 && hi3 - lo3 === 8 * 60)
+check('贴近午夜时内容仍在窗口内', lo3 <= 23 * 60)
+// minSpan 是下限而不是固定值：自然跨度更大时原样返回
+const narrow = viewWindow([600, 610], 240)
+check('自定义最小跨度会把窄内容撑到该跨度', narrow[1] - narrow[0] === 240)
+const wide = viewWindow([600, 660], 120)
+check('自然跨度超过最小值时不压缩', wide[1] - wide[0] === 180)
+check('整天内容原样返回', eq(viewWindow([0, 1440]), [0, 1440]))
 
 // ---------- 模板 ----------
 const tpl = { id: 't1', name: '工作日', weekdays: [1, 2, 3, 4, 5], createdAt: '2026-01-01T00:00:00' }

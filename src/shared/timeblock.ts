@@ -132,6 +132,34 @@ export function freeGaps(
   return gaps
 }
 
+/**
+ * 时间轴该显示哪一段。整天 24 小时铺满会拉出两三屏，绝大多数时间都在看空白，
+ * 所以按「有内容的时段」收窄：取所有标记点（已有块的起止、实际活动、当前时刻）的包络，
+ * 上下各留半小时并对齐整点；不足 minSpan 就以内容为中心撑开，再夹回一天之内。
+ * 没有任何标记时给一个通用的作息区间，而不是从零点开始。
+ */
+export function viewWindow(marks: readonly number[], minSpan = 8 * 60): [number, number] {
+  const usable = marks.filter((m) => Number.isFinite(m))
+  if (!usable.length) return [7 * 60, 23 * 60]
+
+  let lo = Math.max(0, Math.floor((Math.min(...usable) - 30) / 60) * 60)
+  let hi = Math.min(DAY_MINUTES, Math.ceil((Math.max(...usable) + 30) / 60) * 60)
+  if (hi - lo >= minSpan) return [lo, hi]
+
+  const mid = (lo + hi) / 2
+  lo = Math.floor((mid - minSpan / 2) / 60) * 60
+  hi = lo + minSpan
+  if (lo < 0) {
+    lo = 0
+    hi = Math.min(DAY_MINUTES, minSpan)
+  }
+  if (hi > DAY_MINUTES) {
+    hi = DAY_MINUTES
+    lo = Math.max(0, DAY_MINUTES - minSpan)
+  }
+  return [lo, hi]
+}
+
 /** 一天已排出去的总分钟数（重叠部分只算一次）。 */
 export function plannedMinutes(blocks: readonly Span[]): number {
   return freeGaps(blocks, 0, DAY_MINUTES, 1).reduce(

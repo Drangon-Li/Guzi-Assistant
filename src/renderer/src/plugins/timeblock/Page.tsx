@@ -1,11 +1,16 @@
-// 作息页：一天的时间块 + 模板库 + 计划对照实际。
+// 作息页：一天的时间块 + 模板 + 计划对照实际。
 //
 // 「日程」管有截止时间的任务，「作息」管有起止时间的安排——这条边界写在页头，
 // 因为两个页面概念相近，不说清用户会分不清该往哪儿记。
 //
-// 块可以直接拖动改时间、拖下沿改时长（Sunsama 式），比每次开弹窗改数字快得多；
-// 拖动时吸附到 5 分钟，避免出现 09:07 这种起点。
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+// 布局取舍：整天 24 小时铺满会拉出两三屏，绝大多数时间都在看空白。
+// 默认只渲染「有内容的时段」（按已有块的范围 + 当前时间推算，至少 8 小时），
+// 想看全天再切。密度三档，紧凑档常见的一天基本一屏装得下。
+//
+// 交互取舍：块可以直接拖动改时间、拖下沿改时长；空白处按住往下拖是**框选建块**
+// （Sunsama / 日历应用的通用手势），比每次点一下再改数字快得多。拖动一律吸附 5 分钟，
+// 避免出现 09:07 这种起点。
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TaskRecord, WorkRecord } from '@shared/types'
 import { isFinishedEvent } from '@shared/task-filters'
 import { dayKey } from '@shared/work-report'
@@ -17,6 +22,7 @@ import {
   minutesToLabel,
   plannedMinutes,
   templateForDate,
+  viewWindow,
   weekdaysLabel,
   type TemplateBlock,
   type TimeBlock,
@@ -24,15 +30,35 @@ import {
 } from '@shared/timeblock'
 import { api } from '../../api'
 import Modal from '../../components/Modal'
-import { DayNav, Section } from '../../components/ui'
+import { DayNav, Segmented } from '../../components/ui'
 import type { PluginPageProps } from '../types'
 
-/** 每分钟的像素高度。1.0 时一天 1440px，滚动一屏多一点，块的相对长短一眼能比出来。 */
-const PPM = 1
 const SNAP = 5 // 拖动吸附粒度（分钟）
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
 const DURATION_PRESETS = [25, 30, 45, 60, 90, 120]
 const ACTIVE_STATUS = new Set(['not_started', 'scheduled', 'in_progress', 'overdue'])
+
+type Density = 'compact' | 'normal' | 'roomy'
+const PPM: Record<Density, number> = { compact: 0.7, normal: 1.05, roomy: 1.6 }
+
+type ViewMode = 'auto' | 'full'
+
+const PREF_KEY = 'timeblock.view'
+function readPref<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const v = window.localStorage.getItem(`${PREF_KEY}.${key}`)
+    return allowed.includes(v as T) ? (v as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+function writePref(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(`${PREF_KEY}.${key}`, value)
+  } catch {
+    /* 隐私模式下写不了，不影响使用 */
+  }
+}
 
 interface DayPayload {
   blocks: TimeBlock[]
@@ -59,6 +85,12 @@ interface DragState {
   preview: { startMin: number; endMin: number }
 }
 
+/** 空白处框选：从 anchor 拉到 cursor，松手建块。 */
+interface SelectState {
+  anchorMin: number
+  cursorMin: number
+}
+
 /** 工作记录的实际起止 → 分钟区间，只留落在这一天的部分。 */
 function actualSpans(records: readonly WorkRecord[], day: string): { startMin: number; endMin: number }[] {
   const spans: { startMin: number; endMin: number }[] = []
@@ -76,6 +108,14 @@ function actualSpans(records: readonly WorkRecord[], day: string): { startMin: n
 }
 
 const snap = (min: number): number => Math.round(min / SNAP) * SNAP
+const clampMin = (m: number): number => Math.max(0, Math.min(1440, m))
+
+function shiftDay(date: string, delta: number): string {
+  const d = new Date(`${date}T12:00:00`)
+  d.setDate(d.getDate() + delta)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 export default function TimeblockPage({ enabledPlugins }: PluginPageProps): React.JSX.Element {
   const pomodoroEnabled = enabledPlugins.includes('pomodoro')
@@ -90,9 +130,33 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [templateDays, setTemplateDays] = useState<number[]>([])
+  const [templatesOpen, setTemplatesOpen] = useState(false)
   const [note, setNote] = useState('')
   const [drag, setDrag] = useState<DragState | null>(null)
+  const [select, setSelect] = useState<SelectState | null>(null)
+  const [nowMin, setNowMin] = useState(() => {
+    const d = new Date()
+    return d.getHours() * 60 + d.getMinutes()
+  })
+  const [view, setViewRaw] = useState<ViewMode>(() => readPref('mode', ['auto', 'full'], 'auto'))
+  const [density, setDensityRaw] = useState<Density>(() =>
+    readPref('density', ['compact', 'normal', 'roomy'], 'normal')
+  )
   const laneRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrolledFor = useRef('')
+
+  const setView = (v: ViewMode): void => {
+    setViewRaw(v)
+    writePref('mode', v)
+  }
+  const setDensity = (d: Density): void => {
+    setDensityRaw(d)
+    writePref('density', d)
+  }
+
+  const ppm = PPM[density]
+  const isToday = day === dayKey(new Date())
 
   const flash = useCallback((msg: string) => {
     setNote(msg)
@@ -119,6 +183,46 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
     void api.listWorkRecords(day).then((rs) => setActual(actualSpans(rs, day)))
   }, [day])
 
+  // 当前时间线每分钟走一格就够
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      const d = new Date()
+      setNowMin(d.getHours() * 60 + d.getMinutes())
+    }, 60_000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  /**
+   * 视图窗口：把空白的凌晨和深夜折掉。取「已有块 + 当前时间」的包络，
+   * 上下各留半小时，再对齐到整点；不足 8 小时就以 08:00 为中心补足，
+   * 免得只有一个块时窗口窄得像条缝。
+   */
+  const [viewStart, viewEnd] = useMemo((): [number, number] => {
+    if (view === 'full') return [0, 1440]
+    const marks: number[] = []
+    for (const b of blocks) marks.push(b.startMin, b.endMin)
+    for (const a of actual) marks.push(a.startMin, a.endMin)
+    if (isToday) marks.push(nowMin)
+    return viewWindow(marks)
+  }, [view, blocks, actual, isToday, nowMin])
+
+  const laneHeight = (viewEnd - viewStart) * ppm
+  const toY = (min: number): number => (clampMin(min) - viewStart) * ppm
+  const toMin = (clientY: number): number => {
+    const rect = laneRef.current?.getBoundingClientRect()
+    if (!rect) return viewStart
+    return clampMin(viewStart + (clientY - rect.top) / ppm)
+  }
+
+  // 首次进入某一天时滚到当前时间附近，不用手动找
+  useLayoutEffect(() => {
+    if (!scrollRef.current || scrolledFor.current === day) return
+    scrolledFor.current = day
+    const target = isToday ? nowMin : blocks[0]?.startMin ?? viewStart
+    scrollRef.current.scrollTop = Math.max(0, toY(target) - 120)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day, blocks.length, viewStart, ppm])
+
   const activeTasks = useMemo(
     () => tasks.filter((t) => ACTIVE_STATUS.has(t.status) && !isFinishedEvent(t, new Date())),
     [tasks]
@@ -137,11 +241,11 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
   // 超载提示：一天排超过 14 小时，多半是排太满而不是真打算这么过
   const overloaded = planned > 14 * 60
 
-  // ---- 拖动 ----
+  // ---- 拖动已有块 ----
   useEffect(() => {
     if (!drag) return
     const onMove = (e: MouseEvent): void => {
-      const deltaMin = snap((e.clientY - drag.originY) / PPM)
+      const deltaMin = snap((e.clientY - drag.originY) / ppm)
       setDrag((d) => {
         if (!d) return d
         if (d.mode === 'move') {
@@ -172,7 +276,7 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [drag, load])
+  }, [drag, load, ppm])
 
   const beginDrag = (e: React.MouseEvent, b: TimeBlock, mode: DragMode): void => {
     e.preventDefault()
@@ -187,12 +291,46 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
     })
   }
 
+  // ---- 空白处框选建块 ----
+  useEffect(() => {
+    if (!select) return
+    const onMove = (e: MouseEvent): void => {
+      const cur = snap(toMin(e.clientY))
+      setSelect((s) => (s ? { ...s, cursorMin: cur } : s))
+    }
+    const onUp = (): void => {
+      setSelect((s) => {
+        if (!s) return null
+        const lo = Math.min(s.anchorMin, s.cursorMin)
+        const hi = Math.max(s.anchorMin, s.cursorMin)
+        // 拖得太短当成「点了一下」，给个默认一小时
+        const span = hi - lo < SNAP * 2 ? 60 : hi - lo
+        openDraft(Math.min(lo, 1440 - span), span)
+        return null
+      })
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [select, ppm, viewStart])
+
+  const beginSelect = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (e.target !== laneRef.current || drag) return
+    e.preventDefault()
+    const at = snap(toMin(e.clientY))
+    setSelect({ anchorMin: at, cursorMin: at })
+  }
+
   // ---- 增删改 ----
-  const openDraft = (startMin: number): void =>
+  const openDraft = (startMin: number, span = 60): void =>
     setDraft({
       id: null,
-      startMin,
-      endMin: Math.min(1440, startMin + 60),
+      startMin: clampMin(startMin),
+      endMin: clampMin(startMin + span),
       title: '',
       tag: '',
       taskId: null
@@ -221,12 +359,7 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
     }
     if (draft.id) await api.plugin('timeblock', 'update', draft.id, payload)
     else
-      await api.plugin('timeblock', 'create', {
-        ...payload,
-        date: day,
-        done: false,
-        templateId: null
-      })
+      await api.plugin('timeblock', 'create', { ...payload, date: day, done: false, templateId: null })
     setDraft(null)
     await load()
   }
@@ -254,6 +387,7 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
 
   const applyTpl = async (id: string): Promise<void> => {
     const created = (await api.plugin('timeblock', 'template-apply', id, day)) as TimeBlock[]
+    setTemplatesOpen(false)
     await load()
     flash(created.length ? `套用了 ${created.length} 个时间块` : '这个模板还没有内容')
   }
@@ -286,17 +420,18 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
     flash(`已开始专注 ${minutes} 分钟`)
   }
 
-  // 点空白处新建：把点击位置换算成最近的整刻钟，避免出现 09:07 这种起点
-  const onLaneClick = (e: React.MouseEvent<HTMLDivElement>): void => {
-    if (e.target !== laneRef.current || drag) return
-    const rect = laneRef.current.getBoundingClientRect()
-    const min = Math.round((e.clientY - rect.top) / PPM / 15) * 15
-    openDraft(Math.max(0, Math.min(1440 - 15, min)))
-  }
+  const hours = useMemo(() => {
+    const out: number[] = []
+    for (let h = Math.floor(viewStart / 60); h <= Math.ceil(viewEnd / 60); h++) out.push(h)
+    return out
+  }, [viewStart, viewEnd])
+
+  const selLo = select ? Math.min(select.anchorMin, select.cursorMin) : 0
+  const selHi = select ? Math.max(select.anchorMin, select.cursorMin) : 0
 
   return (
-    <div className="mx-auto max-w-5xl px-8 py-8">
-      <header className="mb-5">
+    <div className="mx-auto max-w-4xl px-8 py-8">
+      <header className="mb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold">作息</h1>
@@ -306,19 +441,101 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
           </div>
           <DayNav day={day} onChange={setDay} />
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-          <span>
-            已排 <span className="font-medium text-slate-600">{durationLabel(0, planned)}</span>
-          </span>
-          <span>{blocks.length} 个时间块</span>
+
+        {/* 工具栏：视图 / 密度 / 模板 / 复制 */}
+        <div className="relative mt-3 flex flex-wrap items-center gap-2">
+          <Segmented
+            value={view}
+            options={[
+              ['auto', '有内容的时段'],
+              ['full', '全天']
+            ]}
+            onChange={setView}
+          />
+          <Segmented
+            value={density}
+            options={[
+              ['compact', '紧凑'],
+              ['normal', '标准'],
+              ['roomy', '宽松']
+            ]}
+            onChange={setDensity}
+          />
+
+          <button
+            onClick={() => setTemplatesOpen((v) => !v)}
+            className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:border-brand hover:text-brand"
+          >
+            模板 {templates.length > 0 && <span className="tabular-nums">({templates.length})</span>} ▾
+          </button>
           {blocks.length > 0 && (
-            <button onClick={() => void copyDayToTomorrow()} className="text-brand hover:underline">
+            <button
+              onClick={() => void copyDayToTomorrow()}
+              className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:border-brand hover:text-brand"
+            >
               整天复制到明天
             </button>
           )}
-          {actual.length > 0 && <span className="text-emerald-600">右侧细条是实际活动</span>}
-          <span className="text-slate-300">拖块可移动，拖下沿改时长</span>
+
+          <span className="ml-auto text-xs text-slate-400">
+            已排 <span className="font-medium text-slate-600">{durationLabel(0, planned)}</span> ·{' '}
+            {blocks.length} 个块
+          </span>
+
+          {templatesOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setTemplatesOpen(false)} />
+              <div className="absolute top-9 left-0 z-20 w-72 rounded-xl border border-slate-200 bg-surface p-3 shadow-lg">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500">模板</span>
+                  <button
+                    onClick={() => {
+                      setTemplatesOpen(false)
+                      setSavingTemplate(true)
+                    }}
+                    className="text-xs text-brand hover:underline"
+                  >
+                    把今天存为模板
+                  </button>
+                </div>
+                {templates.length === 0 ? (
+                  <p className="text-xs text-slate-400">
+                    还没有模板。先排好一天，再存下来，之后一键套用或按星期自动提示。
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {templates.map((t) => (
+                      <li
+                        key={t.id}
+                        className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm">{t.name}</span>
+                          <span className="block text-[11px] text-slate-400">
+                            {templateBlocks.filter((b) => b.templateId === t.id).length} 个块 ·{' '}
+                            {weekdaysLabel(t.weekdays)}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 gap-2 text-xs">
+                          <button onClick={() => void applyTpl(t.id)} className="text-brand hover:underline">
+                            套用
+                          </button>
+                          <button
+                            onClick={() => void deleteTpl(t.id)}
+                            className="text-slate-300 hover:text-red-500"
+                          >
+                            删除
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
         </div>
+
         {overloaded && (
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
             今天已经排了 {durationLabel(0, planned)}。排得太满通常等于什么都排不成——留点空档给意外。
@@ -327,7 +544,7 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
       </header>
 
       {suggested && !appliedTemplateIds.has(suggested.id) && (
-        <div className="mb-4 flex items-center justify-between rounded-lg border border-brand/30 bg-brand-soft px-4 py-2.5 text-sm">
+        <div className="mb-3 flex items-center justify-between rounded-lg border border-brand/30 bg-brand-soft px-4 py-2.5 text-sm">
           <span>
             今天是周{WEEKDAYS[new Date(`${day}T12:00:00`).getDay()]}，要套用模板「{suggested.name}」吗？
           </span>
@@ -340,40 +557,70 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
         </div>
       )}
 
-      <div className="flex gap-5">
-        <div className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
-          <div className="flex">
-            <div className="w-12 shrink-0">
-              {Array.from({ length: 25 }, (_, h) => (
-                <div
-                  key={h}
-                  className="relative text-[11px] text-slate-300 tabular-nums"
-                  style={{ height: 60 * PPM }}
-                >
-                  <span className="absolute -top-1.5">{String(h).padStart(2, '0')}:00</span>
-                </div>
-              ))}
-            </div>
+      <div
+        ref={scrollRef}
+        className="max-h-[calc(100vh-16rem)] overflow-y-auto rounded-xl border border-slate-200 bg-surface p-4 shadow-sm"
+      >
+        <div className="flex">
+          <div className="relative w-12 shrink-0" style={{ height: laneHeight }}>
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="absolute left-0 text-[11px] text-slate-300 tabular-nums"
+                style={{ top: toY(h * 60) - 6 }}
+              >
+                {String(Math.min(h, 24)).padStart(2, '0')}:00
+              </div>
+            ))}
+          </div>
 
-            <div
-              ref={laneRef}
-              onClick={onLaneClick}
-              className={`relative flex-1 rounded-md bg-slate-50/60 ${drag ? 'cursor-grabbing' : 'cursor-copy'}`}
-              style={{ height: 1440 * PPM }}
-              title="点击空白处新建时间块"
-            >
-              {Array.from({ length: 24 }, (_, h) => (
-                <div
-                  key={h}
-                  className="pointer-events-none absolute inset-x-0 border-t border-slate-100"
-                  style={{ top: h * 60 * PPM }}
-                />
-              ))}
+          <div
+            ref={laneRef}
+            onMouseDown={beginSelect}
+            className={`relative flex-1 rounded-md bg-slate-50/60 ${
+              drag ? 'cursor-grabbing' : select ? 'cursor-ns-resize' : 'cursor-crosshair'
+            }`}
+            style={{ height: laneHeight }}
+            title="按住往下拖，框选一段时间"
+          >
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="pointer-events-none absolute inset-x-0 border-t border-slate-100"
+                style={{ top: toY(h * 60) }}
+              />
+            ))}
 
-              {blocks.map((b) => {
+            {/* 当前时间线 */}
+            {isToday && nowMin >= viewStart && nowMin <= viewEnd && (
+              <div
+                className="pointer-events-none absolute inset-x-0 z-20 border-t border-red-400/70"
+                style={{ top: toY(nowMin) }}
+              >
+                <span className="absolute -top-1 -left-1 size-2 rounded-full bg-red-400" />
+              </div>
+            )}
+
+            {/* 框选中的预览 */}
+            {select && selHi > selLo && (
+              <div
+                className="pointer-events-none absolute inset-x-1 z-10 rounded-md border-2 border-dashed border-brand/60 bg-brand-soft/70"
+                style={{ top: toY(selLo), height: Math.max(4, (selHi - selLo) * ppm) }}
+              >
+                <span className="absolute inset-x-0 top-1 text-center text-[10px] font-medium text-brand tabular-nums">
+                  {minutesToLabel(selLo)}–{minutesToLabel(selHi)}（{durationLabel(selLo, selHi)}）
+                </span>
+              </div>
+            )}
+
+            {blocks
+              .filter((b) => b.endMin > viewStart && b.startMin < viewEnd)
+              .map((b) => {
                 const dragging = drag?.id === b.id
                 const startMin = dragging ? drag.preview.startMin : b.startMin
                 const endMin = dragging ? drag.preview.endMin : b.endMin
+                const height = Math.max(16, (endMin - startMin) * ppm - 2)
+                const tight = height < 42 // 太矮就只留一行，别把字挤成两截
                 const coverage = actual.length ? coverageOf({ startMin, endMin }, actual) : null
                 const clash = conflictsWith(blocks, b, b.id).length > 0
                 const linked = taskTitle(b.taskId)
@@ -385,9 +632,9 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
                       e.stopPropagation()
                       if (!dragging) editDraft(b)
                     }}
-                    style={{ top: startMin * PPM, height: Math.max(18, (endMin - startMin) * PPM - 2) }}
+                    style={{ top: toY(startMin), height }}
                     className={`group absolute inset-x-1 overflow-hidden rounded-md border px-2 py-1 text-left text-xs transition-shadow ${
-                      dragging ? 'z-10 shadow-md' : ''
+                      dragging ? 'z-30 shadow-md' : ''
                     } ${
                       b.done
                         ? 'border-slate-200 bg-slate-100 text-slate-400 line-through'
@@ -417,6 +664,11 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
                         }`}
                       />
                       <span className="truncate font-medium">{b.title}</span>
+                      {tight && (
+                        <span className="shrink-0 text-[10px] text-slate-400 tabular-nums">
+                          {minutesToLabel(startMin)}
+                        </span>
+                      )}
                       <span className="ml-auto flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                         {pomodoroEnabled && !b.done && (
                           <button
@@ -444,20 +696,24 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
                         </button>
                       </span>
                     </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400 tabular-nums">
-                      <span>
-                        {minutesToLabel(startMin)}–{minutesToLabel(endMin)}
-                      </span>
-                      {b.tag && <span className="rounded bg-white/70 px-1">{b.tag}</span>}
-                      {linked && (
-                        <span className="truncate text-brand" title={linked}>
-                          {linked}
+                    {!tight && (
+                      <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400 tabular-nums">
+                        <span>
+                          {minutesToLabel(startMin)}–{minutesToLabel(endMin)}
                         </span>
-                      )}
-                      {coverage !== null && coverage > 0.05 && (
-                        <span title="这段计划被实际活动覆盖的比例">实际 {Math.round(coverage * 100)}%</span>
-                      )}
-                    </div>
+                        {b.tag && <span className="rounded bg-white/70 px-1">{b.tag}</span>}
+                        {linked && (
+                          <span className="truncate text-brand" title={linked}>
+                            {linked}
+                          </span>
+                        )}
+                        {coverage !== null && coverage > 0.05 && (
+                          <span title="这段计划被实际活动覆盖的比例">
+                            实际 {Math.round(coverage * 100)}%
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {/* 下沿拉伸把手 */}
                     <div
                       onMouseDown={(e) => beginDrag(e, b, 'resize')}
@@ -469,64 +725,27 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
                   </div>
                 )
               })}
-            </div>
+          </div>
 
-            <div className="relative ml-1 w-2 shrink-0 rounded bg-slate-50" style={{ height: 1440 * PPM }}>
-              {actual.map((s, i) => (
+          <div className="relative ml-1 w-2 shrink-0 rounded bg-slate-50" style={{ height: laneHeight }}>
+            {actual
+              .filter((s) => s.endMin > viewStart && s.startMin < viewEnd)
+              .map((s, i) => (
                 <div
                   key={i}
+                  title="屏幕感知记到的实际活动"
                   className="absolute inset-x-0 rounded-sm bg-emerald-300/70"
-                  style={{ top: s.startMin * PPM, height: Math.max(2, (s.endMin - s.startMin) * PPM) }}
+                  style={{ top: toY(s.startMin), height: Math.max(2, (s.endMin - s.startMin) * ppm) }}
                 />
               ))}
-            </div>
           </div>
         </div>
-
-        <aside className="w-64 shrink-0 space-y-4">
-          <Section
-            title="模板"
-            desc="把满意的一天存下来，之后一键套用"
-            actions={
-              <button
-                onClick={() => setSavingTemplate(true)}
-                className="rounded-md border border-slate-200 px-2 py-0.5 text-xs text-slate-500 hover:border-brand hover:text-brand"
-              >
-                存为模板
-              </button>
-            }
-          >
-            {templates.length === 0 ? (
-              <p className="text-xs text-slate-400">还没有模板。先排好一天，再点右上角存下来。</p>
-            ) : (
-              <ul className="space-y-2">
-                {templates.map((t) => (
-                  <li key={t.id} className="rounded-lg border border-slate-100 px-3 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium">{t.name}</span>
-                      <div className="flex shrink-0 gap-1.5 text-xs">
-                        <button onClick={() => void applyTpl(t.id)} className="text-brand hover:underline">
-                          套用
-                        </button>
-                        <button
-                          onClick={() => void deleteTpl(t.id)}
-                          className="text-slate-300 hover:text-red-500"
-                        >
-                          删除
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-slate-400">
-                      {templateBlocks.filter((b) => b.templateId === t.id).length} 个块 ·{' '}
-                      {weekdaysLabel(t.weekdays)}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
-        </aside>
       </div>
+
+      <p className="mt-2 text-[11px] text-slate-300">
+        空白处按住往下拖可以框选一段时间建块；块本身可拖动改时间，拖下沿改时长。
+        {actual.length > 0 && ' 右侧绿条是屏幕感知记到的实际活动。'}
+      </p>
 
       {draft && (
         <Modal panelClass="w-[23rem] rounded-xl bg-surface p-5 shadow-xl" onClose={() => setDraft(null)}>
@@ -546,7 +765,9 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
               <div className="flex items-center gap-2">
                 <TimeInput
                   value={draft.startMin}
-                  onChange={(v) => setDraft({ ...draft, startMin: v, endMin: Math.max(v + SNAP, draft.endMin) })}
+                  onChange={(v) =>
+                    setDraft({ ...draft, startMin: v, endMin: Math.max(v + SNAP, draft.endMin) })
+                  }
                   label="开始"
                 />
                 <span className="pt-4 text-slate-300">–</span>
@@ -558,16 +779,16 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
               </div>
 
               <div>
-                <div className="mb-1.5 text-xs text-slate-400">时长</div>
+                <div className="mb-1.5 text-xs text-slate-400">
+                  时长 · 当前 {durationLabel(draft.startMin, draft.endMin)}
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {DURATION_PRESETS.map((m) => {
                     const active = draft.endMin - draft.startMin === m
                     return (
                       <button
                         key={m}
-                        onClick={() =>
-                          setDraft({ ...draft, endMin: Math.min(1440, draft.startMin + m) })
-                        }
+                        onClick={() => setDraft({ ...draft, endMin: Math.min(1440, draft.startMin + m) })}
                         className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
                           active
                             ? 'border-brand bg-brand-soft text-brand'
@@ -698,13 +919,6 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
       )}
     </div>
   )
-}
-
-function shiftDay(date: string, delta: number): string {
-  const d = new Date(`${date}T12:00:00`)
-  d.setDate(d.getDate() + delta)
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 /** HH:MM 输入框：只在解析成功时回写，输入中途不打断用户。 */
