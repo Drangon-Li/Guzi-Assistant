@@ -4,6 +4,9 @@
 // 这个环在 ESM 下是安全的——两边都没有依赖对方的顶层副作用，detections 只在函数体里调 getDb()，
 // 而这里只在 initDb() 运行时（模块图早已求值完毕）才调它。
 import { cleanupStaleDetections } from './detections.ts'
+// 与 ../plugins/index.ts 互相引用（那边要 getDb，这边要建插件表）。和 detections 一样，
+// 两边都只在函数体里用对方，模块图求值时互不依赖，ESM 下安全。
+import { initEnabledPluginTables } from '../plugins/index.ts'
 import { migrateTaskExtras, migrateTaskReminders, migrateWorkRecords, scrubInvalidTaskNames } from '../db-migrations.ts'
 import { createSqliteHistorySegmentIndex } from '../history/segment-index.ts'
 import type { HistorySegmentIndex } from '../history/segment-index.ts'
@@ -218,6 +221,9 @@ export function initDb(): void {
     ftsReady = false // FTS5/trigram 不可用：searchSources 走 LIKE，索引调用变 no-op
     console.error('[memory] FTS5 初始化失败，退化为 LIKE 检索：', e)
   }
+
+  // 已启用插件的表。核心表全部建完之后才轮到插件——插件可以引用核心表，反过来不行。
+  initEnabledPluginTables(db)
 }
 
 export function getHistorySegmentIndex(): HistorySegmentIndex {

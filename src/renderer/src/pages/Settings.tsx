@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import type {
   AppSettings,
   FeishuStatus,
@@ -17,15 +17,19 @@ import HotkeySection from '../components/settings/HotkeySection'
 import IntegrationSection from '../components/settings/IntegrationSection'
 import ScreenSenseSection from '../components/settings/ScreenSenseSection'
 import { eventToAccelerator, type HotkeyField } from '../components/settings/shared'
+import { PLUGINS } from '@shared/plugin-registry'
+import { PLUGIN_UI } from '../plugins'
 
 interface Props {
   onProfileChange: (p: Profile) => void
+  enabledPlugins?: string[]
 }
 
 // 分区导航；每个分区的渲染在 components/settings/ 下各自一个文件，状态仍集中在本组件。
+// 插件的分区拼在「关于」之前——核心分区的顺序不因为装了插件而变。
 const CATS = ['通用', '快捷键', '助手', '集成', '屏幕感知', '数据', '关于'] as const
 
-export default function Settings({ onProfileChange }: Props): React.JSX.Element {
+export default function Settings({ onProfileChange, enabledPlugins = [] }: Props): React.JSX.Element {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
@@ -33,7 +37,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [recordingKey, setRecordingKey] = useState<HotkeyField | null>(null)
   const [appVersion, setAppVersion] = useState('')
   const [checkingUpdate, setCheckingUpdate] = useState(false)
-  const [cat, setCat] = useState<(typeof CATS)[number]>('通用')
+  const [cat, setCat] = useState<string>('通用')
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
   const [activityStatus, setActivityStatus] = useState<ScreenActivityStatus | null>(null)
@@ -108,6 +112,17 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
     return () => window.removeEventListener('keydown', onKey, true)
   }, [recordingKey])
 
+  // 有 settings 贡献点、且已启用的插件，各占一个分区
+  const pluginCats = PLUGINS.filter((p) => enabledPlugins.includes(p.id)).flatMap((p) => {
+    const label: string | undefined =
+      'settings' in p.contributes ? p.contributes.settings.label : undefined
+    const Component = PLUGIN_UI[p.id]?.Settings
+    return label && Component ? [{ label, Component: Component as React.ComponentType }] : []
+  })
+
+  const allCats: string[] = [...CATS.slice(0, -1), ...pluginCats.map((c) => c.label), '关于']
+  const activePlugin = pluginCats.find((c) => c.label === cat)
+
   if (!profile || !settings) return <div className="p-8 text-sm text-slate-400">加载中…</div>
 
   const saveProfile = async (next: Profile): Promise<void> => {
@@ -139,7 +154,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
       {/* sticky：右侧内容长页滚动时分类栏钉在视口，不跟着滚走 */}
       <nav className="sticky top-8 flex w-28 shrink-0 flex-col gap-1 self-start pt-0.5">
         <h1 className="mb-2 px-3 text-lg font-semibold">设置</h1>
-        {CATS.map((c) => (
+        {allCats.map((c) => (
           <button
             key={c}
             onClick={() => setCat(c)}
@@ -206,6 +221,11 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
             wipe={wipe}
             wipeMemory={wipeMemory}
           />
+        )}
+        {activePlugin && (
+          <Suspense fallback={<div className="text-sm text-slate-400">加载中…</div>}>
+            <activePlugin.Component />
+          </Suspense>
         )}
         {cat === '关于' && (
           <AboutSection

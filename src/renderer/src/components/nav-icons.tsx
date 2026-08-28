@@ -83,3 +83,62 @@ export function IconSettings(): React.JSX.Element {
     </svg>
   )
 }
+
+/** 市场：货架上的箱子 */
+export function IconMarket(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" className={cls} {...base}>
+      <path d="M4 8.5h16l-1.2 11a1.5 1.5 0 0 1-1.5 1.3H6.7a1.5 1.5 0 0 1-1.5-1.3Z" />
+      <path d="M8.5 8.5V6a3.5 3.5 0 0 1 7 0v2.5" />
+      <path d="M10 13.5h4" />
+    </svg>
+  )
+}
+
+/** 作息：一天的时间轴，右侧是排好的块 */
+export function IconTimeblock(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" className={cls} {...base}>
+      <path d="M6 3.5v17" />
+      <rect x="9.5" y="5" width="10" height="4.5" rx="1.3" />
+      <rect x="9.5" y="12" width="7" height="4.5" rx="1.3" />
+      <path d="M6 7.2h3.5" />
+      <path d="M6 14.2h3.5" />
+    </svg>
+  )
+}
+
+/** 专注：番茄钟的表盘 */
+export function IconPomodoro(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" className={cls} {...base}>
+      <circle cx="12" cy="13.5" r="7.5" />
+      <path d="M12 9.5v4l2.5 1.6" />
+      <path d="M9.5 3.5h5" />
+      <path d="M12 3.5V6" />
+    </svg>
+  )
+}
+
+/** 打卡：勾选框 */
+export function IconHabit(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" className={cls} {...base}>
+      <rect x="4" y="5" width="16" height="15" rx="2.5" />
+      <path d="M8.2 12.6l2.6 2.6 5-5.4" />
+    </svg>
+  )
+}
+
+/** 成就：一支谷穗 */
+export function IconAchievement(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" className={cls} {...base}>
+      <path d="M12 20.5V8.5" />
+      <path d="M12 8.5c0-2.2 1.4-4 3.4-4.5.3 2.4-1 4.5-3.4 4.5Z" />
+      <path d="M12 8.5C12 6.3 10.6 4.5 8.6 4c-.3 2.4 1 4.5 3.4 4.5Z" />
+      <path d="M12 14c0-2 1.3-3.6 3.1-4.1.3 2.2-.9 4.1-3.1 4.1Z" />
+      <path d="M12 14c0-2-1.3-3.6-3.1-4.1-.3 2.2.9 4.1 3.1 4.1Z" />
+    </svg>
+  )
+}

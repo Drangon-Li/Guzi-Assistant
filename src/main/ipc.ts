@@ -80,6 +80,13 @@ import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
 import { broadcast, broadcastTheme, focusMain, hidePreview, resizePreview, showPreview } from './windows'
 import {
+  disablePlugin,
+  enablePlugin,
+  initPluginIpc,
+  states as pluginStates,
+  uninstallPlugin
+} from './plugins/index.ts'
+import {
   applyExternalPetReaction,
   applyExternalPetSay,
   clearPetPersistentSay,
@@ -551,4 +558,30 @@ export function registerIpc(): void {
     openPayment(payUrl, params)
   )
   ipcMain.handle('payment:close', () => closePayment())
+
+  // ---------- 插件市场 ----------
+  // 插件自己的通道（plugin:<id>:*）不在这里注册——它们随启用/停用动态挂载和摘除，
+  // 见 plugins/index.ts。这里只有市场本身的四个操作。
+  ipcMain.handle('plugins:list', () => pluginStates())
+
+  ipcMain.handle('plugins:enable', (_e, id: string) => {
+    const result = enablePlugin(id)
+    if (result.added.length) broadcast('guzi-assistant:plugins-updated')
+    return { ...result, states: pluginStates() }
+  })
+
+  ipcMain.handle('plugins:disable', (_e, id: string) => {
+    const result = disablePlugin(id)
+    if (result.removed.length) broadcast('guzi-assistant:plugins-updated')
+    return { ...result, states: pluginStates() }
+  })
+
+  // 卸载会 DROP 掉插件的表，不可逆。渲染层负责二次确认，这里不再拦。
+  ipcMain.handle('plugins:uninstall', (_e, id: string) => {
+    const result = uninstallPlugin(id)
+    broadcast('guzi-assistant:plugins-updated')
+    return { ...result, states: pluginStates() }
+  })
+
+  initPluginIpc()
 }
