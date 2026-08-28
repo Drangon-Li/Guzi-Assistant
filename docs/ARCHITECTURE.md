@@ -52,6 +52,7 @@ Electron · electron-vite · React 19 · TypeScript · Tailwind CSS v4 · better
 ```
 
 - **IPC 通道集中在 `src/shared/ipc-channels.ts`**：主进程 `ipcMain.handle` 注册、preload 白名单校验、渲染层 `api.ts` 调用都以此为准。新增通道必须登记，否则 preload 运行时拒绝（`test/ipc-channels-smoke.mjs` 校验三者一致）。
+- **插件通道是唯一例外**：形如 `plugin:<id>:<action>`，随插件启用动态注册，不逐条登记。preload 改为按「形状 + 注册表里的 id」放行，「是否已启用」由主进程决定——停用的插件没有 handler，invoke 直接失败。两层缺一不可，同一个 smoke 测试两头都卡。
 - 渲染层只通过 `src/renderer/src/api.ts`（`window.guziAssistant.invoke/on` 的薄封装）和主进程通信，不直接碰 Node。
 
 ### Computer History v2 数据流
@@ -190,6 +191,22 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 
 模型按规则给每个事项 `belongs_to_user`（yes/no/uncertain）+ 置信度 + `suggested_action`；`shared/suggest.ts` 的 `pickBest` 过滤掉"不是你的"、置信度 < 0.4 不出建议（宁漏勿误）。用户把任务改判为"不是我的"时，`belonging-learn.ts` 从中沉淀个人归属词典。
 
+### 6. 插件系统
+
+核心是「捕获 → 判断 → 收进日程」。作息、专注、打卡、成就都不是核心，做成插件按需启用——默认一个都不装，导航和不装插件时完全一致。
+
+**当前只有内置插件**：代码随主包发布，市场做的是启用 / 停用 / 清除数据。契约按「将来能加载外部插件」的形状定，届时补一个 loader 即可，不必推翻。之所以现在不做外部加载，是因为渲染层的安全模型建立在 preload 通道白名单上，允许运行时执行第三方 JS 就等于把它作废——做对需要权限声明模型、进程隔离和代码签名，是独立一档的工作量。
+
+- **`shared/plugin-manifest.ts`**：manifest 契约 + 依赖解析纯函数。借鉴 VS Code 的 `contributes` 声明式贡献点与 `extensionDependencies`、Obsidian 的 `minAppVersion`。硬依赖 `dependencies` 启停级联（启用连带装依赖、停用连带停依赖者），软依赖 `enhances` 只在市场里作提示，成环由 `test/plugin-smoke.mjs` 在构建期拒绝。
+- **`shared/plugin-registry.ts`**：内置注册表，单一事实源。声明了却没实现、实现了却没声明，两个方向都由测试卡住。
+- **六个扩展点**：导航项、设置分区、今日页卡片、IPC 命名空间、数据表、成就计数器。前五个由宿主提供；第六个是「成就」插件自己开放的——装了哪些插件决定成就墙上有多少条，这是插件扩展插件的落点。
+- **两条前缀约束是安全边界，不是命名习惯**：表名必须 `p_<id>_` 开头（卸载时按前缀 `DROP`，够不到核心表）；IPC 通道必须 `plugin:<id>:` 开头（preload 才能按前缀校验）。
+- **状态**：`settings` 表的 `enabledPlugins` 键（JSON 字符串数组）。读取时会剔除注册表里已不存在的、以及硬依赖不全的条目。应急回滚把这一行改成 `'[]'`，所有插件下线，核心功能不受影响。
+- **停用 ≠ 卸载**：停用只摘导航和 handler，数据留着，重新启用即恢复；「清除数据」才按前缀 `DROP` 表并删掉 `plugin:<id>:*` 的偏好，不可逆。
+- 页面一律 `React.lazy`，未启用的插件不进首屏 chunk。
+
+内置的四个插件：**作息**（时间块 + 模板，可与工作记录对照看计划 vs 实际）、**专注**（番茄钟，计时按 wall clock 算，结束经桌宠气泡播报）、**打卡**（每日小目标，连续天数今天没打不算断、断签不清零）、**成就**（声明式成就表，图标是自绘谷穗系列）。打卡与成就的模型移植自 health-tracker，但日界改回自然日跟随 `dayKey`——原版的凌晨 4 点业务日会让连续天数和日报、活动历史对不上。
+
 ---
 
 ## 五、数据模型
@@ -238,7 +255,7 @@ History v2 另外使用两张 SQLite 索引表：
 
 ## 六、界面
 
-侧边栏导航：**今日 / 日程 / 日报 / 分析 / 个人 / 设置**，右下角常驻**悬浮助手**。首次运行有三步引导（`Welcome.tsx`）。
+侧边栏导航：**今日 / 日程 / 日报 / 分析 / 个人**，底部固定**市场 / 设置**，右下角常驻**悬浮助手**。首次运行有三步引导（`Welcome.tsx`）。启用了插件的话，插件页在一条分隔线之下自成一组——核心导航的顺序不因为装了插件而改变。
 
 - **今日 `Home.tsx`**：主界面：今日概览四指标、24h 时段热力、最近工作记录、扫描/日报快捷入口。
 - **日程 `Schedule.tsx`**：列表/时间轴双视图。列表：今日/近三天/本周/全部筛选、勾选完成动画、待确认横幅、空态引导；时间轴（`Timeline.tsx`，原独立页并入）：天/周/月分组、倒计时卡、已结束折叠。
@@ -247,6 +264,7 @@ History v2 另外使用两张 SQLite 索引表：
 - **个人 `Account.tsx`**：账户登录 + 用户档案。
 - **设置 `Settings.tsx`**：确认模式、快捷键、系统集成、飞书、legacy 屏幕感知、独立 History v2/派生开关、collector 健康状态、权限和数据管理。二值设置统一使用可访问 Toggle。
   分区渲染拆在 `components/settings/` 下（每个分类一个文件），状态与保存仍集中在 `Settings.tsx`，子组件只收 props。
+- **市场 `Market.tsx`**：插件的启用 / 停用 / 清除数据。卡片上给出硬依赖（启用会连带装上谁）、反向依赖（停用会连带停掉谁）和软依赖提示（装了谁会更好用）。
 - **悬浮助手 `FloatingAssistant.tsx` + `AssistantChat.tsx`**：Notion 式右下角对话，点外部关闭。
 - **预览卡 `PreviewCard.tsx`**：独立无边框窗（右下角），右侧滑入/滑出；剪贴板预览 / 解析结果 / 屏幕检测「检测到日程」三态。
 
@@ -292,6 +310,8 @@ src/
     history/              event schema / JSONL store / retention / summarizer / query / MCP / work derivation
     report.ts report-scheduler.ts personal-memory.ts   工作日报生成/每日定时/个人画像归纳
     pet/                 桌宠窗口（静态品牌标 + Siri 式扫描光环，移植自 openpets）
+    plugins/             插件装配：模块表 / 建表 / handler 动态注册 / 启停卸载 / 成就计数器汇总
+                         每个插件一个目录（timeblock pomodoro habit achievement）
     ocr.ts               macOS Vision 本地 OCR（内嵌 Swift）
     parser.ts            解析：托管网关 / BYOK 回退、按 action 选路
     assistant.ts         助手对话
@@ -304,14 +324,17 @@ src/
     App.tsx              外壳 + 导航 + 悬浮助手
     api.ts               IPC 客户端封装
     supabase.ts          Supabase 客户端 + functionsBase
-    pages/               Home / Schedule(含 Timeline 视图) / Reports / Memory / History / Account / Settings / PreviewCard / Welcome / Onboarding / ScreenPermissionGate
-    components/          ui.tsx(共享小组件) / FloatingAssistant / AssistantChat / AccountSection / RechargePanel / 各种 Modal …
+    pages/               Home / Schedule(含 Timeline 视图) / Reports / Analysis / Account / Market / Settings / PreviewCard / Welcome / Onboarding / ScreenPermissionGate
+    components/          ui.tsx(共享小组件) / FloatingAssistant / AssistantChat / AccountSection / ActivityDetail / TagManager / 各种 Modal …
       settings/          设置页七个分区各一个文件（通用/快捷键/助手/集成/屏幕感知/数据/关于）
+    plugins/             插件的界面实现，每个一个目录；页面走 React.lazy 单独成 chunk
     styles.css           设计 token + 动效
   shared/                主进程与渲染层共享（纯函数为主）
     types.ts parsing.ts ipc-channels.ts suggest.ts work-report.ts sensitive.ts history.ts activity-events.ts
     phash.ts chat-layout.ts belonging-hints.ts belonging-learn.ts fts-query.ts
     ics.ts daily-brief.ts app-exclude.ts safe-path.ts shot-retention.ts task-filters.ts
+    plugin-manifest.ts plugin-registry.ts   插件契约与内置注册表
+    timeblock.ts habit.ts pomodoro.ts achievement.ts   四个插件的纯逻辑
 server/                  与具体 DB 解耦的纯逻辑（Edge Function import）
   billing/credits.ts     积分计费核心
   chpay/sign.ts          chpay 签名
