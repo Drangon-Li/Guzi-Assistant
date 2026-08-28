@@ -119,7 +119,8 @@ export const EVENT_CHANNELS = [
   'guzi-assistant:quickbar-show',
   'guzi-assistant:reminder',
   'guzi-assistant:theme',
-  'guzi-assistant:plugins-updated'
+  'guzi-assistant:plugins-updated',
+  'guzi-assistant:plugin-event'
 ] as const
 
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]

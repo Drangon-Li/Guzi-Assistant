@@ -13,6 +13,7 @@ import {
   enableChain,
   isKnownAssistantAction,
   pluginChannel,
+  pluginEventName,
   type PluginState
 } from '@shared/plugin-manifest'
 import { PLUGINS } from '@shared/plugin-registry'
@@ -23,6 +24,7 @@ import {
   writeEnabledPlugins
 } from '../db/plugins.ts'
 import { getDb } from '../db/connection.ts'
+import { broadcast } from '../windows'
 import achievement from './achievement/index.ts'
 import habit from './habit/index.ts'
 import pomodoro from './pomodoro/index.ts'
@@ -50,6 +52,35 @@ export function initEnabledPluginTables(db: Database.Database): void {
   }
 }
 
+/**
+ * 发出一个插件事件。发出方不需要知道谁在听——没装的插件不在 enabled 里，
+ * 循环自然跳过；装了但没写这个监听器的，查表也查不到。
+ * 一个监听器抛异常不影响其它监听器，更不影响发出方。
+ *
+ * 同时广播到渲染层（`guzi-assistant:plugin-event`），好让已经打开的插件页跟着刷新。
+ */
+export function emitPluginEvent(
+  from: string,
+  name: string,
+  payload: Record<string, unknown> = {}
+): void {
+  const event = pluginEventName(from, name)
+  const enabled = readEnabledPlugins()
+  if (!enabled.includes(from)) return
+
+  for (const id of enabled) {
+    if (id === from) continue
+    const handler = PLUGIN_MODULES[id]?.on?.[event]
+    if (!handler) continue
+    try {
+      handler(payload)
+    } catch (e) {
+      console.error(`[plugins] ${id} 处理事件 ${event} 失败：`, e)
+    }
+  }
+  broadcast('guzi-assistant:plugin-event', { event, from, name, payload })
+}
+
 function registerHandlers(id: string): void {
   const mod = PLUGIN_MODULES[id]
   if (!mod) return
@@ -66,9 +97,28 @@ function unregisterHandlers(id: string): void {
   for (const action of Object.keys(mod.handlers)) ipcMain.removeHandler(pluginChannel(id, action))
 }
 
-/** 启动时给已启用的插件挂上 handler。 */
+/** 启动时给已启用的插件挂上 handler，并跑一次各自的 init（重挂定时器之类）。 */
 export function initPluginIpc(): void {
-  for (const id of readEnabledPlugins()) registerHandlers(id)
+  for (const id of readEnabledPlugins()) {
+    registerHandlers(id)
+    runInit(id)
+  }
+}
+
+function runInit(id: string): void {
+  try {
+    PLUGIN_MODULES[id]?.init?.()
+  } catch (e) {
+    console.error(`[plugins] ${id} init 失败：`, e)
+  }
+}
+
+function runDispose(id: string): void {
+  try {
+    PLUGIN_MODULES[id]?.dispose?.()
+  } catch (e) {
+    console.error(`[plugins] ${id} dispose 失败：`, e)
+  }
 }
 
 export function states(): PluginState[] {
@@ -110,7 +160,10 @@ export function enablePlugin(id: string): { enabled: string[]; added: string[] }
   for (const pid of added) PLUGIN_MODULES[pid]?.initTables(db)
   const next = [...current, ...added]
   writeEnabledPlugins(next)
-  for (const pid of added) registerHandlers(pid)
+  for (const pid of added) {
+    registerHandlers(pid)
+    runInit(pid)
+  }
   return { enabled: next, added }
 }
 
@@ -125,7 +178,11 @@ export function disablePlugin(id: string): { enabled: string[]; removed: string[
 
   const next = current.filter((x) => !removed.includes(x))
   writeEnabledPlugins(next)
-  for (const pid of removed) unregisterHandlers(pid)
+  // 先 dispose 再摘 handler：停用的插件不该继续在后台跑定时器
+  for (const pid of removed) {
+    runDispose(pid)
+    unregisterHandlers(pid)
+  }
   return { enabled: next, removed }
 }
 

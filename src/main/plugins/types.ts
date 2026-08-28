@@ -32,4 +32,16 @@ export interface PluginMainModule {
    * 参数来自模型输出，一律当不可信输入校验。
    */
   assistantActions?: Record<string, (args: Record<string, unknown>) => AssistantActionResult>
+
+  /**
+   * 监听别的插件发出的事件，key 是完整事件名 <plugin>:<event>。
+   * 发出方不知道谁在听：对方没装时这些回调根本不会被找到，不需要任何 if 判断。
+   */
+  on?: Record<string, (payload: Record<string, unknown>) => void>
+
+  /** 插件被启用或应用启动时调用一次（重挂定时器之类）。 */
+  init?: () => void
+
+  /** 插件被停用时调用（清掉定时器，别让停用的插件继续在后台跑）。 */
+  dispose?: () => void
 }

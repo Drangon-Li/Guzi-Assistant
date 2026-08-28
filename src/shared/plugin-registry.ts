@@ -24,6 +24,8 @@ export const PLUGINS = [
       nav: { label: '作息', order: 100 },
       homeCards: ['timeblock-today'],
       achievementCounters: true,
+      // 装了「专注」就能收到回写；没装就什么都不会发生，作息本身不受影响
+      listens: ['pomodoro:round-completed'],
       assistantActions: [
         {
           name: 'add-block',
@@ -50,6 +52,10 @@ export const PLUGINS = [
       nav: { label: '专注', order: 110 },
       homeCards: ['pomodoro-today'],
       achievementCounters: true,
+      emits: [
+        { name: 'round-completed', summary: '一轮专注完成（含关联的时间块与任务）' },
+        { name: 'break-completed', summary: '一轮休息结束' }
+      ],
       assistantActions: [
         {
           name: 'start-focus',

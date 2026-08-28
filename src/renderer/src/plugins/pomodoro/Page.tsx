@@ -104,8 +104,6 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
       const finishedId = session.id
       await api.plugin('pomodoro', 'finish', finishedId, completed)
       setSession(null)
-      // 只有完整走完的专注轮才值得复盘：中途放弃的那点碎片写不出东西
-      if (completed && justFinished === 'focus') setReviewFor(finishedId)
       const after = await api.plugin<TodayPayload>('pomodoro', 'today')
       setStats(after.stats)
       setSessions(after.sessions)
@@ -129,17 +127,28 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
     [session, prefs]
   )
 
+  // 只负责显示读数。**到点结算在主进程**——页面没开着的时候那一轮照样要结算、
+  // 桌宠照样要响，所以这里不再自己调 finish。
   useEffect(() => {
     if (!session) return
-    const tick = (): void => {
-      const left = remainingSeconds(session, Date.now())
-      setRemaining(left)
-      if (left <= 0 && !session.pausedAt) void finish(true)
-    }
+    const tick = (): void => setRemaining(remainingSeconds(session, Date.now()))
     tick()
     const timer = window.setInterval(tick, 500)
     return () => window.clearInterval(timer)
-  }, [session, finish])
+  }, [session])
+
+  // 主进程结算完会广播；页面开着就跟着更新，并弹出这一轮的复盘
+  useEffect(() => {
+    return api.on('guzi-assistant:plugin-event', (payload) => {
+      const e = payload as { event?: string; payload?: { sessionId?: string } }
+      if (e.event !== 'pomodoro:round-completed' && e.event !== 'pomodoro:break-completed') return
+      setSession(null)
+      void refresh()
+      if (e.event === 'pomodoro:round-completed' && e.payload?.sessionId) {
+        setReviewFor(e.payload.sessionId)
+      }
+    })
+  }, [refresh])
 
   const activeTasks = useMemo(
     () => tasks.filter((t) => ACTIVE_STATUS.has(t.status) && !isFinishedEvent(t, new Date())),

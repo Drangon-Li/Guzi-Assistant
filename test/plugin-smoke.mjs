@@ -8,7 +8,10 @@ import { fileURLToPath } from 'url'
 import {
   assistantActionsBlock,
   channelPrefix,
+  danglingListeners,
+  declaredEvents,
   isKnownAssistantAction,
+  pluginEventName,
   compareVersions,
   dependentsOf,
   disableChain,
@@ -212,6 +215,55 @@ for (const p of PLUGINS) {
     specs.every((s) => s.when.length > 4 && s.summary.length > 2)
   )
 }
+
+// ---------- 插件事件 ----------
+// 事件是「可随意抽插又能互相联系」的关键：发出者不知道谁在听，
+// 没装对方时循环里根本找不到监听者，不需要任何 if 判断。
+const EV = [
+  {
+    ...base,
+    id: 'emitter',
+    contributes: { emits: [{ name: 'done', summary: '干完了' }] },
+    storage: { tables: ['p_emitter_a'] }
+  },
+  {
+    ...base,
+    id: 'listener',
+    contributes: { listens: ['emitter:done'] },
+    storage: { tables: ['p_listener_a'] }
+  }
+]
+check('事件全名带发出者前缀', pluginEventName('emitter', 'done') === 'emitter:done')
+check('列出所有已声明事件', eq(declaredEvents(EV), ['emitter:done']))
+check('监听已声明的事件不算悬空', danglingListeners(EV).length === 0)
+check(
+  '监听了没人发的事件会被指出来（多半是拼错事件名）',
+  danglingListeners([{ ...base, id: 'x', contributes: { listens: ['ghost:evt'] }, storage: { tables: [] } }])
+    .length === 1
+)
+check('事件声明不影响注册表自洽', validateRegistry(EV).length === 0, validateRegistry(EV).join('; '))
+
+// 真实注册表：监听的事件必须真有插件会发，否则联动永远不触发且界面上看不出来
+const dangling = danglingListeners(PLUGINS)
+check('内置插件没有悬空监听', dangling.length === 0, JSON.stringify(dangling))
+check(
+  '声明了 emits 的插件在主进程真的会发',
+  PLUGINS.every((p) => {
+    const emits = 'emits' in p.contributes ? p.contributes.emits : []
+    if (!emits.length) return true
+    const src = readFileSync(join(root, 'src/main/plugins', p.id, 'index.ts'), 'utf-8')
+    return emits.every((e) => src.includes(`'${e.name}'`))
+  })
+)
+check(
+  '声明了 listens 的插件在主进程真的有 on 处理器',
+  PLUGINS.every((p) => {
+    const listens = 'listens' in p.contributes ? p.contributes.listens : []
+    if (!listens.length) return true
+    const src = readFileSync(join(root, 'src/main/plugins', p.id, 'index.ts'), 'utf-8')
+    return listens.every((e) => src.includes(`'${e}'`))
+  })
+)
 
 // 插件的配置放在插件自己的页面里，核心设置页不接插件分区。
 // 这条不是洁癖：一旦有插件往核心设置页塞分区，停用它就会留下一个空分区，

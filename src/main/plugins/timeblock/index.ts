@@ -25,6 +25,7 @@ interface BlockRow {
   task_id: string | null
   done: number
   template_id: string | null
+  focus_minutes: number | null
   created_at: string
 }
 
@@ -55,6 +56,7 @@ function toBlock(r: BlockRow): TimeBlock {
     taskId: r.task_id,
     done: !!r.done,
     templateId: r.template_id,
+    focusMinutes: r.focus_minutes ?? 0,
     createdAt: r.created_at
   }
 }
@@ -103,7 +105,13 @@ function insertBlock(draft: BlockDraft): TimeBlock | null {
   if (!isValidRange(draft.startMin, draft.endMin)) return null
   const title = draft.title.trim()
   if (!title) return null
-  const row: TimeBlock = { ...draft, title, id: randomUUID(), createdAt: localNowSec() }
+  const row: TimeBlock = {
+    ...draft,
+    title,
+    id: randomUUID(),
+    focusMinutes: 0,
+    createdAt: localNowSec()
+  }
   getDb()
     .prepare(
       `INSERT INTO p_timeblock_block (id, date, start_min, end_min, title, tag, task_id, done, template_id, created_at)
@@ -155,11 +163,31 @@ const initTables = (db: Database.Database): void => {
     );
     CREATE INDEX IF NOT EXISTS idx_p_timeblock_tb_template ON p_timeblock_template_block(template_id);
   `)
+  // 增量迁移：专注回写的累计分钟数是后加的，只加列，旧行取 0
+  const cols = (db.prepare('PRAGMA table_info(p_timeblock_block)').all() as { name: string }[]).map(
+    (c) => c.name
+  )
+  if (!cols.includes('focus_minutes'))
+    db.exec('ALTER TABLE p_timeblock_block ADD COLUMN focus_minutes INTEGER NOT NULL DEFAULT 0')
 }
 
 const timeblock: PluginMainModule = {
   id: 'timeblock',
   initTables,
+
+  // 「作息」不认识「专注」，只认识一个事件名。没装专注插件就永远收不到，
+  // 这里也不需要任何 if 判断——这正是插件能随意抽插的原因。
+  on: {
+    'pomodoro:round-completed': (payload) => {
+      const blockId = typeof payload.blockId === 'string' ? payload.blockId : null
+      if (!blockId) return // 这一轮没关联时间块，与作息无关
+      const minutes = Math.max(0, Math.round(Number(payload.actualMinutes) || 0))
+      if (!minutes) return
+      getDb()
+        .prepare('UPDATE p_timeblock_block SET focus_minutes = COALESCE(focus_minutes, 0) + ? WHERE id = ?')
+        .run(minutes, blockId)
+    }
+  },
 
   handlers: {
     day: (date: string) => ({ blocks: listBlocks(date), ...listTemplates() }),

@@ -181,6 +181,14 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
     void api.listTasks().then(setTasks)
   }, [])
 
+  // 「专注」回写了这一轮的时长就刷新。作息不认识专注插件，只认识一个事件名；
+  // 没装专注插件的话这个事件永远不会来，这里也不需要判断。
+  useEffect(() => {
+    return api.on('guzi-assistant:plugin-event', (payload) => {
+      if ((payload as { event?: string }).event === 'pomodoro:round-completed') void load()
+    })
+  }, [load])
+
   // 实际活动来自屏幕感知的工作记录；没开这个功能就只画计划，不提示什么。
   // 原始区间留着算「计划被覆盖了多少」，右侧只展示归并后的长段——
   // 10 分钟一块的碎点铺满一列既看不懂也没用。
@@ -713,6 +721,11 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
                         {linked && (
                           <span className="truncate text-brand" title={linked}>
                             {linked}
+                          </span>
+                        )}
+                        {b.focusMinutes > 0 && (
+                          <span className="text-brand" title="「专注」插件回写的累计专注时长">
+                            专注 {durationLabel(0, b.focusMinutes)}
                           </span>
                         )}
                         {coverage !== null && coverage > 0.05 && (

@@ -19,6 +19,8 @@ export interface TimeBlock {
   done: boolean
   /** 由哪个模板套用而来，手动新建为 null */
   templateId: string | null
+  /** 「专注」插件回写的累计专注分钟数；没装那个插件时恒为 0 */
+  focusMinutes: number
   createdAt: string
 }
 
@@ -168,8 +170,11 @@ export function plannedMinutes(blocks: readonly Span[]): number {
   )
 }
 
-/** 模板套用到某一天，产出待写入的块草稿；id 和 createdAt 由调用方补。 */
-export type BlockDraft = Omit<TimeBlock, 'id' | 'createdAt'>
+/**
+ * 模板套用到某一天，产出待写入的块草稿；id 和 createdAt 由调用方补。
+ * focusMinutes 不在草稿里——它是「专注」插件事后回写的累计值，新建时恒为 0。
+ */
+export type BlockDraft = Omit<TimeBlock, 'id' | 'createdAt' | 'focusMinutes'>
 
 export function applyTemplate(
   template: TimeTemplate,

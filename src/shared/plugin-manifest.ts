@@ -25,6 +25,24 @@ export interface AssistantActionSpec {
   when: string
 }
 
+/**
+ * 插件事件：发出者不知道谁在听，监听者不知道谁会发。
+ *
+ * 这是插件之间「可随意抽插又能互相联系」的关键——「专注」走完一轮只管发出
+ * pomodoro:round-completed，至于「作息」有没有装、装了要不要记，都与它无关。
+ * 没装对方时循环里根本找不到监听者，什么都不会发生，不需要任何 if 判断。
+ */
+export interface PluginEventSpec {
+  /** 事件名，不含 <plugin>: 前缀 */
+  name: string
+  summary: string
+}
+
+/** 完整事件名：<发出插件 id>:<事件名>。 */
+export function pluginEventName(from: string, name: string): string {
+  return `${from}:${name}`
+}
+
 export interface PluginContributes {
   /** 侧边栏导航项；order 越小越靠上，核心页占 0-99，插件从 100 起 */
   nav?: { label: string; order: number }
@@ -36,6 +54,10 @@ export interface PluginContributes {
   achievementCounters?: boolean
   /** 桌宠 / 悬浮助手 / 快捷提问里可以用自然语言驱动的动作 */
   assistantActions?: readonly AssistantActionSpec[]
+  /** 本插件会发出的事件 */
+  emits?: readonly PluginEventSpec[]
+  /** 本插件监听的事件（完整名 <plugin>:<event>），只用于校验与 Market 的联动提示 */
+  listens?: readonly string[]
 }
 
 export interface PluginManifest {
@@ -277,6 +299,23 @@ export function isKnownAssistantAction(
   if (!enabled.includes(plugin)) return false
   const m = registry.find((x) => x.id === plugin)
   return (m?.contributes.assistantActions ?? []).some((a) => a.name === action)
+}
+
+/** 注册表里所有已声明的事件全名。 */
+export function declaredEvents(registry: PluginRegistry): string[] {
+  return registry.flatMap((m) =>
+    (m.contributes.emits ?? []).map((e) => pluginEventName(m.id, e.name))
+  )
+}
+
+/** 监听了但没人发的事件——多半是拼错了事件名，构建期就该发现。 */
+export function danglingListeners(registry: PluginRegistry): { plugin: string; event: string }[] {
+  const declared = new Set(declaredEvents(registry))
+  return registry.flatMap((m) =>
+    (m.contributes.listens ?? [])
+      .filter((e) => !declared.has(e))
+      .map((event) => ({ plugin: m.id, event }))
+  )
 }
 
 /** 软依赖里还没启用的那些——Market 卡片用来提示「装了它会更好用」。 */
