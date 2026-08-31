@@ -256,3 +256,10 @@ export function broadcast(channel: string, payload?: unknown): void {
     if (!win.isDestroyed()) win.webContents.send(channel, payload)
   }
 }
+
+/** 广播给除发起窗口外的其他窗口：发起方界面已是最新，回推会打断它正在输入的人。 */
+export function broadcastExcept(senderId: number, channel: string, payload?: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && win.webContents.id !== senderId) win.webContents.send(channel, payload)
+  }
+}

@@ -151,6 +151,10 @@ export const api = {
     inv<AssistantTurnResult>('assistant:quick-chat', payload),
   assistantAdd: (payload: { sourceText: string; item: ParsedItem; force?: boolean }) =>
     inv<AddedInfo>('assistant:add', payload),
+  /** 对话历史：气泡和悬浮助手共用一份，整体存取（消息结构只有渲染层认识） */
+  chatHistory: <T>() => inv<T[]>('chat:history'),
+  chatSave: (msgs: unknown[]) => inv<void>('chat:save', msgs),
+  chatClear: () => inv<void>('chat:clear'),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
 
   exportTaskIcs: (task: TaskRecord) =>

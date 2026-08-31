@@ -15,6 +15,8 @@ interface Props {
   userName: string
   /** 外部注入一条消息并自动发送（如桌宠拖入文件）：display 为气泡显示文本，content 为发给助手的完整内容。nonce 变化触发一次。 */
   injected?: { content: string; display: string; nonce: number } | null
+  /** 清屏：数值变化触发一次，清空本地与库里的历史。清屏入口在外层（气泡窗口的头部）。 */
+  clearNonce?: number
 }
 
 type AddState = 'added' | 'duplicate'
@@ -31,8 +33,30 @@ interface ChatMsg {
   forceAdd?: { msgId: number; idx1: number; sourceText: string; item: ParsedItem; used?: boolean }
 }
 
-// 模块级缓存：切换页面不丢对话（应用重启后清空）
+// 对话历史存在库里（chat_messages），气泡窗口和主窗悬浮助手共用同一份。
+// store 是它的内存工作副本：send 流程里要同步读改（拼上下文、标记候选），走异步 IPC 会打乱顺序。
 const store: { msgs: ChatMsg[]; nextId: number } = { msgs: [], nextId: 1 }
+// 本窗口是否已从库里取过。同一渲染进程内组件反复挂载（悬浮助手收起/展开）不必重取。
+let hydrated = false
+
+/** 消息 id 在渲染层自增，从库里恢复后要接着最大的往下发，否则新消息会和旧的撞 id。 */
+function nextIdAfter(msgs: ChatMsg[]): number {
+  return msgs.reduce((max, m) => Math.max(max, m.id), 0) + 1
+}
+
+async function pullHistory(): Promise<ChatMsg[]> {
+  try {
+    const rows = await api.chatHistory<ChatMsg>()
+    store.msgs = rows
+    store.nextId = nextIdAfter(rows)
+    hydrated = true
+    return rows
+  } catch {
+    // 读不到就退回纯内存模式：这一轮对话照常能用，只是关掉应用后不留
+    hydrated = true
+    return store.msgs
+  }
+}
 
 const SUGGESTIONS = ['今天有什么日程？', '哪些日程比较紧急？', '我现在应该干什么？']
 
@@ -56,7 +80,8 @@ export default function AssistantChat({
   showToast,
   hotkeyLabel,
   userName,
-  injected
+  injected,
+  clearNonce
 }: Props): React.JSX.Element {
   const [msgs, setMsgs] = useState<ChatMsg[]>(store.msgs)
   const [input, setInput] = useState('')
@@ -72,7 +97,34 @@ export default function AssistantChat({
   const update = (next: ChatMsg[]): void => {
     store.msgs = next
     setMsgs(next)
+    void api.chatSave(next)
   }
+
+  // 首次挂载取一次历史；之后另一个窗口改了会广播过来（自己的改动不回推，免得打断正在输入的人）
+  useEffect(() => {
+    let alive = true
+    const pull = (): void => {
+      void pullHistory().then((rows) => {
+        if (alive) setMsgs(rows)
+      })
+    }
+    if (!hydrated) pull()
+    const off = api.on('guzi-assistant:chat-updated', pull)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+
+  const clearedNonce = useRef(0)
+  useEffect(() => {
+    if (clearNonce === undefined || clearNonce === clearedNonce.current) return
+    clearedNonce.current = clearNonce
+    store.msgs = []
+    store.nextId = 1
+    setMsgs([])
+    void api.chatClear()
+  }, [clearNonce])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })

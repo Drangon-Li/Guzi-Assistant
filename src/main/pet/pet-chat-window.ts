@@ -1,7 +1,7 @@
 // 桌宠对话框窗口 —— 无边框透明置顶小窗，加载渲染层 #/petchat（复用 React AssistantChat）。
 // 点桌宠开/关，定位到桌宠旁，可获键盘焦点打字；失焦/Esc/再点桌宠 收起。
 import { BrowserWindow, ipcMain, screen } from 'electron'
-import { anchorWindowNearPet, load, preload } from '../windows'
+import { anchorWindowNearPet, appState, load, preload } from '../windows'
 import { extractPetDropText, submitExternalFiles } from '../capture'
 
 const CHAT_W = 380
@@ -31,6 +31,14 @@ function ensureWindow(): BrowserWindow {
     if (chatWin && !chatWin.isDestroyed() && chatWin.isVisible()) {
       chatWin.hide()
       lastHiddenAt = Date.now()
+    }
+  })
+  // ⌘W（应用菜单的 role: 'close'）作用于当前焦点窗口，而对话框展示时正是它。
+  // 不拦就会真销毁窗口、渲染进程重启，和主窗口一样只隐藏。
+  win.on('close', (e) => {
+    if (!appState.quitting) {
+      e.preventDefault()
+      hidePetChat()
     }
   })
   win.on('closed', () => {

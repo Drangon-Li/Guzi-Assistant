@@ -99,6 +99,11 @@ export function initDb(): void {
       content TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      seq INTEGER PRIMARY KEY,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS personal_memory (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       content TEXT NOT NULL DEFAULT '',
