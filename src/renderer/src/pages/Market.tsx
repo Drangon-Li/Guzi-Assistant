@@ -85,7 +85,7 @@ export default function Market(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-8 py-8">
+    <div className="mx-auto max-w-6xl px-8 py-8">
       <header className="mb-6">
         <h1 className="text-lg font-semibold">市场</h1>
         <p className="mt-0.5 max-w-2xl text-xs text-slate-400">

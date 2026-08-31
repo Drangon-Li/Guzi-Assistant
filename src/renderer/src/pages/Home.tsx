@@ -118,7 +118,7 @@ export default function Home({
   const recent = groupWorkPeriods(records).slice(-5).reverse()
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10">
       <div className="flex items-start gap-4">
         <img src={brandMark} alt="" className="mt-1 size-12 shrink-0 rounded-2xl border border-brand-soft bg-brand-soft/50 p-2" />
         <div className="min-w-0">

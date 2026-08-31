@@ -446,7 +446,7 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
   const selHi = select ? Math.max(select.anchorMin, select.cursorMin) : 0
 
   return (
-    <div className="mx-auto max-w-4xl px-8 py-8">
+    <div className="mx-auto max-w-6xl px-8 py-8">
       <header className="mb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

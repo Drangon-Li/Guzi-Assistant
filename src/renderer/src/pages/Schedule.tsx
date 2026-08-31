@@ -332,7 +332,7 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <div className="mx-auto max-w-5xl px-8 py-8">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">日程</h1>

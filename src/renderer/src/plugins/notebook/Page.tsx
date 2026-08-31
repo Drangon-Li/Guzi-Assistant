@@ -1,5 +1,6 @@
 // 记事本插件页：左栏分类与标签，中栏笔记列表，右栏编辑器。
 // 分类像文件夹（一篇只能在一处），标签像视角（一篇可以有多个），两套并行不互相干扰。
+// 管理动作走右键菜单，不在行里堆一排小按钮——三栏本来就窄，按钮挤进去既难点又难看。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildFolderTree,
@@ -12,10 +13,17 @@ import {
   type NoteSummary
 } from '@shared/notebook'
 import { api } from '../../api'
+import ContextMenu, { type MenuEntry } from '../../components/ContextMenu'
 import NoteEditor from './NoteEditor'
 
 const call = <T,>(action: string, ...args: unknown[]): Promise<T> =>
   api.plugin<T>('notebook', action, ...args)
+
+interface Draft {
+  id: string | null
+  parentId: string | null
+  value: string
+}
 
 /** 分类名的内联输入。Electron 里没有 window.prompt，新建和重命名都在树里就地完成。 */
 function FolderInput({
@@ -32,7 +40,7 @@ function FolderInput({
   onCancel: () => void
 }): React.JSX.Element {
   return (
-    <li>
+    <li style={{ paddingLeft: `${depth * 12}px` }}>
       <input
         autoFocus
         value={value}
@@ -43,8 +51,7 @@ function FolderInput({
         }}
         onBlur={onCommit}
         placeholder="分类名"
-        style={{ marginLeft: `${depth * 12 + 4}px` }}
-        className="my-0.5 w-[calc(100%-8px)] rounded-lg border border-brand/40 px-1.5 py-1 text-sm outline-none"
+        className="my-0.5 w-full rounded-lg border border-brand/40 bg-surface px-2 py-1.5 text-sm outline-none"
       />
     </li>
   )
@@ -59,9 +66,7 @@ function FolderRow({
   draft,
   onToggle,
   onSelect,
-  onRename,
-  onDelete,
-  onAddChild,
+  onMenu,
   onDraftChange,
   onDraftCommit,
   onDraftCancel
@@ -70,12 +75,10 @@ function FolderRow({
   depth: number
   active: string
   expanded: Set<string>
-  draft: { id: string | null; parentId: string | null; value: string } | null
+  draft: Draft | null
   onToggle: (id: string) => void
   onSelect: (id: string) => void
-  onRename: (node: FolderNode) => void
-  onDelete: (node: FolderNode) => void
-  onAddChild: (id: string) => void
+  onMenu: (e: React.MouseEvent, node: FolderNode) => void
   onDraftChange: (v: string) => void
   onDraftCommit: () => void
   onDraftCancel: () => void
@@ -95,47 +98,30 @@ function FolderRow({
   }
   return (
     <>
-      <li>
+      <li style={{ paddingLeft: `${depth * 12}px` }}>
         <div
-          className={`group flex items-center gap-1 rounded-lg py-1 pr-1 text-sm transition-colors ${
-            active === node.id ? 'bg-brand/10 text-slate-900' : 'text-slate-600 hover:bg-slate-100'
+          onClick={() => onSelect(node.id)}
+          onContextMenu={(e) => onMenu(e, node)}
+          className={`flex cursor-default items-center gap-1 rounded-lg py-1.5 pr-2 pl-1 text-sm transition-colors ${
+            active === node.id
+              ? 'bg-brand-soft font-medium text-slate-900'
+              : 'text-slate-600 hover:bg-slate-100'
           }`}
-          style={{ paddingLeft: `${depth * 12 + 4}px` }}
         >
           <button
             className={`w-4 shrink-0 text-[10px] text-slate-400 ${hasChildren ? '' : 'invisible'}`}
-            onClick={() => onToggle(node.id)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggle(node.id)
+            }}
             aria-label={open ? '收起' : '展开'}
           >
             {open ? '▾' : '▸'}
           </button>
-          <button className="min-w-0 flex-1 truncate text-left" onClick={() => onSelect(node.id)}>
-            {node.name}
-          </button>
-          <span className="shrink-0 text-[10px] text-slate-300">{node.noteCount || ''}</span>
-          <span className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-            <button
-              className="px-1 text-[10px] text-slate-400 hover:text-slate-700"
-              title="新建子分类"
-              onClick={() => onAddChild(node.id)}
-            >
-              ＋
-            </button>
-            <button
-              className="px-1 text-[10px] text-slate-400 hover:text-slate-700"
-              title="重命名"
-              onClick={() => onRename(node)}
-            >
-              改
-            </button>
-            <button
-              className="px-1 text-[10px] text-slate-400 hover:text-red-500"
-              title="删除分类（笔记会退回上一级）"
-              onClick={() => onDelete(node)}
-            >
-              删
-            </button>
-          </span>
+          <span className="min-w-0 flex-1 truncate">{node.name}</span>
+          {node.noteCount > 0 && (
+            <span className="shrink-0 text-[10px] text-slate-400 tabular-nums">{node.noteCount}</span>
+          )}
         </div>
       </li>
       {open &&
@@ -149,9 +135,7 @@ function FolderRow({
             draft={draft}
             onToggle={onToggle}
             onSelect={onSelect}
-            onRename={onRename}
-            onDelete={onDelete}
-            onAddChild={onAddChild}
+            onMenu={onMenu}
             onDraftChange={onDraftChange}
             onDraftCommit={onDraftCommit}
             onDraftCancel={onDraftCancel}
@@ -178,16 +162,12 @@ export default function NotebookPage(): React.JSX.Element {
   const [tag, setTag] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [draft, setDraft] = useState<{ id: string | null; parentId: string | null; value: string } | null>(
-    null
-  )
+  const [draft, setDraft] = useState<Draft | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null)
   const saveTimer = useRef<number | undefined>(undefined)
 
   const reload = useCallback(async (): Promise<void> => {
-    const [n, f] = await Promise.all([
-      call<NoteSummary[]>('list'),
-      call<NoteFolder[]>('folders')
-    ])
+    const [n, f] = await Promise.all([call<NoteSummary[]>('list'), call<NoteFolder[]>('folders')])
     setNotes(n)
     setFolders(f)
   }, [])
@@ -220,8 +200,7 @@ export default function NotebookPage(): React.JSX.Element {
   /** 编辑器每次改动都进这里：本地立刻更新，落库防抖 600ms，避免每个字符一次 IPC。 */
   const onEdit = (patch: { title?: string; content?: string; tags?: string[] }): void => {
     if (!active) return
-    const next = { ...active, ...patch }
-    setActive(next)
+    setActive({ ...active, ...patch })
     window.clearTimeout(saveTimer.current)
     const id = active.id
     saveTimer.current = window.setTimeout(() => {
@@ -241,11 +220,9 @@ export default function NotebookPage(): React.JSX.Element {
     await reload()
   }
 
-  const moveTo = async (target: string): Promise<void> => {
-    if (!active) return
-    const folder = target === 'none' ? null : target
-    await call('update', active.id, { folderId: folder })
-    setActive({ ...active, folderId: folder })
+  const moveNote = async (id: string, target: string | null): Promise<void> => {
+    await call('update', id, { folderId: target })
+    if (active?.id === id) setActive({ ...active, folderId: target })
     await reload()
   }
 
@@ -254,9 +231,7 @@ export default function NotebookPage(): React.JSX.Element {
     setDraft({ id: null, parentId, value: '' })
   }
 
-  const startRename = (node: FolderNode): void => {
-    setDraft({ id: node.id, parentId: null, value: node.name })
-  }
+  const startRename = (node: FolderNode): void => setDraft({ id: node.id, parentId: null, value: node.name })
 
   const commitDraft = async (): Promise<void> => {
     const d = draft
@@ -284,42 +259,92 @@ export default function NotebookPage(): React.JSX.Element {
     })
   }
 
+  const folderMenu = (e: React.MouseEvent, node: FolderNode): void => {
+    e.preventDefault()
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      entries: [
+        { type: 'header', label: node.name },
+        { label: '新建子分类', onClick: () => startCreate(node.id) },
+        { label: '重命名', onClick: () => startRename(node) },
+        { type: 'separator' },
+        { label: '删除分类', danger: true, onClick: () => void deleteFolder(node) }
+      ]
+    })
+  }
+
+  const noteMenu = (e: React.MouseEvent, n: NoteSummary): void => {
+    e.preventDefault()
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      entries: [
+        { type: 'header', label: n.title },
+        { label: n.pinned ? '取消置顶' : '置顶', onClick: () => void togglePin(n) },
+        { type: 'separator' },
+        { type: 'header', label: '移到分类' },
+        { label: '未分类', checked: !n.folderId, onClick: () => void moveNote(n.id, null) },
+        ...folders.map(
+          (f): MenuEntry => ({
+            label: f.name,
+            checked: n.folderId === f.id,
+            onClick: () => void moveNote(n.id, f.id)
+          })
+        ),
+        { type: 'separator' },
+        { label: '删除笔记', danger: true, onClick: () => void removeNote(n.id) }
+      ]
+    })
+  }
+
   const folderName = (id: string | null): string =>
     id ? (folders.find((f) => f.id === id)?.name ?? '未分类') : '未分类'
+
+  const filterLabel =
+    folderId === 'all' ? '全部笔记' : folderId === 'none' ? '未分类' : folderName(folderId)
 
   return (
     // 外壳给页面的容器是块级、高度随内容，h-full 在这里会落空，分隔线就只长到内容底部。
     // 这一页是满屏三栏（不是纵向滚动页），自己定高最省事，也不必去动所有页面共用的那层容器。
     <div className="flex h-screen min-h-0 overflow-hidden">
       {/* 左栏：分类与标签 */}
-      <aside className="flex w-52 shrink-0 flex-col gap-4 overflow-y-auto border-r border-slate-200 px-3 pt-10 pb-4">
+      <aside className="flex w-56 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line px-3 pt-10 pb-6">
         <div>
-          <div className="mb-1 flex items-center justify-between px-1">
-            <span className="text-xs font-semibold text-slate-400">分类</span>
+          <div className="mb-1.5 flex items-center justify-between px-2">
+            <span className="text-[11px] font-medium tracking-wide text-slate-400">分类</span>
             <button
-              className="text-xs text-slate-400 hover:text-slate-700"
+              className="rounded px-1 text-sm text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
               title="新建分类"
               onClick={() => startCreate(null)}
             >
               ＋
             </button>
           </div>
-          <ul>
+          <ul className="space-y-0.5">
             <li>
               <button
-                className={`w-full rounded-lg px-2 py-1 text-left text-sm transition-colors ${
-                  folderId === 'all' ? 'bg-brand/10 text-slate-900' : 'text-slate-600 hover:bg-slate-100'
+                className={`flex w-full items-center gap-1 rounded-lg py-1.5 pr-2 pl-5 text-left text-sm transition-colors ${
+                  folderId === 'all'
+                    ? 'bg-brand-soft font-medium text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-100'
                 }`}
                 onClick={() => setFolderId('all')}
               >
-                全部笔记
-                <span className="ml-1 text-[10px] text-slate-300">{notes.length || ''}</span>
+                <span className="min-w-0 flex-1 truncate">全部笔记</span>
+                {notes.length > 0 && (
+                  <span className="shrink-0 text-[10px] text-slate-400 tabular-nums">
+                    {notes.length}
+                  </span>
+                )}
               </button>
             </li>
             <li>
               <button
-                className={`w-full rounded-lg px-2 py-1 text-left text-sm transition-colors ${
-                  folderId === 'none' ? 'bg-brand/10 text-slate-900' : 'text-slate-600 hover:bg-slate-100'
+                className={`flex w-full items-center rounded-lg py-1.5 pr-2 pl-5 text-left text-sm transition-colors ${
+                  folderId === 'none'
+                    ? 'bg-brand-soft font-medium text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-100'
                 }`}
                 onClick={() => setFolderId('none')}
               >
@@ -336,9 +361,7 @@ export default function NotebookPage(): React.JSX.Element {
                 draft={draft}
                 onToggle={toggleExpand}
                 onSelect={setFolderId}
-                onRename={startRename}
-                onDelete={deleteFolder}
-                onAddChild={startCreate}
+                onMenu={folderMenu}
                 onDraftChange={(v) => setDraft((d) => (d ? { ...d, value: v } : d))}
                 onDraftCommit={() => void commitDraft()}
                 onDraftCancel={() => setDraft(null)}
@@ -354,12 +377,19 @@ export default function NotebookPage(): React.JSX.Element {
               />
             )}
           </ul>
+          {tree.length === 0 && !draft && (
+            <p className="px-2 pt-2 text-[11px] leading-5 text-slate-400">
+              还没有分类。右键分类项可以改名、删除或加子分类。
+            </p>
+          )}
         </div>
 
         {tags.length > 0 && (
           <div>
-            <div className="mb-1 px-1 text-xs font-semibold text-slate-400">标签</div>
-            <div className="flex flex-wrap gap-1 px-1">
+            <div className="mb-1.5 px-2 text-[11px] font-medium tracking-wide text-slate-400">
+              标签
+            </div>
+            <div className="flex flex-wrap gap-1.5 px-2">
               {tags.map((t) => (
                 <button
                   key={t.tag}
@@ -371,7 +401,7 @@ export default function NotebookPage(): React.JSX.Element {
                   }`}
                 >
                   {t.tag}
-                  <span className="ml-1 opacity-60">{t.count}</span>
+                  <span className="ml-1 opacity-60 tabular-nums">{t.count}</span>
                 </button>
               ))}
             </div>
@@ -380,73 +410,80 @@ export default function NotebookPage(): React.JSX.Element {
       </aside>
 
       {/* 中栏：笔记列表 */}
-      <section className="flex w-72 shrink-0 flex-col border-r border-slate-200">
-        <div className="flex shrink-0 items-center gap-2 px-3 pt-10 pb-3">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索标题、正文或标签"
-            className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:border-brand"
-          />
-          <button
-            className="shrink-0 rounded-lg bg-brand px-2.5 py-1.5 text-xs text-white hover:opacity-90"
-            onClick={() => void createNote()}
-          >
-            新建
-          </button>
+      <section className="flex w-80 shrink-0 flex-col border-r border-line">
+        <div className="shrink-0 px-4 pt-10 pb-3">
+          <div className="flex items-center gap-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索标题、正文或标签"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs outline-none transition-colors focus:border-brand"
+            />
+            <button
+              className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+              onClick={() => void createNote()}
+            >
+              新建
+            </button>
+          </div>
+          <div className="mt-2.5 flex items-center gap-1.5 px-0.5 text-[11px] text-slate-400">
+            <span className="truncate">{filterLabel}</span>
+            {tag && (
+              <button
+                className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-slate-500 hover:text-slate-700"
+                onClick={() => setTag(null)}
+                title="清除标签筛选"
+              >
+                {tag} ✕
+              </button>
+            )}
+            <span className="ml-auto shrink-0 tabular-nums">{visible.length}</span>
+          </div>
         </div>
-        <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+
+        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
           {visible.length === 0 && (
-            <li className="px-2 py-8 text-center text-xs text-slate-400">
-              {notes.length ? '没有符合条件的笔记' : '还没有笔记，点「新建」写第一篇'}
+            <li className="px-2 py-10 text-center text-xs leading-6 whitespace-pre-line text-slate-400">
+              {notes.length ? '没有符合条件的笔记' : '还没有笔记\n点「新建」写第一篇'}
             </li>
           )}
           {visible.map((n) => (
             <li key={n.id}>
               <div
-                className={`group cursor-pointer rounded-lg px-2.5 py-2 transition-colors ${
-                  active?.id === n.id ? 'bg-brand/10' : 'hover:bg-slate-100'
-                }`}
                 onClick={() => void open(n.id)}
+                onContextMenu={(e) => noteMenu(e, n)}
+                className={`cursor-default rounded-xl px-3 py-2.5 transition-colors ${
+                  active?.id === n.id ? 'bg-brand-soft' : 'hover:bg-slate-100'
+                }`}
               >
-                <div className="flex items-center gap-1">
+                <div className="flex items-baseline gap-1.5">
+                  {n.pinned && <span className="shrink-0 text-[10px] text-brand">●</span>}
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700">
-                    {n.pinned && <span className="mr-1 text-brand">·</span>}
                     {n.title}
-                  </span>
-                  <span className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button
-                      className="px-1 text-[10px] text-slate-400 hover:text-slate-700"
-                      title={n.pinned ? '取消置顶' : '置顶'}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void togglePin(n)
-                      }}
-                    >
-                      顶
-                    </button>
-                    <button
-                      className="px-1 text-[10px] text-slate-400 hover:text-red-500"
-                      title="删除"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void removeNote(n.id)
-                      }}
-                    >
-                      删
-                    </button>
                   </span>
                 </div>
                 {n.excerpt && (
-                  <div className="mt-0.5 truncate text-xs text-slate-400">{n.excerpt}</div>
+                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">
+                    {n.excerpt}
+                  </div>
                 )}
-                <div className="mt-1 flex items-center gap-1.5 text-[10px] text-slate-300">
-                  <span>{n.updatedAt.slice(5, 16).replace('T', ' ')}</span>
-                  {n.tags.slice(0, 3).map((t) => (
-                    <span key={t} className="rounded bg-slate-100 px-1 text-slate-400">
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <span className="shrink-0 text-[10px] text-slate-400 tabular-nums">
+                    {n.updatedAt.slice(5, 16).replace('T', ' ')}
+                  </span>
+                  {n.tags.slice(0, 2).map((t) => (
+                    <span
+                      key={t}
+                      className="truncate rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500"
+                    >
                       {t}
                     </span>
                   ))}
+                  {n.tags.length > 2 && (
+                    <span className="shrink-0 text-[10px] text-slate-300">
+                      +{n.tags.length - 2}
+                    </span>
+                  )}
                 </div>
               </div>
             </li>
@@ -463,14 +500,19 @@ export default function NotebookPage(): React.JSX.Element {
             folderLabel={folderName(active.folderId)}
             folders={folders}
             onChange={onEdit}
-            onMove={moveTo}
+            onMove={(target) => void moveNote(active.id, target === 'none' ? null : target)}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-slate-400">
-            选一篇笔记，或者新建一篇
+          <div className="flex h-full flex-col items-center justify-center gap-1 text-sm text-slate-400">
+            <span>选一篇笔记，或者新建一篇</span>
+            <span className="text-xs text-slate-300">正文支持 Markdown，选中文字会浮出工具栏</span>
           </div>
         )}
       </section>
+
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} entries={menu.entries} onClose={() => setMenu(null)} />
+      )}
     </div>
   )
 }

@@ -319,7 +319,8 @@ export default function NoteEditor({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-slate-100 px-6 pt-10 pb-3">
+      {/* 标题、标签、正文共用一条列宽：满宽的行在大屏上太长，读着费劲 */}
+      <header className="mx-auto w-full max-w-3xl shrink-0 px-8 pt-10 pb-3">
         <input
           value={note.title}
           onChange={(e) => onChange({ title: e.target.value })}
@@ -368,10 +369,18 @@ export default function NoteEditor({
         </div>
       </header>
 
-      <div className="relative min-h-0 flex-1 overflow-y-auto">
+      {/* 正文比标题窄一列，但点空白处也该落到光标上，所以外层整片都可点 */}
+      <div
+        className="relative min-h-0 flex-1 overflow-y-auto"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) editorRef.current?.focus()
+        }}
+      >
         {empty && (
-          <div className="pointer-events-none absolute px-6 py-4 text-sm text-slate-300">
-            写点什么。选中一段会浮出工具栏，行首打 / 插入标题、列表或代码块。
+          <div className="pointer-events-none absolute inset-x-0 px-8 py-4">
+            <div className="mx-auto max-w-3xl text-sm text-slate-300">
+              写点什么。选中一段会浮出工具栏，行首打 / 插入标题、列表或代码块。
+            </div>
           </div>
         )}
         <div
@@ -382,7 +391,7 @@ export default function NoteEditor({
           aria-multiline="true"
           aria-label="笔记正文"
           spellCheck
-          className="note-body min-h-full px-6 py-4 text-sm leading-7 outline-none"
+          className="note-body mx-auto min-h-full max-w-3xl px-8 py-4 text-sm leading-7 outline-none"
           onInput={() => {
             pushChange()
             commitHistory(history.current, editorRef.current)

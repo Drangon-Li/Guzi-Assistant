@@ -85,7 +85,7 @@ export default function HabitPage(): React.JSX.Element {
   const dueToday = habits.filter((h) => h.dueToday && !h.skippedToday).length
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <div className="mx-auto max-w-5xl px-8 py-8">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">打卡</h1>
