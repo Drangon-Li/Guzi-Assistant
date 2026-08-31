@@ -230,6 +230,21 @@ check('带上插件名字供界面显示', contentSinksOf(SINKS, ['sink'])[0].pl
 check('没声明接收器的插件不出现', contentSinksOf(SINKS, ['plain']).length === 0)
 check('顺序跟注册表一致', contentSinksOf(SINKS, ['sink', 'plain']).length === 1)
 
+// 声明了要给助手看内容，就必须真的有那个函数——否则用户以为谷子能读到，其实一直是空的
+for (const p of PLUGINS) {
+  if (!('assistantContext' in p.contributes)) continue
+  const src = readFileSync(join(root, 'src/main/plugins', p.id, 'index.ts'), 'utf-8')
+  check(
+    `${p.id}: 声明的助手上下文有实现`,
+    /assistantContext\s*:/.test(src),
+    `main/plugins/${p.id}/index.ts 里没有 assistantContext`
+  )
+  check(
+    `${p.id}: 助手上下文写明了给的是什么`,
+    (p.contributes.assistantContext?.summary ?? '').length > 5
+  )
+}
+
 for (const p of PLUGINS) {
   const sinks = 'contentSinks' in p.contributes ? p.contributes.contentSinks : []
   if (!sinks.length) continue

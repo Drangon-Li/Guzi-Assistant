@@ -6,12 +6,16 @@ import { app } from 'electron'
 import type Database from 'better-sqlite3'
 import { getDb } from '../../db/connection.ts'
 import { localNowSec } from '@shared/parsing'
+import { readPluginSetting, writePluginSetting } from '../../db/plugins.ts'
 import {
   descendantIds,
   excerptOf,
+  normalizePrefs,
   normalizeTags,
   titleFromContent,
+  visibleToAssistant,
   type NoteFolder,
+  type NotebookPrefs,
   type NoteRecord,
   type NoteSummary
 } from '@shared/notebook'
@@ -32,6 +36,16 @@ const ASSET_TYPES: Record<string, string> = {
 const ASSET_MAX_BYTES = 10 * 1024 * 1024
 /** 只认自己写出去的文件名，挡住 ../ 这类路径穿越。 */
 const ASSET_ID_RE = /^[a-f0-9]{64}\.(?:png|jpg|webp|gif)$/
+
+function readPrefs(): NotebookPrefs {
+  const raw = readPluginSetting('notebook', 'prefs')
+  if (!raw) return normalizePrefs(null)
+  try {
+    return normalizePrefs(JSON.parse(raw))
+  } catch {
+    return normalizePrefs(null)
+  }
+}
 
 function assetDir(): string {
   const dir = join(app.getPath('userData'), ASSET_DIR)
@@ -279,6 +293,14 @@ const notebook: PluginMainModule = {
 
     folders: (): NoteFolder[] => listFolders(),
 
+    prefs: (): NotebookPrefs => readPrefs(),
+
+    'set-prefs': (patch: Partial<NotebookPrefs>): NotebookPrefs => {
+      const next = normalizePrefs({ ...readPrefs(), ...(patch ?? {}) })
+      writePluginSetting('notebook', 'prefs', JSON.stringify(next))
+      return next
+    },
+
     'folder-create': (name: string, parentId?: string | null) => {
       const clean = String(name ?? '').trim().slice(0, 60) || '新分类'
       const id = randomUUID()
@@ -350,6 +372,23 @@ const notebook: PluginMainModule = {
       })
       return { ok: true, message: `已存到记事本的「${REPORT_FOLDER}」` }
     }
+  },
+
+  /**
+   * 给助手看的笔记清单：只有标题和一句摘要，正文不给——一整篇塞进提示词又长又没必要。
+   * 设置里排除掉的分类和笔记在这里就已经滤掉了，宿主拿到的就是能看的那些。
+   */
+  assistantContext: () => {
+    const prefs = readPrefs()
+    const all = (
+      getDb()
+        .prepare('SELECT * FROM p_notebook_note ORDER BY updated_at DESC LIMIT 200')
+        .all() as NoteRow[]
+    ).map(rowToSummary)
+    const visible = visibleToAssistant(all, listFolders(), prefs).slice(0, 40)
+    if (!visible.length) return ''
+    const lines = visible.map((n) => `- ${n.title}${n.excerpt ? `：${n.excerpt}` : ''}`)
+    return `记事本里的笔记（共 ${visible.length} 篇，按最近改动排）：\n${lines.join('\n')}`
   },
 
   assistantActions: {

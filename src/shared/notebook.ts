@@ -44,6 +44,63 @@ export interface NoteFilter {
   query?: string
 }
 
+/** 记事本自己的偏好。插件的配置跟着插件走，不进核心设置页。 */
+export interface NotebookPrefs {
+  /** 列表上显示哪个时间 */
+  timeField: 'created' | 'updated'
+  /** 不让助手看到的分类；子分类跟着父分类一起隐藏 */
+  hiddenFolders: string[]
+  /** 单独挑出来不给助手看的笔记 */
+  hiddenNotes: string[]
+}
+
+/** 「未分类」不是真的分类，但也要能整批排除，用这个占位 id 混在 hiddenFolders 里。 */
+export const UNFILED = '__none__'
+
+export const DEFAULT_NOTEBOOK_PREFS: NotebookPrefs = {
+  timeField: 'updated',
+  hiddenFolders: [],
+  hiddenNotes: []
+}
+
+const idList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x).slice(0, 500) : []
+
+export function normalizePrefs(raw: unknown): NotebookPrefs {
+  const o = (raw ?? {}) as Partial<NotebookPrefs>
+  return {
+    timeField: o.timeField === 'created' ? 'created' : 'updated',
+    hiddenFolders: idList(o.hiddenFolders),
+    hiddenNotes: idList(o.hiddenNotes)
+  }
+}
+
+/**
+ * 助手能看到的笔记。分类被排除的整批不给，单独排除的也不给——
+ * 子分类跟着父分类走，否则「把这个分类藏起来」会在下一层漏出去。
+ */
+export function visibleToAssistant<T extends NoteSummary>(
+  notes: readonly T[],
+  folders: readonly NoteFolder[],
+  prefs: NotebookPrefs
+): T[] {
+  const hidden = new Set<string>()
+  for (const root of prefs.hiddenFolders) {
+    if (root === UNFILED) continue
+    for (const id of descendantIds(folders, root)) hidden.add(id)
+  }
+  const hideUnfiled = prefs.hiddenFolders.includes(UNFILED)
+  const skipNote = new Set(prefs.hiddenNotes)
+  return notes.filter((n) => {
+    if (skipNote.has(n.id)) return false
+    return n.folderId ? !hidden.has(n.folderId) : !hideUnfiled
+  })
+}
+
+/** 列表上显示的时间，按偏好取创建还是最后修改。 */
+export const noteTimeOf = (n: NoteSummary, prefs: NotebookPrefs): string =>
+  prefs.timeField === 'created' ? n.createdAt : n.updatedAt
+
 const FENCE_RE = /```[\s\S]*?```/g
 const MARK_RE: [RegExp, string][] = [
   // 颜色和高亮在正文里是内嵌标签，预览只要里面的字

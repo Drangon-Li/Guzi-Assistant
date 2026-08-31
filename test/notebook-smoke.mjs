@@ -10,9 +10,12 @@ import {
   descendantIds,
   excerptOf,
   filterNotes,
+  normalizePrefs,
   normalizeTags,
+  noteTimeOf,
   sortNotes,
-  titleFromContent
+  titleFromContent,
+  visibleToAssistant
 } from '../src/shared/notebook.ts'
 import { colorToken, renderNoteHTML } from '../src/renderer/src/plugins/notebook/markdown.ts'
 
@@ -159,6 +162,38 @@ check('script 标签保持转义', !html('<script>alert(1)</script>').includes('
 check('img onerror 保持转义', !html('<img src=x onerror=alert(1)>').includes('<img'))
 check('带别的属性的 mark 不还原', !html('<mark data-color="red" onclick="x()">y</mark>').includes('<mark class'))
 check('高亮里的加粗照常解析', html('<mark data-color="blue">**粗**</mark>').includes('<strong>粗</strong>'))
+
+// ---------- 偏好与「谷子能看到哪些」 ----------
+// 这组决定哪些内容会进对话提示词，漏一条就是把用户不想给的东西给出去了。
+check('默认显示最后修改', normalizePrefs(null).timeField === 'updated')
+check('认得创建时间', normalizePrefs({ timeField: 'created' }).timeField === 'created')
+check('非法口径落回默认', normalizePrefs({ timeField: '乱填' }).timeField === 'updated')
+check('排除列表只收字符串', eq(normalizePrefs({ hiddenNotes: ['a', 3, null] }).hiddenNotes, ['a']))
+check('缺字段补空数组', eq(normalizePrefs({}).hiddenFolders, []))
+
+const VIS_FOLDERS = [folder('f1', '公开'), folder('f2', '私密'), folder('f3', '私密子', 'f2')]
+const VIS_NOTES = [
+  note('open', { folderId: 'f1' }),
+  note('secret', { folderId: 'f2' }),
+  note('deep', { folderId: 'f3' }),
+  note('loose', { folderId: null }),
+  note('single', { folderId: 'f1' })
+]
+const visIds = (prefs) => visibleToAssistant(VIS_NOTES, VIS_FOLDERS, normalizePrefs(prefs)).map((n) => n.id)
+
+check('默认全部可见', eq(visIds({}), ['open', 'secret', 'deep', 'loose', 'single']))
+check('排除分类后整批不给', !visIds({ hiddenFolders: ['f2'] }).includes('secret'))
+check('子分类跟着父分类一起藏', !visIds({ hiddenFolders: ['f2'] }).includes('deep'))
+check('没被排除的分类不受影响', visIds({ hiddenFolders: ['f2'] }).includes('open'))
+check('未分类可单独排除', !visIds({ hiddenFolders: ['__none__'] }).includes('loose'))
+check('排除未分类不影响有分类的', visIds({ hiddenFolders: ['__none__'] }).includes('open'))
+check('单篇排除生效', !visIds({ hiddenNotes: ['single'] }).includes('single'))
+check('单篇排除不牵连同分类的', visIds({ hiddenNotes: ['single'] }).includes('open'))
+check('分类与单篇同时排除', eq(visIds({ hiddenFolders: ['f2', '__none__'], hiddenNotes: ['single'] }), ['open']))
+check('全排除得到空', visIds({ hiddenFolders: ['f1', 'f2', '__none__'] }).length === 0)
+
+check('时间口径取创建', noteTimeOf(note('x', { createdAt: 'C', updatedAt: 'U' }), normalizePrefs({ timeField: 'created' })) === 'C')
+check('时间口径取修改', noteTimeOf(note('x', { createdAt: 'C', updatedAt: 'U' }), normalizePrefs({})) === 'U')
 
 // ---------- 图片引用 ----------
 // 正文只存文件名，图片本体在 userData 下。这条正则同时是白名单：

@@ -8,6 +8,7 @@ import { lockedCountByPlugin } from '@shared/achievement'
 import { findPlugin } from '@shared/plugin-registry'
 import { api } from '../api'
 import { PLUGIN_UI } from '../plugins'
+import { Toggle } from '../components/ui'
 
 const CATEGORY_LABELS: Record<string, string> = {
   planning: '规划',
@@ -102,6 +103,7 @@ export default function Market(): React.JSX.Element {
           const achievements = lockedCountByPlugin(id)
           const actions = s.manifest.contributes.assistantActions ?? []
           const sinks = s.manifest.contributes.contentSinks ?? []
+          const context = s.manifest.contributes.assistantContext
           return (
             <div
               key={id}
@@ -175,6 +177,14 @@ export default function Market(): React.JSX.Element {
                           </ul>
                         </div>
                       )}
+                      {context && (
+                        <div className={actions.length || sinks.length ? 'mt-2' : ''}>
+                          <div className="text-[11px] font-medium text-slate-500">
+                            会让谷子看到
+                          </div>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">· {context.summary}</p>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -217,23 +227,13 @@ export default function Market(): React.JSX.Element {
                 </div>
 
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
-                  {s.enabled ? (
-                    <button
-                      disabled={busy === id}
-                      onClick={() => void disable(s)}
-                      className="rounded-lg border border-slate-200 px-4 py-1.5 text-sm text-slate-500 hover:border-slate-300 disabled:opacity-50"
-                    >
-                      停用
-                    </button>
-                  ) : (
-                    <button
-                      disabled={busy === id || !s.available}
-                      onClick={() => void enable(s)}
-                      className="rounded-lg bg-brand px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40"
-                    >
-                      启用
-                    </button>
-                  )}
+                  {/* 与设置页同一个开关：启停是个二元状态，用开关比一颗会变字的按钮更直观 */}
+                  <Toggle
+                    checked={s.enabled}
+                    disabled={busy === id || (!s.enabled && !s.available)}
+                    ariaLabel={`${s.enabled ? '停用' : '启用'}${s.manifest.name}`}
+                    onChange={(next) => (next ? enable(s) : disable(s))}
+                  />
                   {!s.enabled && (
                     <button
                       disabled={busy === id}

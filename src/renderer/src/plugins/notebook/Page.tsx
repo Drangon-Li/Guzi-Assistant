@@ -5,16 +5,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildFolderTree,
   collectTags,
+  DEFAULT_NOTEBOOK_PREFS,
   filterNotes,
+  noteTimeOf,
   sortNotes,
   type FolderNode,
   type NoteFolder,
+  type NotebookPrefs,
   type NoteRecord,
   type NoteSummary
 } from '@shared/notebook'
 import { api } from '../../api'
 import ContextMenu, { type MenuEntry } from '../../components/ContextMenu'
 import NoteEditor from './NoteEditor'
+import NotebookSettings from './Settings'
 
 const call = <T,>(action: string, ...args: unknown[]): Promise<T> =>
   api.plugin<T>('notebook', action, ...args)
@@ -164,12 +168,19 @@ export default function NotebookPage(): React.JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [draft, setDraft] = useState<Draft | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null)
+  const [prefs, setPrefs] = useState<NotebookPrefs>(DEFAULT_NOTEBOOK_PREFS)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const saveTimer = useRef<number | undefined>(undefined)
 
   const reload = useCallback(async (): Promise<void> => {
-    const [n, f] = await Promise.all([call<NoteSummary[]>('list'), call<NoteFolder[]>('folders')])
+    const [n, f, p] = await Promise.all([
+      call<NoteSummary[]>('list'),
+      call<NoteFolder[]>('folders'),
+      call<NotebookPrefs>('prefs')
+    ])
     setNotes(n)
     setFolders(f)
+    setPrefs(p)
   }, [])
 
   useEffect(() => {
@@ -428,6 +439,14 @@ export default function NotebookPage(): React.JSX.Element {
             >
               新建
             </button>
+            <button
+              className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              title="记事本设置"
+              aria-label="记事本设置"
+              onClick={() => setSettingsOpen(true)}
+            >
+              设置
+            </button>
           </div>
           <div className="mt-2.5 flex items-center gap-1.5 px-0.5 text-[11px] text-slate-400">
             <span className="truncate">{filterLabel}</span>
@@ -471,8 +490,11 @@ export default function NotebookPage(): React.JSX.Element {
                   </div>
                 )}
                 <div className="mt-1.5 flex items-center gap-1.5">
-                  <span className="shrink-0 text-[10px] text-slate-400 tabular-nums">
-                    {n.updatedAt.slice(5, 16).replace('T', ' ')}
+                  <span
+                    className="shrink-0 text-[10px] text-slate-400 tabular-nums"
+                    title={prefs.timeField === 'created' ? '创建时间' : '最后修改'}
+                  >
+                    {noteTimeOf(n, prefs).slice(5, 16).replace('T', ' ')}
                   </span>
                   {n.tags.slice(0, 2).map((t) => (
                     <span
@@ -515,6 +537,15 @@ export default function NotebookPage(): React.JSX.Element {
 
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} entries={menu.entries} onClose={() => setMenu(null)} />
+      )}
+
+      {settingsOpen && (
+        <NotebookSettings
+          onClose={() => {
+            setSettingsOpen(false)
+            void reload() // 时间口径可能变了，列表要跟着换
+          }}
+        />
       )}
     </div>
   )

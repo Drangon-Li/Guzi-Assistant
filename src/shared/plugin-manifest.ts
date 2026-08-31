@@ -74,6 +74,8 @@ export interface PluginContributes {
   listens?: readonly string[]
   /** 能收下核心交来的内容（日报「保存到…」按已启用插件列出这些） */
   contentSinks?: readonly ContentSinkSpec[]
+  /** 向助手的对话提示词贡献只读上下文；summary 写清楚给的是什么，Market 里要显示 */
+  assistantContext?: { summary: string }
 }
 
 export interface PluginManifest {

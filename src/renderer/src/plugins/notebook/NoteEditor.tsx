@@ -352,14 +352,15 @@ export default function NoteEditor({
     [...(list ?? [])].filter((f) => f.type.startsWith('image/'))
 
   /**
-   * 图片拖进正文就插到落点，不走「拖文件进来解析成日程」那条全局管线——
-   * 所以命中图片时要拦住冒泡。拖别的东西（比如 PDF）照旧交给外层。
+   * 图片拖进正文就插到落点，不走「拖文件进来解析成日程」那条全局管线。
+   * 只 preventDefault、不拦冒泡：外层要靠这次事件把「松开以提交文件」的蒙版收掉，
+   * 它看到 defaultPrevented 就知道里层已经接手，不会重复提交。
+   * 拖别的东西（比如 PDF）照旧交给外层。
    */
   const onDrop = (e: React.DragEvent<HTMLDivElement>): void => {
     const files = imageFiles(e.dataTransfer?.files)
     if (!files.length) return
     e.preventDefault()
-    e.stopPropagation()
     const at = document.caretRangeFromPoint?.(e.clientX, e.clientY) ?? null
     void insertImages(files, at)
   }
@@ -367,7 +368,6 @@ export default function NoteEditor({
   const onDragOver = (e: React.DragEvent<HTMLDivElement>): void => {
     if (![...(e.dataTransfer?.items ?? [])].some((i) => i.kind === 'file')) return
     e.preventDefault()
-    e.stopPropagation()
   }
 
   /** 图片存下来插进正文；其余只收纯文本——外部 HTML 进不来，白名单模型才成立。 */

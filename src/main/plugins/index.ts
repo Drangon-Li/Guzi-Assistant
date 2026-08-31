@@ -133,6 +133,26 @@ export function assistantActions(): string {
 }
 
 /**
+ * 已启用插件贡献的只读上下文，拼进对话提示词。
+ * 用户排除掉的内容由插件自己过滤——这里不知道也不该知道各插件的隐私口径。
+ * 单个插件出错不影响其余的：拿不到它那段，总比整轮对话失去上下文好。
+ */
+export function assistantContext(): string {
+  const parts: string[] = []
+  for (const id of readEnabledPlugins()) {
+    const fn = PLUGIN_MODULES[id]?.assistantContext
+    if (!fn) continue
+    try {
+      const text = fn().trim()
+      if (text) parts.push(text)
+    } catch (e) {
+      console.error(`[plugins] ${id} 提供助手上下文失败：`, e)
+    }
+  }
+  return parts.join('\n\n')
+}
+
+/**
  * 执行一次助手动作。三道门：插件已启用、manifest 里声明过、实现里确实有这个函数。
  * 模型可能编出不存在的插件或动作，任何一道不过就当没这回事，不让它影响这一轮对话。
  */

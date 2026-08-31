@@ -34,6 +34,12 @@ export interface PluginMainModule {
   assistantActions?: Record<string, (args: Record<string, unknown>) => AssistantActionResult>
 
   /**
+   * 给助手的对话提示词贡献一段只读上下文（如笔记标题）。返回空串表示这次没有可说的。
+   * 用户在插件里排除掉的内容不该出现在这里——过滤在插件自己这侧做，宿主不碰隐私口径。
+   */
+  assistantContext?: () => string
+
+  /**
    * 监听别的插件发出的事件，key 是完整事件名 <plugin>:<event>。
    * 发出方不知道谁在听：对方没装时这些回调根本不会被找到，不需要任何 if 判断。
    */

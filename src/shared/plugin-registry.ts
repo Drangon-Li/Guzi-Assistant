@@ -149,6 +149,9 @@ export const PLUGINS = [
     contributes: {
       nav: { label: '记事本', order: 140 },
       contentSinks: [{ action: 'save-content', label: '保存到记事本' }],
+      assistantContext: {
+        summary: '让谷子知道你记过哪些笔记（只给标题和摘要，可在记事本的设置里逐个排除）'
+      },
       assistantActions: [
         {
           name: 'create-note',

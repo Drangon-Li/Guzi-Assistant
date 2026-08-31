@@ -25,7 +25,7 @@ import {
 } from '@shared/parsing'
 import type { PluginActionOutcome } from '@shared/parsing'
 import type { TaskStatus } from '@shared/types'
-import { assistantActions, runAssistantAction } from './plugins/index.ts'
+import { assistantActions, assistantContext, runAssistantAction } from './plugins/index.ts'
 
 function excerptOf(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 80)
@@ -154,7 +154,8 @@ export async function assistantChat(payload: {
         JSON.stringify(tasks),
         payload.candidates?.items ?? null,
         personalMemoryText(),
-        assistantActions() // 只列已启用插件的动作；一个都没启用时整段省略
+        assistantActions(), // 只列已启用插件的动作；一个都没启用时整段省略
+        assistantContext() // 已启用插件的只读上下文（如笔记标题），用户排除的不在其中
       ),
       input,
       'chat' // 网关据此保留自然采样；此前默认走 parse_text 的 temperature 0，对话会发僵
