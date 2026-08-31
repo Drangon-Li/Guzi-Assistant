@@ -3,6 +3,7 @@
 // 时刻一律用「距零点的分钟数」(0..1440) 存，不用 ISO 字符串——时间块是「每天几点到几点」
 // 这种与具体日期无关的概念，模板要能原样套到任何一天，用绝对时刻反而要反复拆装。
 // 日期单独一列，口径跟随核心的 dayKey（自然日零点），不另立业务日。
+import { ALL_DAY_TYPES, DAY_TYPE_LABELS, dayTypeOf, type DayType } from './holidays.ts'
 
 export interface TimeBlock {
   id: string
@@ -38,6 +39,13 @@ export interface TimeTemplate {
   name: string
   /** 0=周日 … 6=周六；命中的星期几进入这一天会提示套用 */
   weekdays: number[]
+  /**
+   * 还要求这天是什么性质的日子。与 weekdays 取交集：
+   * 「周一至周五 + 仅工作日」在调休补班的周六不触发，在春节当中的周三也不触发。
+   *
+   * 和 weekdays 一样，空数组表示不套用——两个维度语义一致，不必记哪个空了是「不限」。
+   */
+  dayTypes: DayType[]
   createdAt: string
 }
 
@@ -193,14 +201,26 @@ export function applyTemplate(
   }))
 }
 
-/** 这一天该自动提示套用哪个模板；命中多个取最早建的那个。 */
+/**
+ * 一个模板一年里能命中多少种「星期 × 日子性质」的组合。越小越具体。
+ * 用它来决定命中多个模板时听谁的：「周一专用」比「所有工作日」更具体，该赢。
+ */
+function specificity(t: TimeTemplate): number {
+  return t.weekdays.length * t.dayTypes.length
+}
+
+/**
+ * 这一天该自动提示套用哪个模板。
+ * 星期与日子性质都要命中；同时命中多个时取更具体的，一样具体则取最早建的。
+ */
 export function templateForDate(templates: readonly TimeTemplate[], date: string): TimeTemplate | null {
   const d = new Date(`${date}T12:00:00`)
   if (Number.isNaN(d.getTime())) return null
   const weekday = d.getDay()
+  const dayType = dayTypeOf(date)
   const hit = templates
-    .filter((t) => t.weekdays.includes(weekday))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .filter((t) => t.weekdays.includes(weekday) && t.dayTypes.includes(dayType))
+    .sort((a, b) => specificity(a) - specificity(b) || a.createdAt.localeCompare(b.createdAt))
   return hit[0] ?? null
 }
 
@@ -316,4 +336,18 @@ export function weekdaysLabel(weekdays: readonly number[]): string {
   const isRun = days.every((d, i) => i === 0 || d === days[i - 1] + 1)
   if (isRun && days.length > 2) return `周${WEEKDAY_LABELS[days[0]]}至周${WEEKDAY_LABELS[days[days.length - 1]]}`
   return days.map((d) => `周${WEEKDAY_LABELS[d]}`).join('、')
+}
+
+/**
+ * 两个维度合成一句人话：「周一至周五 · 仅工作日」。
+ * 星期全选时不必再说「每天」，直接说限定条件——「工作日」比「每天 · 仅工作日」好读。
+ */
+export function scopeLabel(weekdays: readonly number[], dayTypes: readonly DayType[]): string {
+  const types = ALL_DAY_TYPES.filter((t) => dayTypes.includes(t))
+  if (!weekdays.length || !types.length) return '不自动套用'
+
+  const days = weekdaysLabel(weekdays)
+  if (types.length === ALL_DAY_TYPES.length) return days
+  const kinds = types.map((t) => DAY_TYPE_LABELS[t]).join('、')
+  return days === '每天' ? kinds : `${days} · 仅${kinds}`
 }

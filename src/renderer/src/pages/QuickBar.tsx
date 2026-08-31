@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CandidateContext, ParsedItem } from '@shared/parsing'
 import type { TaskStatus } from '@shared/types'
 import { api } from '../api'
 import { fmtTime } from '../labels'
+import { autoGrow, insertNewline } from '../textarea'
 import Markdown from '../components/Markdown'
 import brandMark from '../assets/agent-avatar.png'
 
@@ -41,7 +42,7 @@ export default function QuickBar(): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   // 每次唤起 +1：重放内容的入场动画（配合主进程的窗口透明度渐变）
   const [showNonce, setShowNonce] = useState(0)
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const boxRef = useRef<HTMLDivElement | null>(null)
   const idRef = useRef(0)
@@ -88,6 +89,10 @@ export default function QuickBar(): React.JSX.Element {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+
+  // 输入框贴着内容长高。用 useLayoutEffect：在浏览器绘制前改完高度，
+  // 否则会先闪一帧旧高度，上面的 ResizeObserver 也会多报一次窗口尺寸
+  useLayoutEffect(() => autoGrow(inputRef.current, 120), [text])
 
   // 新消息滚到底（唤起重放动画会重挂列表节点，也要补一次）
   useEffect(() => {
@@ -171,7 +176,7 @@ export default function QuickBar(): React.JSX.Element {
     )
   }
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.nativeEvent.isComposing) return // 中文输入法上屏的 Enter 不当提交
     if (e.key === 'Escape') void api.quickbarHide()
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -180,8 +185,15 @@ export default function QuickBar(): React.JSX.Element {
       return
     }
     if (e.key !== 'Enter') return
+    // ⌘⏎ 换行、⏎ 发送；⇧⏎ 是浏览器自带的换行，放行即可。
+    // 记日程与问答同走助手（明确的添加请求模型会当轮直接加入），不单设提交快捷键
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault()
+      insertNewline(e.currentTarget, text, setText)
+      return
+    }
+    if (e.shiftKey) return
     e.preventDefault()
-    // 记日程与问答同走助手（明确的添加请求模型会当轮直接加入），不再单设 ⌘Enter 通道
     void ask()
   }
 
@@ -201,7 +213,7 @@ export default function QuickBar(): React.JSX.Element {
               m.role === 'user' ? (
                 <div
                   key={m.id}
-                  className="max-w-[85%] select-text self-end rounded-2xl rounded-br-md bg-brand px-3 py-1.5 text-sm leading-6 text-white"
+                  className="max-w-[85%] select-text self-end whitespace-pre-wrap rounded-2xl rounded-br-md bg-brand px-3 py-1.5 text-sm leading-6 text-white"
                 >
                   {m.content}
                 </div>
@@ -281,10 +293,14 @@ export default function QuickBar(): React.JSX.Element {
 
         <div className="flex items-center gap-3 px-4 py-3.5">
           <img src={brandMark} alt="" className="size-7 shrink-0 rounded-lg" draggable={false} />
-          <input
+          {/* textarea 而非 input：⌘⏎ 要能插换行，单行 input 存不下换行符。
+              高度由 autoGrow 按实际内容算（软折行也算），最多 5 行 ≈ 120px，
+              再高就内部滚动；窗口高度由外层 ResizeObserver 跟着调 */}
+          <textarea
             ref={inputRef}
             autoFocus
-            className="min-w-0 flex-1 bg-transparent text-[15px] text-slate-800 outline-none placeholder:text-slate-600"
+            rows={1}
+            className="min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-6 text-slate-800 outline-none placeholder:text-slate-600"
             placeholder={msgs.length ? '继续问…' : '问谷子任何事，或说一件要记的日程…'}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -294,8 +310,8 @@ export default function QuickBar(): React.JSX.Element {
             {busy
               ? '处理中…可直接关闭，完成后桌宠会告诉你'
               : msgs.length
-                ? '⏎ 发送 · ⌘K 清空 · Esc 退出'
-                : '⏎ 问助手或记日程 · Esc 关闭'}
+                ? '⏎ 发送 · ⌘⏎ 换行 · ⌘K 清空 · Esc 退出'
+                : '⏎ 问助手或记日程 · ⌘⏎ 换行 · Esc 关闭'}
           </div>
         </div>
         </div>

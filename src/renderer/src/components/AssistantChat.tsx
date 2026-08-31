@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { TaskRecord } from '@shared/types'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
 import { api } from '../api'
 import { fmtTime, summaryToast, TYPE_LABELS } from '../labels'
+import { autoGrow, insertNewline } from '../textarea'
 import ConfidenceBadge from './ConfidenceBadge'
 import TaskDetailModal from './TaskDetailModal'
 import SourceModal from './SourceModal'
@@ -100,6 +101,9 @@ export default function AssistantChat({
   const [screenSense, setScreenSense] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // 输入框贴着内容长高，最多 5 行（120px 行高 + 16px 上下内边距）
+  useLayoutEffect(() => autoGrow(textareaRef.current, 136), [input])
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const pending = tasks.filter((t) => t.status === 'pending')
@@ -570,13 +574,19 @@ export default function AssistantChat({
           <textarea
             ref={textareaRef}
             value={input}
-            rows={Math.min(5, Math.max(1, input.split('\n').length))}
+            rows={1}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              if (e.nativeEvent.isComposing || e.key !== 'Enter') return
+              // ⌘⏎ 换行、⏎ 发送；⇧⏎ 是浏览器自带的换行，放行即可
+              if (e.metaKey || e.ctrlKey) {
                 e.preventDefault()
-                void send(input)
+                insertNewline(e.currentTarget, input, setInput)
+                return
               }
+              if (e.shiftKey) return
+              e.preventDefault()
+              void send(input)
             }}
             placeholder="粘贴通知提取事项，或问我日程…"
             className="max-h-36 min-w-0 flex-1 resize-none rounded-xl border border-slate-200 px-3.5 py-2 text-sm leading-6 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/5"
