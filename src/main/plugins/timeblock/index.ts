@@ -13,6 +13,7 @@ import {
   type TemplateBlock,
   type TimeTemplate
 } from '@shared/timeblock'
+import { ALL_DAY_TYPES, normalizeDayTypes } from '@shared/holidays'
 import type { AchievementCounter, PluginMainModule } from '../types.ts'
 
 interface BlockRow {
@@ -33,6 +34,7 @@ interface TemplateRow {
   id: string
   name: string
   weekdays: string
+  day_types: string
   created_at: string
 }
 
@@ -61,15 +63,27 @@ function toBlock(r: BlockRow): TimeBlock {
   }
 }
 
-function toTemplate(r: TemplateRow): TimeTemplate {
-  let weekdays: number[] = []
+function normalizeWeekdays(days: readonly number[]): number[] {
+  return [...new Set(days)].filter((d) => Number.isInteger(d) && d >= 0 && d <= 6).sort((a, b) => a - b)
+}
+
+function parseJsonArray(raw: string): unknown[] {
   try {
-    const parsed: unknown = JSON.parse(r.weekdays)
-    if (Array.isArray(parsed)) weekdays = parsed.filter((n): n is number => typeof n === 'number')
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
   } catch {
-    weekdays = []
+    return []
   }
-  return { id: r.id, name: r.name, weekdays, createdAt: r.created_at }
+}
+
+function toTemplate(r: TemplateRow): TimeTemplate {
+  return {
+    id: r.id,
+    name: r.name,
+    weekdays: parseJsonArray(r.weekdays).filter((n): n is number => typeof n === 'number'),
+    dayTypes: normalizeDayTypes(parseJsonArray(r.day_types)),
+    createdAt: r.created_at
+  }
 }
 
 function toTemplateBlock(r: TemplateBlockRow): TemplateBlock {
@@ -151,6 +165,7 @@ const initTables = (db: Database.Database): void => {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       weekdays TEXT NOT NULL DEFAULT '[]',
+      day_types TEXT NOT NULL DEFAULT '["workday","weekend","holiday"]',
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS p_timeblock_template_block (
@@ -169,6 +184,16 @@ const initTables = (db: Database.Database): void => {
   )
   if (!cols.includes('focus_minutes'))
     db.exec('ALTER TABLE p_timeblock_block ADD COLUMN focus_minutes INTEGER NOT NULL DEFAULT 0')
+
+  // 增量迁移：日子性质是后加的维度。旧模板默认三类全选，等于「只看星期」——
+  // 保持它们升级前后的行为完全一致。
+  const tplCols = (
+    db.prepare('PRAGMA table_info(p_timeblock_template)').all() as { name: string }[]
+  ).map((c) => c.name)
+  if (!tplCols.includes('day_types'))
+    db.exec(
+      `ALTER TABLE p_timeblock_template ADD COLUMN day_types TEXT NOT NULL DEFAULT '${JSON.stringify(ALL_DAY_TYPES)}'`
+    )
 }
 
 const timeblock: PluginMainModule = {
@@ -245,13 +270,18 @@ const timeblock: PluginMainModule = {
       return created.length
     },
 
-    'template-save': (name: string, weekdays: number[], blocks: Omit<TemplateBlock, 'id' | 'templateId'>[]) => {
+    'template-save': (
+      name: string,
+      weekdays: number[],
+      dayTypes: string[],
+      blocks: Omit<TemplateBlock, 'id' | 'templateId'>[]
+    ) => {
       const trimmed = name.trim()
       if (!trimmed) return null
       const db = getDb()
       const id = randomUUID()
       const insertTpl = db.prepare(
-        'INSERT INTO p_timeblock_template (id, name, weekdays, created_at) VALUES (?, ?, ?, ?)'
+        'INSERT INTO p_timeblock_template (id, name, weekdays, day_types, created_at) VALUES (?, ?, ?, ?, ?)'
       )
       const insertBlk = db.prepare(
         `INSERT INTO p_timeblock_template_block (id, template_id, start_min, end_min, title, tag)
@@ -259,13 +289,45 @@ const timeblock: PluginMainModule = {
       )
       // 模板和它的块必须一起落库，否则会留下没有块的空模板
       db.transaction(() => {
-        insertTpl.run(id, trimmed, JSON.stringify(weekdays.filter((d) => d >= 0 && d <= 6)), localNowSec())
+        insertTpl.run(
+          id,
+          trimmed,
+          JSON.stringify(normalizeWeekdays(weekdays)),
+          JSON.stringify(normalizeDayTypes(dayTypes)),
+          localNowSec()
+        )
         for (const b of blocks) {
           if (!isValidRange(b.startMin, b.endMin) || !b.title.trim()) continue
           insertBlk.run(randomUUID(), id, b.startMin, b.endMin, b.title.trim(), b.tag)
         }
       })()
       return id
+    },
+
+    /**
+     * 改模板的名字和适用范围。块不在这里改——要换内容就重新「把今天存为模板」，
+     * 省掉一套块编辑 UI，而范围是唯一会反复调的东西。
+     */
+    'template-update': (
+      id: string,
+      patch: { name?: string; weekdays?: number[]; dayTypes?: string[] }
+    ) => {
+      const db = getDb()
+      const row = db.prepare('SELECT * FROM p_timeblock_template WHERE id = ?').get(id) as
+        | TemplateRow
+        | undefined
+      if (!row) return null
+      const cur = toTemplate(row)
+      const name = patch.name?.trim() || cur.name
+      const weekdays = patch.weekdays ? normalizeWeekdays(patch.weekdays) : cur.weekdays
+      const dayTypes = patch.dayTypes ? normalizeDayTypes(patch.dayTypes) : cur.dayTypes
+      db.prepare('UPDATE p_timeblock_template SET name = ?, weekdays = ?, day_types = ? WHERE id = ?').run(
+        name,
+        JSON.stringify(weekdays),
+        JSON.stringify(dayTypes),
+        id
+      )
+      return { ...cur, name, weekdays, dayTypes }
     },
 
     'template-delete': (id: string) => {

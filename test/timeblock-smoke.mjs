@@ -15,8 +15,10 @@ import {
   focusSessions,
   recordSpan,
   viewWindow,
-  weekdaysLabel
+  weekdaysLabel,
+  scopeLabel
 } from '../src/shared/timeblock.ts'
+import { dayTypeOf, hasCalendar, normalizeDayTypes, ALL_DAY_TYPES } from '../src/shared/holidays.ts'
 
 let failed = 0
 function check(name, ok, detail) {
@@ -204,7 +206,13 @@ check('跨天记录截到当天末尾', recordSpan({ startAt: '2026-08-28T23:00:
 check('零长记录返回 null', recordSpan({ startAt: '2026-08-28T09:00:00', endAt: '2026-08-28T09:00:00' }, DAY) === null)
 
 // ---------- 模板 ----------
-const tpl = { id: 't1', name: '工作日', weekdays: [1, 2, 3, 4, 5], createdAt: '2026-01-01T00:00:00' }
+const tpl = {
+  id: 't1',
+  name: '工作日',
+  weekdays: [1, 2, 3, 4, 5],
+  dayTypes: [...ALL_DAY_TYPES],
+  createdAt: '2026-01-01T00:00:00'
+}
 const tplBlocks = [
   { id: 'b2', templateId: 't1', startMin: 780, endMin: 840, title: '午饭', tag: null },
   { id: 'b1', templateId: 't1', startMin: 660, endMin: 780, title: '看论文', tag: '科研' },
@@ -230,6 +238,63 @@ check('全选说「每天」', weekdaysLabel([0, 1, 2, 3, 4, 5, 6]) === '每天'
 check('不连续则列举', weekdaysLabel([1, 3, 5]) === '周一、周三、周五')
 check('两天也列举', weekdaysLabel([1, 2]) === '周一、周二')
 check('空数组说不自动套用', weekdaysLabel([]) === '不自动套用')
+
+// ---------- 日子性质：节假日与调休 ----------
+// 日期依据国办发明电〔2025〕7 号。调休推不出来，只能逐日核对。
+check('普通周五是工作日', dayTypeOf('2026-08-28') === 'workday')
+check('普通周六是周末', dayTypeOf('2026-08-29') === 'weekend')
+check('国庆当天是节假日', dayTypeOf('2026-10-01') === 'holiday')
+check('春节当中的周三是节假日', dayTypeOf('2026-02-18') === 'holiday')
+check('落在周末的假期算节假日、不算普通周末', dayTypeOf('2026-10-03') === 'holiday')
+check('国庆后补班的周六算工作日', dayTypeOf('2026-10-10') === 'workday')
+check('春节前补班的周六算工作日', dayTypeOf('2026-02-14') === 'workday')
+check('元旦后补班的周日算工作日', dayTypeOf('2026-01-04') === 'workday')
+check('未收录的年份退回自然周·周六', dayTypeOf('2030-01-05') === 'weekend')
+check('未收录的年份退回自然周·周一', dayTypeOf('2030-01-07') === 'workday')
+check('2026 已收录', hasCalendar('2026'))
+check('2030 未收录', !hasCalendar('2030'))
+
+check('归一：按固定顺序排列', eq(normalizeDayTypes(['holiday', 'workday']), ['workday', 'holiday']))
+check('归一：丢掉不认识的值', eq(normalizeDayTypes(['workday', '瞎写']), ['workday']))
+check('归一：不是数组时给全选', eq(normalizeDayTypes(undefined), [...ALL_DAY_TYPES]))
+check('归一：空数组保持空（等于不自动套用）', eq(normalizeDayTypes([]), []))
+
+// ---------- 模板范围：星期 × 日子性质 ----------
+const everyDay = [0, 1, 2, 3, 4, 5, 6]
+const workdayTpl = {
+  id: 'w',
+  name: '工作日',
+  weekdays: everyDay,
+  dayTypes: ['workday'],
+  createdAt: '2026-01-01T00:00:00'
+}
+check('工作日模板在普通周五命中', templateForDate([workdayTpl], '2026-08-28')?.id === 'w')
+check('工作日模板在普通周六不命中', templateForDate([workdayTpl], '2026-08-29') === null)
+check('工作日模板在调休补班的周六命中', templateForDate([workdayTpl], '2026-10-10')?.id === 'w')
+check('工作日模板在春节当中的周三不命中', templateForDate([workdayTpl], '2026-02-18') === null)
+
+const holidayTpl = { ...workdayTpl, id: 'h', name: '假期', dayTypes: ['holiday'] }
+check('节假日模板在国庆命中', templateForDate([holidayTpl], '2026-10-01')?.id === 'h')
+check('节假日模板在普通周六不命中', templateForDate([holidayTpl], '2026-08-29') === null)
+check('日子性质一个都不选就不套用', templateForDate([{ ...workdayTpl, dayTypes: [] }], '2026-08-28') === null)
+
+// 2026-08-31 是周一。「只管周一」(1×3=3) 比「所有工作日」(7×1=7) 具体，该它赢
+const mondayTpl = {
+  id: 'm',
+  name: '周一',
+  weekdays: [1],
+  dayTypes: [...ALL_DAY_TYPES],
+  createdAt: '2026-06-01T00:00:00'
+}
+check('更具体的模板优先于更宽的', templateForDate([workdayTpl, mondayTpl], '2026-08-31')?.id === 'm')
+check('一样具体才比创建时间', templateForDate([tpl, { ...tpl, id: 't0', createdAt: '2025-01-01T00:00:00' }], '2026-08-28')?.id === 't0')
+
+check('范围：星期全选时只说限定条件', scopeLabel(everyDay, ['workday']) === '工作日')
+check('范围：三类全选时只说星期', scopeLabel([1, 2, 3, 4, 5], [...ALL_DAY_TYPES]) === '周一至周五')
+check('范围：两个维度都限定就都说', scopeLabel([1, 2, 3, 4, 5], ['workday']) === '周一至周五 · 仅工作日')
+check('范围：多类列举', scopeLabel(everyDay, ['weekend', 'holiday']) === '周末、节假日')
+check('范围：星期为空说不自动套用', scopeLabel([], ['workday']) === '不自动套用')
+check('范围：日子性质为空说不自动套用', scopeLabel([1, 2, 3], []) === '不自动套用')
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

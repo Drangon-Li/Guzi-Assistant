@@ -22,14 +22,21 @@ import {
   minutesToLabel,
   plannedMinutes,
   focusSessions,
+  scopeLabel,
   templateForDate,
   viewWindow,
-  weekdaysLabel,
   type FocusSession,
   type TemplateBlock,
   type TimeBlock,
   type TimeTemplate
 } from '@shared/timeblock'
+import {
+  ALL_DAY_TYPES,
+  DAY_TYPE_LABELS,
+  dayTypeOf,
+  hasCalendar,
+  type DayType
+} from '@shared/holidays'
 import { api } from '../../api'
 import Modal from '../../components/Modal'
 import { DayNav, Segmented } from '../../components/ui'
@@ -130,9 +137,11 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
   const [sessions, setSessions] = useState<FocusSession[]>([])
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [draft, setDraft] = useState<DraftState | null>(null)
-  const [savingTemplate, setSavingTemplate] = useState(false)
+  // null 表示弹窗关着；{ id: null } 是「把今天存为模板」，带 id 则是在改已有模板的范围
+  const [tplForm, setTplForm] = useState<{ id: string | null } | null>(null)
   const [templateName, setTemplateName] = useState('')
   const [templateDays, setTemplateDays] = useState<number[]>([])
+  const [templateTypes, setTemplateTypes] = useState<DayType[]>([...ALL_DAY_TYPES])
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [note, setNote] = useState('')
   const [drag, setDrag] = useState<DragState | null>(null)
@@ -249,6 +258,16 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
   )
 
   const suggested = useMemo(() => templateForDate(templates, day), [templates, day])
+
+  // 只在与自然周不符时点出来——「周六·调休上班」「周三·节假日」正是模板容易套错的那两天
+  const dayLabel = useMemo(() => {
+    const weekday = new Date(`${day}T12:00:00`).getDay()
+    const base = `周${WEEKDAYS[weekday]}`
+    const type = dayTypeOf(day)
+    if (type === 'holiday') return `${base}·节假日`
+    if (type === 'workday' && (weekday === 0 || weekday === 6)) return `${base}·调休上班`
+    return base
+  }, [day])
   const appliedTemplateIds = useMemo(
     () => new Set(blocks.map((b) => b.templateId).filter(Boolean)),
     [blocks]
@@ -408,21 +427,47 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
     flash(created.length ? `套用了 ${created.length} 个时间块` : '这个模板还没有内容')
   }
 
-  const saveAsTemplate = async (): Promise<void> => {
-    if (!templateName.trim()) return flash('给模板起个名字')
-    if (!blocks.length) return flash('这一天还没有时间块')
-    await api.plugin(
-      'timeblock',
-      'template-save',
-      templateName.trim(),
-      templateDays,
-      blocks.map((b) => ({ startMin: b.startMin, endMin: b.endMin, title: b.title, tag: b.tag }))
-    )
-    setSavingTemplate(false)
+  const openCreateTpl = (): void => {
+    setTemplatesOpen(false)
     setTemplateName('')
     setTemplateDays([])
+    setTemplateTypes([...ALL_DAY_TYPES])
+    setTplForm({ id: null })
+  }
+
+  const openEditTpl = (t: TimeTemplate): void => {
+    setTemplatesOpen(false)
+    setTemplateName(t.name)
+    setTemplateDays(t.weekdays)
+    setTemplateTypes(t.dayTypes)
+    setTplForm({ id: t.id })
+  }
+
+  const submitTpl = async (): Promise<void> => {
+    if (!tplForm) return
+    const name = templateName.trim()
+    if (!name) return flash('给模板起个名字')
+    if (tplForm.id) {
+      await api.plugin('timeblock', 'template-update', tplForm.id, {
+        name,
+        weekdays: templateDays,
+        dayTypes: templateTypes
+      })
+    } else {
+      if (!blocks.length) return flash('这一天还没有时间块')
+      await api.plugin(
+        'timeblock',
+        'template-save',
+        name,
+        templateDays,
+        templateTypes,
+        blocks.map((b) => ({ startMin: b.startMin, endMin: b.endMin, title: b.title, tag: b.tag }))
+      )
+    }
+    const wasEdit = !!tplForm.id
+    setTplForm(null)
     await load()
-    flash('模板已保存')
+    flash(wasEdit ? '模板已更新' : '模板已保存')
   }
 
   const deleteTpl = async (id: string): Promise<void> => {
@@ -501,22 +546,16 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
           {templatesOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setTemplatesOpen(false)} />
-              <div className="absolute top-9 left-0 z-20 w-72 rounded-xl border border-slate-200 bg-surface p-3 shadow-lg">
+              <div className="absolute top-9 left-0 z-20 w-80 rounded-xl border border-slate-200 bg-surface p-3 shadow-lg">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-medium text-slate-500">模板</span>
-                  <button
-                    onClick={() => {
-                      setTemplatesOpen(false)
-                      setSavingTemplate(true)
-                    }}
-                    className="text-xs text-brand hover:underline"
-                  >
+                  <button onClick={openCreateTpl} className="text-xs text-brand hover:underline">
                     把今天存为模板
                   </button>
                 </div>
                 {templates.length === 0 ? (
                   <p className="text-xs text-slate-400">
-                    还没有模板。先排好一天，再存下来，之后一键套用或按星期自动提示。
+                    还没有模板。先排好一天，再存下来，之后一键套用；也可以限定只在工作日或只在节假日提示。
                   </p>
                 ) : (
                   <ul className="space-y-1.5">
@@ -529,12 +568,18 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
                           <span className="block truncate text-sm">{t.name}</span>
                           <span className="block text-[11px] text-slate-400">
                             {templateBlocks.filter((b) => b.templateId === t.id).length} 个块 ·{' '}
-                            {weekdaysLabel(t.weekdays)}
+                            {scopeLabel(t.weekdays, t.dayTypes)}
                           </span>
                         </span>
                         <span className="flex shrink-0 gap-2 text-xs">
                           <button onClick={() => void applyTpl(t.id)} className="text-brand hover:underline">
                             套用
+                          </button>
+                          <button
+                            onClick={() => openEditTpl(t)}
+                            className="text-slate-400 hover:text-slate-600"
+                          >
+                            编辑
                           </button>
                           <button
                             onClick={() => void deleteTpl(t.id)}
@@ -562,7 +607,7 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
       {suggested && !appliedTemplateIds.has(suggested.id) && (
         <div className="mb-3 flex items-center justify-between rounded-lg border border-brand/30 bg-brand-soft px-4 py-2.5 text-sm">
           <span>
-            今天是周{WEEKDAYS[new Date(`${day}T12:00:00`).getDay()]}，要套用模板「{suggested.name}」吗？
+            {day === dayKey(new Date()) ? '今天' : '这天'}是{dayLabel}，要套用模板「{suggested.name}」吗？
           </span>
           <button
             onClick={() => void applyTpl(suggested.id)}
@@ -888,15 +933,21 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
         </Modal>
       )}
 
-      {savingTemplate && (
+      {tplForm && (
         <Modal
-          panelClass="w-[22rem] rounded-xl bg-surface p-5 shadow-xl"
-          onClose={() => setSavingTemplate(false)}
+          panelClass="w-[24rem] rounded-xl bg-surface p-5 shadow-xl"
+          onClose={() => setTplForm(null)}
         >
           {(close) => (
             <div className="space-y-3">
-              <h2 className="text-sm font-semibold">把这一天存为模板</h2>
-              <p className="text-xs text-slate-400">当前 {blocks.length} 个时间块会被记进模板。</p>
+              <h2 className="text-sm font-semibold">
+                {tplForm.id ? '编辑模板' : '把这一天存为模板'}
+              </h2>
+              <p className="text-xs text-slate-400">
+                {tplForm.id
+                  ? '改名字和适用范围。模板里的时间块不变——要换内容，重新「把今天存为模板」。'
+                  : `当前 ${blocks.length} 个时间块会被记进模板。`}
+              </p>
               <input
                 autoFocus
                 value={templateName}
@@ -905,7 +956,7 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
               />
               <div>
-                <div className="mb-1.5 text-xs text-slate-400">每周哪几天自动提示套用（可不选）</div>
+                <div className="mb-1.5 text-xs text-slate-400">每周哪几天</div>
                 <div className="flex gap-1">
                   {WEEKDAYS.map((label, i) => (
                     <button
@@ -924,12 +975,49 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
                   ))}
                 </div>
               </div>
+              <div>
+                <div className="mb-1.5 text-xs text-slate-400">还要是这类日子</div>
+                <div className="flex gap-1.5">
+                  {ALL_DAY_TYPES.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() =>
+                        setTemplateTypes((ts) =>
+                          ts.includes(t) ? ts.filter((x) => x !== t) : [...ts, t]
+                        )
+                      }
+                      className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                        templateTypes.includes(t)
+                          ? 'border-brand bg-brand-soft text-brand'
+                          : 'border-slate-200 text-slate-400'
+                      }`}
+                    >
+                      {DAY_TYPE_LABELS[t]}
+                    </button>
+                  ))}
+                </div>
+                {/* 调休是这个功能的全部意义所在，说清楚它确实被算进去了 */}
+                <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
+                  按国务院公布的节假日安排判定，调休补班的周六算工作日。
+                </p>
+              </div>
+
+              <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                这个模板会在<span className="text-slate-700">{scopeLabel(templateDays, templateTypes)}</span>
+                自动提示套用。
+              </p>
+              {!hasCalendar(day.slice(0, 4)) && templateTypes.length < ALL_DAY_TYPES.length && (
+                <p className="text-[11px] leading-4 text-amber-600">
+                  还没有 {day.slice(0, 4)} 年的节假日安排，这一年只按周六周日判断休息日。
+                </p>
+              )}
+
               <div className="flex justify-end gap-2 pt-1">
                 <button onClick={close} className="rounded-lg px-3 py-1.5 text-sm text-slate-500">
                   取消
                 </button>
                 <button
-                  onClick={() => void saveAsTemplate()}
+                  onClick={() => void submitTpl()}
                   className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white"
                 >
                   保存
