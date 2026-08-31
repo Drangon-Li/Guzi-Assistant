@@ -561,14 +561,14 @@ export function registerIpc(): void {
   // 对话历史：桌宠气泡和主窗悬浮助手是两个渲染进程，共用库里这一份，
   // 任一处改动落库后通知另一处重拉（快捷提问框不参与，它按设计每次都是新对话）。
   ipcMain.handle('pet:chat-resize', (_e, height: number) => resizePetChat(height))
-  ipcMain.handle('chat:history', () => listChatMessages())
-  ipcMain.handle('chat:save', (e, msgs: unknown[]) => {
-    saveChatMessages(msgs)
-    broadcastExcept(e.sender.id, 'guzi-assistant:chat-updated')
+  ipcMain.handle('chat:history', (_e, scope: string) => listChatMessages(scope))
+  ipcMain.handle('chat:save', (e, scope: string, msgs: unknown[]) => {
+    saveChatMessages(scope, msgs)
+    broadcastExcept(e.sender.id, 'guzi-assistant:chat-updated', { scope })
   })
-  ipcMain.handle('chat:clear', (e) => {
-    clearChatMessages()
-    broadcastExcept(e.sender.id, 'guzi-assistant:chat-updated')
+  ipcMain.handle('chat:clear', (e, scope: string) => {
+    clearChatMessages(scope)
+    broadcastExcept(e.sender.id, 'guzi-assistant:chat-updated', { scope })
   })
 
   ipcMain.handle('app:focus-main', (_e, route?: string) => {

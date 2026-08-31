@@ -22,9 +22,22 @@ let ftsReady = false // #52 FTS5 是否可用；不可用则记忆检索退化�
 let historySegmentIndex: HistorySegmentIndex | null = null
 let historySummaryIndex: HistorySummaryIndex | null = null
 
+/**
+ * chat_messages 最早只存一份隐含的会话，没有 scope 列。现在桌宠对话和快捷提问各存各的，
+ * 主键换成了 (scope, seq)——SQLite 改不了主键，只能重建。这张表只存会话历史，
+ * 且是上个版本才加的、还没随发布出去过，重建比原地搬数据划算。
+ */
+function dropLegacyChatTable(database: Database.Database): void {
+  const cols = (
+    database.prepare('PRAGMA table_info(chat_messages)').all() as { name: string }[]
+  ).map((c) => c.name)
+  if (cols.length && !cols.includes('scope')) database.exec('DROP TABLE chat_messages')
+}
+
 export function initDb(): void {
   db = new Database(join(app.getPath('userData'), 'eshell.db'))
   db.pragma('journal_mode = WAL')
+  dropLegacyChatTable(db)
   db.exec(`
     CREATE TABLE IF NOT EXISTS profile (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -100,9 +113,11 @@ export function initDb(): void {
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS chat_messages (
-      seq INTEGER PRIMARY KEY,
+      scope TEXT NOT NULL,
+      seq INTEGER NOT NULL,
       payload TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (scope, seq)
     );
     CREATE TABLE IF NOT EXISTS personal_memory (
       id INTEGER PRIMARY KEY CHECK (id = 1),

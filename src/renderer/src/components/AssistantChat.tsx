@@ -49,9 +49,12 @@ function nextIdAfter(msgs: ChatMsg[]): number {
   return msgs.reduce((max, m) => Math.max(max, m.id), 0) + 1
 }
 
+/** 桌宠气泡与悬浮助手共用这一份；快捷提问框的消息结构不同，另存一份。 */
+const SCOPE = 'assistant'
+
 async function pullHistory(): Promise<ChatMsg[]> {
   try {
-    const rows = await api.chatHistory<ChatMsg>()
+    const rows = await api.chatHistory<ChatMsg>(SCOPE)
     store.msgs = rows
     store.nextId = nextIdAfter(rows)
     hydrated = true
@@ -104,7 +107,7 @@ export default function AssistantChat({
   const update = (next: ChatMsg[]): void => {
     store.msgs = next
     setMsgs(next)
-    void api.chatSave(next)
+    void api.chatSave(SCOPE, next)
   }
 
   // 首次挂载取一次历史；之后另一个窗口改了会广播过来（自己的改动不回推，免得打断正在输入的人）
@@ -116,7 +119,9 @@ export default function AssistantChat({
       })
     }
     if (!hydrated) pull()
-    const off = api.on('guzi-assistant:chat-updated', pull)
+    const off = api.on('guzi-assistant:chat-updated', (p) => {
+      if ((p as { scope?: string })?.scope === SCOPE) pull()
+    })
     return () => {
       alive = false
       off()
@@ -130,7 +135,7 @@ export default function AssistantChat({
     store.msgs = []
     store.nextId = 1
     setMsgs([])
-    void api.chatClear()
+    void api.chatClear(SCOPE)
   }, [clearNonce])
 
   // 正文有多高就告诉外面多高，让独立成窗的气泡自己撑大。观察内容而不是滚动容器：

@@ -151,10 +151,14 @@ export const api = {
     inv<AssistantTurnResult>('assistant:quick-chat', payload),
   assistantAdd: (payload: { sourceText: string; item: ParsedItem; force?: boolean }) =>
     inv<AddedInfo>('assistant:add', payload),
-  /** 对话历史：气泡和悬浮助手共用一份，整体存取（消息结构只有渲染层认识） */
-  chatHistory: <T>() => inv<T[]>('chat:history'),
-  chatSave: (msgs: unknown[]) => inv<void>('chat:save', msgs),
-  chatClear: () => inv<void>('chat:clear'),
+  /**
+   * 对话历史，整体存取（消息结构只有渲染层认识）。
+   * scope='assistant' 是桌宠气泡与悬浮助手共用的那份，'quickbar' 是快捷提问框自己的——
+   * 两边的消息结构不一样，凑成一种反而要互相迁就。
+   */
+  chatHistory: <T>(scope: string) => inv<T[]>('chat:history', scope),
+  chatSave: (scope: string, msgs: unknown[]) => inv<void>('chat:save', scope, msgs),
+  chatClear: (scope: string) => inv<void>('chat:clear', scope),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
 
   exportTaskIcs: (task: TaskRecord) =>
