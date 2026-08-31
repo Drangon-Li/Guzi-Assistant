@@ -314,12 +314,18 @@ const timeblock: PluginMainModule = {
     ) => insertTemplate(name, weekdays, dayTypes, blocks),
 
     /**
-     * 改模板的名字和适用范围。块不在这里改——要换内容就重新「把今天存为模板」，
-     * 省掉一套块编辑 UI，而范围是唯一会反复调的东西。
+     * 改模板：名字、适用范围、以及里面的时间块。
+     * 给了 blocks 就整批替换（块没有稳定身份，逐条 diff 不如整体换掉可靠）；
+     * 不给就只动范围，已排出去的块不受影响。
      */
     'template-update': (
       id: string,
-      patch: { name?: string; weekdays?: number[]; dayTypes?: string[] }
+      patch: {
+        name?: string
+        weekdays?: number[]
+        dayTypes?: string[]
+        blocks?: Omit<TemplateBlock, 'id' | 'templateId'>[]
+      }
     ) => {
       const db = getDb()
       const row = db.prepare('SELECT * FROM p_timeblock_template WHERE id = ?').get(id) as
@@ -330,13 +336,37 @@ const timeblock: PluginMainModule = {
       const name = patch.name?.trim() || cur.name
       const weekdays = patch.weekdays ? normalizeWeekdays(patch.weekdays) : cur.weekdays
       const dayTypes = patch.dayTypes ? normalizeDayTypes(patch.dayTypes) : cur.dayTypes
-      db.prepare('UPDATE p_timeblock_template SET name = ?, weekdays = ?, day_types = ? WHERE id = ?').run(
-        name,
-        JSON.stringify(weekdays),
-        JSON.stringify(dayTypes),
-        id
-      )
+      const blocks = patch.blocks
+      db.transaction(() => {
+        db.prepare('UPDATE p_timeblock_template SET name = ?, weekdays = ?, day_types = ? WHERE id = ?').run(
+          name,
+          JSON.stringify(weekdays),
+          JSON.stringify(dayTypes),
+          id
+        )
+        if (!blocks) return
+        db.prepare('DELETE FROM p_timeblock_template_block WHERE template_id = ?').run(id)
+        const insertBlk = db.prepare(
+          `INSERT INTO p_timeblock_template_block (id, template_id, start_min, end_min, title, tag)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        for (const b of blocks) {
+          if (!isValidRange(b.startMin, b.endMin) || !b.title.trim()) continue
+          insertBlk.run(randomUUID(), id, b.startMin, b.endMin, b.title.trim(), b.tag)
+        }
+      })()
       return { ...cur, name, weekdays, dayTypes }
+    },
+
+    /**
+     * 撤掉某天由模板套出来的块。手动加的块（template_id 为空）保留——
+     * 用户要的是「这天不按模板过」，不是「清空这天」。
+     */
+    'template-unapply': (date: string) => {
+      const res = getDb()
+        .prepare('DELETE FROM p_timeblock_block WHERE date = ? AND template_id IS NOT NULL')
+        .run(date)
+      return res.changes
     },
 
     'template-delete': (id: string) => {

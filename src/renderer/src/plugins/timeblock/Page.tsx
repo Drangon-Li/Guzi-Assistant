@@ -39,6 +39,7 @@ import {
 } from '@shared/holidays'
 import { api } from '../../api'
 import Modal from '../../components/Modal'
+import TimeblockSettings from './Settings'
 import { DayNav, Segmented } from '../../components/ui'
 import type { PluginPageProps } from '../types'
 
@@ -137,12 +138,14 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
   const [sessions, setSessions] = useState<FocusSession[]>([])
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [draft, setDraft] = useState<DraftState | null>(null)
-  // null 表示弹窗关着；{ id: null } 是「把今天存为模板」，带 id 则是在改已有模板的范围
-  const [tplForm, setTplForm] = useState<{ id: string | null } | null>(null)
+  // 只管新建：改已有模板一律走设置面板，那里连里面的时段一起改
+  const [tplForm, setTplForm] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [templateDays, setTemplateDays] = useState<number[]>([])
   const [templateTypes, setTemplateTypes] = useState<DayType[]>([...ALL_DAY_TYPES])
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTplId, setSettingsTplId] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [drag, setDrag] = useState<DragState | null>(null)
   const [select, setSelect] = useState<SelectState | null>(null)
@@ -432,42 +435,24 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
     setTemplateName('')
     setTemplateDays([])
     setTemplateTypes([...ALL_DAY_TYPES])
-    setTplForm({ id: null })
-  }
-
-  const openEditTpl = (t: TimeTemplate): void => {
-    setTemplatesOpen(false)
-    setTemplateName(t.name)
-    setTemplateDays(t.weekdays)
-    setTemplateTypes(t.dayTypes)
-    setTplForm({ id: t.id })
+    setTplForm(true)
   }
 
   const submitTpl = async (): Promise<void> => {
-    if (!tplForm) return
     const name = templateName.trim()
     if (!name) return flash('给模板起个名字')
-    if (tplForm.id) {
-      await api.plugin('timeblock', 'template-update', tplForm.id, {
-        name,
-        weekdays: templateDays,
-        dayTypes: templateTypes
-      })
-    } else {
-      if (!blocks.length) return flash('这一天还没有时间块')
-      await api.plugin(
-        'timeblock',
-        'template-save',
-        name,
-        templateDays,
-        templateTypes,
-        blocks.map((b) => ({ startMin: b.startMin, endMin: b.endMin, title: b.title, tag: b.tag }))
-      )
-    }
-    const wasEdit = !!tplForm.id
-    setTplForm(null)
+    if (!blocks.length) return flash('这一天还没有时间块')
+    await api.plugin(
+      'timeblock',
+      'template-save',
+      name,
+      templateDays,
+      templateTypes,
+      blocks.map((b) => ({ startMin: b.startMin, endMin: b.endMin, title: b.title, tag: b.tag }))
+    )
+    setTplForm(false)
     await load()
-    flash(wasEdit ? '模板已更新' : '模板已保存')
+    flash('模板已保存')
   }
 
   const deleteTpl = async (id: string): Promise<void> => {
@@ -529,6 +514,16 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
           >
             模板 {templates.length > 0 && <span className="tabular-nums">({templates.length})</span>} ▾
           </button>
+          {/* 常驻的一键套用：顶上那条提示套用后就消失了，没它就没法再套一次 */}
+          {suggested && (
+            <button
+              onClick={() => void applyTpl(suggested.id)}
+              title={`套用「${suggested.name}」`}
+              className="rounded-lg border border-brand/40 bg-brand-soft px-3 py-1 text-xs text-brand hover:bg-brand/15"
+            >
+              一键套用「{suggested.name}」
+            </button>
+          )}
           {blocks.length > 0 && (
             <button
               onClick={() => void copyDayToTomorrow()}
@@ -542,6 +537,14 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
             已排 <span className="font-medium text-slate-600">{durationLabel(0, planned)}</span> ·{' '}
             {blocks.length} 个块
           </span>
+          <button
+            className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            title="作息设置"
+            aria-label="作息设置"
+            onClick={() => setSettingsOpen(true)}
+          >
+            设置
+          </button>
 
           {templatesOpen && (
             <>
@@ -576,7 +579,11 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
                             套用
                           </button>
                           <button
-                            onClick={() => openEditTpl(t)}
+                            onClick={() => {
+                              setTemplatesOpen(false)
+                              setSettingsTplId(t.id)
+                              setSettingsOpen(true)
+                            }}
                             className="text-slate-400 hover:text-slate-600"
                           >
                             编辑
@@ -936,18 +943,12 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
       {tplForm && (
         <Modal
           panelClass="w-[24rem] rounded-xl bg-surface p-5 shadow-xl"
-          onClose={() => setTplForm(null)}
+          onClose={() => setTplForm(false)}
         >
           {(close) => (
             <div className="space-y-3">
-              <h2 className="text-sm font-semibold">
-                {tplForm.id ? '编辑模板' : '把这一天存为模板'}
-              </h2>
-              <p className="text-xs text-slate-400">
-                {tplForm.id
-                  ? '改名字和适用范围。模板里的时间块不变——要换内容，重新「把今天存为模板」。'
-                  : `当前 ${blocks.length} 个时间块会被记进模板。`}
-              </p>
+              <h2 className="text-sm font-semibold">把这一天存为模板</h2>
+              <p className="text-xs text-slate-400">当前 {blocks.length} 个时间块会被记进模板。</p>
               <input
                 autoFocus
                 value={templateName}
@@ -1026,6 +1027,18 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
             </div>
           )}
         </Modal>
+      )}
+
+      {settingsOpen && (
+        <TimeblockSettings
+          day={day}
+          initialId={settingsTplId}
+          onClose={() => {
+            setSettingsOpen(false)
+            setSettingsTplId(null)
+          }}
+          onChanged={() => void load()}
+        />
       )}
 
       {note && (

@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { TaskRecord } from '@shared/types'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
 import { api } from '../api'
 import { fmtTime, summaryToast, TYPE_LABELS } from '../labels'
-import { insertNewline } from '../textarea'
+import { autoGrow, insertNewline } from '../textarea'
 import ConfidenceBadge from './ConfidenceBadge'
 import TaskDetailModal from './TaskDetailModal'
 import SourceModal from './SourceModal'
@@ -101,6 +101,9 @@ export default function AssistantChat({
   const [screenSense, setScreenSense] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // 输入框贴着内容长高，最多 5 行（120px 行高 + 16px 上下内边距）
+  useLayoutEffect(() => autoGrow(textareaRef.current, 136), [input])
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const pending = tasks.filter((t) => t.status === 'pending')
@@ -571,7 +574,7 @@ export default function AssistantChat({
           <textarea
             ref={textareaRef}
             value={input}
-            rows={Math.min(5, Math.max(1, input.split('\n').length))}
+            rows={1}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing || e.key !== 'Enter') return
