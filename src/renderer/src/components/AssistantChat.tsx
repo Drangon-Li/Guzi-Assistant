@@ -17,6 +17,11 @@ interface Props {
   injected?: { content: string; display: string; nonce: number } | null
   /** 清屏：数值变化触发一次，清空本地与库里的历史。清屏入口在外层（气泡窗口的头部）。 */
   clearNonce?: number
+  /**
+   * 上报「正文不滚动的话，这个窗口要多高」。只有独立成窗的气泡用得上——
+   * 它可以照着这个值把自己撑大；嵌在主窗里的悬浮助手不传，尺寸由布局决定。
+   */
+  onIdealHeight?: (px: number) => void
 }
 
 type AddState = 'added' | 'duplicate'
@@ -81,7 +86,8 @@ export default function AssistantChat({
   hotkeyLabel,
   userName,
   injected,
-  clearNonce
+  clearNonce,
+  onIdealHeight
 }: Props): React.JSX.Element {
   const [msgs, setMsgs] = useState<ChatMsg[]>(store.msgs)
   const [input, setInput] = useState('')
@@ -91,6 +97,7 @@ export default function AssistantChat({
   const [screenSense, setScreenSense] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   const pending = tasks.filter((t) => t.status === 'pending')
 
@@ -125,6 +132,20 @@ export default function AssistantChat({
     setMsgs([])
     void api.chatClear()
   }, [clearNonce])
+
+  // 正文有多高就告诉外面多高，让独立成窗的气泡自己撑大。观察内容而不是滚动容器：
+  // 容器高度是窗口给的，跟着窗口变，拿它当输入会和窗口尺寸互相追着跑。
+  useEffect(() => {
+    const el = scrollRef.current
+    const inner = el?.firstElementChild
+    if (!onIdealHeight || !el || !inner) return
+    const report = (): void =>
+      onIdealHeight(window.innerHeight - el.clientHeight + el.scrollHeight)
+    report()
+    const ro = new ResizeObserver(report)
+    ro.observe(inner)
+    return () => ro.disconnect()
+  }, [onIdealHeight])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -299,7 +320,7 @@ export default function AssistantChat({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-6 py-6">
           {msgs.length === 0 && (
             <div className="flex gap-3">

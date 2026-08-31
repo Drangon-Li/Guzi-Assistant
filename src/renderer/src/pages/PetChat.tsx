@@ -48,6 +48,10 @@ export default function PetChat(): React.JSX.Element {
   }, [])
 
   const noop = useCallback(() => {}, [])
+  // 正文要多高，窗口就长多高（主进程会夹进屏幕范围）：打开就该看到整段回复，而不是先滚一下
+  const onIdealHeight = useCallback((px: number) => {
+    void api.petChatResize(px)
+  }, [])
 
   return (
     <div className="flex h-full w-full flex-col p-2">
@@ -77,6 +81,7 @@ export default function PetChat(): React.JSX.Element {
               userName={profile.name}
               injected={injected}
               clearNonce={clearNonce}
+              onIdealHeight={onIdealHeight}
             />
           ) : (
             <div className="flex h-full items-center justify-center">

@@ -112,7 +112,7 @@ import { hideReminderWindow, resizeReminder } from './reminder-window'
 import { applyTaskReminderSchedule } from './task-reminder'
 import { applyClipWatchSettings } from './clipwatch'
 import { localIso } from '@shared/task-reminder'
-import { hidePetChat } from './pet/pet-chat-window'
+import { hidePetChat, resizePetChat } from './pet/pet-chat-window'
 import { hideQuickBar, isQuickBarVisible, resizeQuickBar } from './quickbar'
 import { applyMcpSettings } from './mcp-server'
 import { checkForUpdates } from './updater'
@@ -560,6 +560,7 @@ export function registerIpc(): void {
 
   // 对话历史：桌宠气泡和主窗悬浮助手是两个渲染进程，共用库里这一份，
   // 任一处改动落库后通知另一处重拉（快捷提问框不参与，它按设计每次都是新对话）。
+  ipcMain.handle('pet:chat-resize', (_e, height: number) => resizePetChat(height))
   ipcMain.handle('chat:history', () => listChatMessages())
   ipcMain.handle('chat:save', (e, msgs: unknown[]) => {
     saveChatMessages(msgs)

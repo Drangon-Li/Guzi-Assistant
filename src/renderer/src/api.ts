@@ -174,6 +174,8 @@ export const api = {
   petSetPaused: (v: boolean) => inv<void>('pet:set-paused', v),
   petResetPosition: () => inv<void>('pet:reset-position'),
   petChatHide: () => inv<void>('pet:chat-hide'),
+  /** 正文不滚动的话窗口该多高；主进程夹进屏幕范围后调整 */
+  petChatResize: (height: number) => inv<void>('pet:chat-resize', height),
   appVersion: () => inv<string>('app:version'),
   /** 手动检查更新：结果通过系统对话框反馈，返回值供按钮态使用 */
   checkUpdate: () => inv<{ status: 'update' | 'latest' | 'error'; version?: string }>('app:check-update'),

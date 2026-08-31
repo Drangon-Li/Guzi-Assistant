@@ -5,7 +5,11 @@ import { anchorWindowNearPet, appState, load, preload } from '../windows'
 import { extractPetDropText, submitExternalFiles } from '../capture'
 
 const CHAT_W = 380
+/** 初始高度。开起来就按正文实际需要调整（resizePetChat），这只是还没量到内容前的样子。 */
 const CHAT_H = 520
+const CHAT_MIN_H = 320
+/** 再长的对话也不该顶满屏幕，留出边距看得出这是一张浮在桌面上的卡片。 */
+const CHAT_MAX_RATIO = 0.85
 
 let chatWin: BrowserWindow | null = null
 let lastHiddenAt = 0
@@ -50,10 +54,28 @@ function ensureWindow(): BrowserWindow {
 }
 
 /** 把对话框定位到桌宠图标旁（与预览卡共用 anchorWindowNearPet）；桌宠不可见时回退右下角。 */
-function positionNextToPet(win: BrowserWindow): void {
-  if (anchorWindowNearPet(win, CHAT_W, CHAT_H)) return
+function positionNextToPet(win: BrowserWindow, height = win.getBounds().height): void {
+  if (anchorWindowNearPet(win, CHAT_W, height)) return
   const wa = screen.getPrimaryDisplay().workArea
-  win.setPosition(wa.x + wa.width - CHAT_W - 24, wa.y + wa.height - CHAT_H - 24, false)
+  win.setPosition(wa.x + wa.width - CHAT_W - 24, wa.y + wa.height - height - 24, false)
+}
+
+/**
+ * 按正文的完整高度调整窗口：打开就该看到整段回复，而不是先滚一下才知道说了什么。
+ * 渲染层算好「不滚动的话这个窗口要多高」送过来，这里只负责夹进屏幕能容下的范围。
+ */
+export function resizePetChat(idealHeight: number): void {
+  const win = chatWin
+  if (!win || win.isDestroyed() || !Number.isFinite(idealHeight)) return
+  const bounds = win.getBounds()
+  const wa = screen.getDisplayNearestPoint(bounds).workArea
+  const next = Math.round(
+    Math.max(CHAT_MIN_H, Math.min(idealHeight, Math.floor(wa.height * CHAT_MAX_RATIO)))
+  )
+  // 几像素的来回不值得动窗口——尤其输入框换行时高度会小幅抖
+  if (Math.abs(next - bounds.height) < 8) return
+  win.setBounds({ ...bounds, height: next }, false)
+  positionNextToPet(win, next)
 }
 
 /** 启动时预创建对话窗口（隐藏）：避免首次拖文件/点击时还在加载，且开窗更快。 */

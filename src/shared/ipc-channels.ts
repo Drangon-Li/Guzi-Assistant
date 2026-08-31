@@ -96,6 +96,7 @@ export const INVOKE_CHANNELS = [
   'pet:set-paused',
   'pet:reset-position',
   'pet:chat-hide',
+  'pet:chat-resize',
   'quickbar:hide',
   'quickbar:resize',
   'app:check-update',
