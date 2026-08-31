@@ -23,6 +23,14 @@ export const COLOR_LABELS: Record<NoteColor, string> = {
 
 const COLOR_PATTERN = NOTE_COLORS.join('|')
 
+/**
+ * 笔记里的图片只写文件名（内容 SHA-256 + 扩展名），本体在 userData 下。
+ * 正文里不存 base64：那会让每次读写这一篇都拖着几 MB 走。
+ * 这条正则同时是白名单——不符合的一律不当图片，挡住 ../ 和外部 URL。
+ */
+export const ASSET_ID_RE = /^[a-f0-9]{64}\.(?:png|jpg|webp|gif)$/
+const ASSET_REF_RE = /!\[([^\]]*)\]\(asset:([a-f0-9]{64}\.(?:png|jpg|webp|gif))\)/g
+
 export function colorToken(value: unknown, fallback: NoteColor | '' = ''): NoteColor | '' {
   const token = String(value ?? '')
     .trim()
@@ -91,6 +99,11 @@ function inlineMarkdown(node: Node): string {
   if (tag === 'span' && colorToken(el.dataset.color)) {
     return content ? `<span data-color="${colorToken(el.dataset.color)}">${content}</span>` : ''
   }
+  if (tag === 'img') {
+    // 只认自己存下的图；外部拖进来的 img（比如从网页拖的）不留引用
+    const asset = el.dataset.asset ?? ''
+    return ASSET_ID_RE.test(asset) ? `![${escapeText(el.getAttribute('alt') ?? '')}](asset:${asset})` : ''
+  }
   if (tag === 'code') return `\`${(el.textContent ?? '').replace(/`/g, '\\`')}\``
   if (tag === 'a') {
     const href = (el.getAttribute('href') ?? '').trim()
@@ -107,7 +120,7 @@ function blockMarkdown(node: Node): string {
   const el = node as HTMLElement
   const tag = el.tagName.toLowerCase()
   const content = [...el.childNodes].map(inlineMarkdown).join('').trim()
-  if (['strong', 'b', 'em', 'i', 'del', 's', 'mark', 'span', 'code', 'a'].includes(tag)) {
+  if (['strong', 'b', 'em', 'i', 'del', 's', 'mark', 'span', 'code', 'a', 'img'].includes(tag)) {
     return inlineMarkdown(el).trim()
   }
   if (/^h[1-3]$/.test(tag)) return `${'#'.repeat(Number(tag[1]))} ${content}`
@@ -168,6 +181,9 @@ function inlineHTML(value: string): string {
     return `\uE000${escaped.length - 1}\uE001`
   })
   let safe = escapeHTML(parked)
+  // 图片要排在链接前面：![]() 也匹配 []() 的形状，顺序反了图片就成了链接。
+  // src 留空，由编辑器挂载后按 data-asset 异步填 data URL（CSP 只放行 self 和 data:）。
+  safe = safe.replace(ASSET_REF_RE, (_m, alt: string, id: string) => `<img data-asset="${id}" alt="${alt}">`)
   safe = safe.replace(
     /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener">$1</a>'

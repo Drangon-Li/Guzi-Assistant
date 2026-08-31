@@ -148,7 +148,19 @@ export const PLUGINS = [
     category: 'note',
     contributes: {
       nav: { label: '记事本', order: 140 },
-      contentSinks: [{ action: 'save-content', label: '保存到记事本' }]
+      contentSinks: [{ action: 'save-content', label: '保存到记事本' }],
+      assistantActions: [
+        {
+          name: 'create-note',
+          summary: '记一篇笔记',
+          args:
+            '{"title":标题（可省，省了就取正文第一行）,"content":正文，可用 Markdown,' +
+            '"folder":可选，分类名，没有这个分类会新建,"tags":可选，标签数组}',
+          when:
+            '用户说「记一下…」「帮我记个笔记…」「把这段存起来」这类**要留存一段内容**、' +
+            '而不是要办的事时用。是待办或有时间的安排就不要用这个，那些该进日程。'
+        }
+      ]
     },
     storage: { tables: ['p_notebook_folder', 'p_notebook_note'] }
   }

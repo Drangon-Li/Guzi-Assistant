@@ -311,7 +311,8 @@ export default function NotebookPage(): React.JSX.Element {
       {/* 左栏：分类与标签 */}
       <aside className="flex w-56 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line px-3 pt-10 pb-6">
         <div>
-          <div className="mb-1.5 flex items-center justify-between px-2">
+          {/* 左栏所有文字都对齐到同一条竖线：分类项带展开箭头，标题和无箭头的项要跟着让出这段 */}
+          <div className="mb-1.5 flex items-center justify-between pr-1 pl-6">
             <span className="text-[11px] font-medium tracking-wide text-slate-400">分类</span>
             <button
               className="rounded px-1 text-sm text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
@@ -324,13 +325,14 @@ export default function NotebookPage(): React.JSX.Element {
           <ul className="space-y-0.5">
             <li>
               <button
-                className={`flex w-full items-center gap-1 rounded-lg py-1.5 pr-2 pl-5 text-left text-sm transition-colors ${
+                className={`flex w-full items-center gap-1 rounded-lg py-1.5 pr-2 pl-1 text-left text-sm transition-colors ${
                   folderId === 'all'
                     ? 'bg-brand-soft font-medium text-slate-900'
                     : 'text-slate-600 hover:bg-slate-100'
                 }`}
                 onClick={() => setFolderId('all')}
               >
+                <span className="w-4 shrink-0" />
                 <span className="min-w-0 flex-1 truncate">全部笔记</span>
                 {notes.length > 0 && (
                   <span className="shrink-0 text-[10px] text-slate-400 tabular-nums">
@@ -341,14 +343,15 @@ export default function NotebookPage(): React.JSX.Element {
             </li>
             <li>
               <button
-                className={`flex w-full items-center rounded-lg py-1.5 pr-2 pl-5 text-left text-sm transition-colors ${
+                className={`flex w-full items-center gap-1 rounded-lg py-1.5 pr-2 pl-1 text-left text-sm transition-colors ${
                   folderId === 'none'
                     ? 'bg-brand-soft font-medium text-slate-900'
                     : 'text-slate-600 hover:bg-slate-100'
                 }`}
                 onClick={() => setFolderId('none')}
               >
-                未分类
+                <span className="w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">未分类</span>
               </button>
             </li>
             {tree.map((n) => (
@@ -378,7 +381,7 @@ export default function NotebookPage(): React.JSX.Element {
             )}
           </ul>
           {tree.length === 0 && !draft && (
-            <p className="px-2 pt-2 text-[11px] leading-5 text-slate-400">
+            <p className="pt-2 pr-2 pl-6 text-[11px] leading-5 text-slate-400">
               还没有分类。右键分类项可以改名、删除或加子分类。
             </p>
           )}
@@ -386,10 +389,10 @@ export default function NotebookPage(): React.JSX.Element {
 
         {tags.length > 0 && (
           <div>
-            <div className="mb-1.5 px-2 text-[11px] font-medium tracking-wide text-slate-400">
+            <div className="mb-1.5 pr-2 pl-6 text-[11px] font-medium tracking-wide text-slate-400">
               标签
             </div>
-            <div className="flex flex-wrap gap-1.5 px-2">
+            <div className="flex flex-wrap gap-1.5 pr-2 pl-6">
               {tags.map((t) => (
                 <button
                   key={t.tag}

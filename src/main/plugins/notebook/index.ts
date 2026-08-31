@@ -1,5 +1,8 @@
 // 记事本插件（主进程）：笔记的增删改查、分类树维护，以及接收核心交来的内容（日报）。
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { app } from 'electron'
 import type Database from 'better-sqlite3'
 import { getDb } from '../../db/connection.ts'
 import { localNowSec } from '@shared/parsing'
@@ -16,6 +19,25 @@ import type { PluginMainModule } from '../types.ts'
 
 /** 日报存进来时归到这个分类下，省得和手写笔记混在一起。 */
 const REPORT_FOLDER = '日报'
+
+/** 笔记里的图片存在这儿，按内容 SHA-256 命名——同一张图拖十次也只占一份。 */
+const ASSET_DIR = 'notebook-assets'
+const ASSET_TYPES: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif'
+}
+/** 单张图上限。再大的图塞进笔记，打开这一篇就会明显卡一下。 */
+const ASSET_MAX_BYTES = 10 * 1024 * 1024
+/** 只认自己写出去的文件名，挡住 ../ 这类路径穿越。 */
+const ASSET_ID_RE = /^[a-f0-9]{64}\.(?:png|jpg|webp|gif)$/
+
+function assetDir(): string {
+  const dir = join(app.getPath('userData'), ASSET_DIR)
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  return dir
+}
 
 interface FolderRow {
   id: string
@@ -224,6 +246,37 @@ const notebook: PluginMainModule = {
       return true
     },
 
+    /**
+     * 存一张拖进来的图，返回文件名。正文里只留这个名字，图片本体在 userData 下，
+     * 不进数据库——把 base64 塞进笔记正文会让这一篇每次读写都拖着几 MB 走。
+     */
+    'save-image': (input: { dataUrl?: string }) => {
+      const m = /^data:([^;,]+);base64,(.+)$/s.exec(String(input?.dataUrl ?? ''))
+      const ext = m ? ASSET_TYPES[m[1].toLowerCase()] : undefined
+      if (!m || !ext) return { ok: false, message: '只支持 PNG、JPEG、WebP 和 GIF' }
+      const buf = Buffer.from(m[2], 'base64')
+      if (!buf.length) return { ok: false, message: '图片是空的' }
+      if (buf.length > ASSET_MAX_BYTES) return { ok: false, message: '图片超过 10 MB' }
+      const id = `${createHash('sha256').update(buf).digest('hex')}.${ext}`
+      const path = join(assetDir(), id)
+      if (!existsSync(path)) writeFileSync(path, buf)
+      return { ok: true, id }
+    },
+
+    /** 渲染层拿它填 img 的 src：CSP 只放行 self 和 data:，所以这里回 data URL。 */
+    'read-image': (id: string): string | null => {
+      if (!ASSET_ID_RE.test(String(id ?? ''))) return null
+      const path = join(assetDir(), id)
+      if (!existsSync(path)) return null
+      const ext = id.split('.').pop() as string
+      const mime = Object.entries(ASSET_TYPES).find(([, e]) => e === ext)?.[0] ?? 'image/png'
+      try {
+        return `data:${mime};base64,${readFileSync(path).toString('base64')}`
+      } catch {
+        return null
+      }
+    },
+
     folders: (): NoteFolder[] => listFolders(),
 
     'folder-create': (name: string, parentId?: string | null) => {
@@ -296,6 +349,27 @@ const notebook: PluginMainModule = {
         sourceRef: typeof input?.sourceRef === 'string' ? input.sourceRef : null
       })
       return { ok: true, message: `已存到记事本的「${REPORT_FOLDER}」` }
+    }
+  },
+
+  assistantActions: {
+    /** 参数来自模型输出，一律当不可信输入校验。 */
+    'create-note': (args) => {
+      const content = typeof args.content === 'string' ? args.content : ''
+      const rawTitle = typeof args.title === 'string' ? args.title.trim().slice(0, 200) : ''
+      if (!rawTitle && !content.trim()) return { ok: false, message: '没说要记什么' }
+      const title = rawTitle || titleFromContent(content, '未命名')
+      const folderName = typeof args.folder === 'string' ? args.folder.trim().slice(0, 60) : ''
+      insertNote({
+        folderId: folderName ? ensureFolder(folderName) : null,
+        title,
+        content,
+        tags: normalizeTags(Array.isArray(args.tags) ? args.tags : [])
+      })
+      return {
+        ok: true,
+        message: folderName ? `已记到记事本的「${folderName}」：${title}` : `已记到记事本：${title}`
+      }
     }
   }
 }

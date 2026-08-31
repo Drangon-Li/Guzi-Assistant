@@ -278,3 +278,12 @@ textarea {
 }
 .note-body hr { margin: 1em 0; border: none; border-top: 1px solid var(--color-line); }
 .note-body a { color: var(--color-brand); text-decoration: underline; }
+.note-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.6em 0;
+  border-radius: 0.5em;
+}
+/* src 还没填上（异步读盘中）时占个位，免得段落先塌下去再弹开 */
+.note-body img:not([src]) { min-height: 2em; background: var(--color-elevated); }

@@ -5,6 +5,7 @@
 // 选中一段会在选区上方浮出工具栏；行首打 / 出插入菜单。
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { NoteFolder, NoteRecord } from '@shared/notebook'
+import { api } from '../../api'
 import {
   applyInlineFormat,
   clearColorWrapper,
@@ -32,6 +33,17 @@ const ACTIONS: { kind: InlineFormat; label: string; title: string }[] = [
   { kind: 'code', label: '</>', title: '行内代码' },
   { kind: 'link', label: '链接', title: '添加链接' }
 ]
+
+const call = <T,>(action: string, ...args: unknown[]): Promise<T> =>
+  api.plugin<T>('notebook', action, ...args)
+
+const readAsDataURL = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 
 type SlashId = 'h1' | 'h2' | 'h3' | 'todo' | 'ul' | 'ol' | 'quote' | 'code' | 'divider'
 
@@ -73,6 +85,7 @@ export default function NoteEditor({
     const editor = editorRef.current
     if (!editor) return
     editor.innerHTML = renderNoteHTML(note.content)
+    hydrateImages()
     resetHistory(history.current, editor)
     setEmpty(!note.content.trim())
     // 只在切换笔记时重灌；正文后续变化由 DOM 自己持有
@@ -111,9 +124,55 @@ export default function NoteEditor({
   const pushChange = useCallback((): void => {
     const editor = editorRef.current
     if (!editor) return
-    setEmpty(!editor.textContent?.trim())
+    // 有图片时不算空，否则只放了一张图的笔记会一直显示占位提示
+    setEmpty(!editor.textContent?.trim() && !editor.querySelector('img[data-asset]'))
     onChange({ content: editorMarkdown(editor) })
   }, [onChange])
+
+  /** 正文里的图片只存了文件名，挂载后逐个把 data URL 填进 src。 */
+  const hydrateImages = useCallback((): void => {
+    const imgs = editorRef.current?.querySelectorAll<HTMLImageElement>('img[data-asset]')
+    imgs?.forEach((img) => {
+      const id = img.dataset.asset
+      if (!id || img.getAttribute('src')) return
+      void call<string | null>('read-image', id).then((url) => {
+        if (url) img.src = url
+      })
+    })
+  }, [])
+
+  const insertImages = useCallback(
+    async (files: File[], at?: Range | null): Promise<void> => {
+      const editor = editorRef.current
+      if (!editor || !files.length) return
+      let range = at
+      for (const file of files) {
+        const res = await call<{ ok: boolean; id?: string; message?: string }>('save-image', {
+          dataUrl: await readAsDataURL(file)
+        })
+        if (!res?.ok || !res.id) {
+          window.alert(res?.message ?? '这张图没能存下来')
+          continue
+        }
+        const img = document.createElement('img')
+        img.dataset.asset = res.id
+        img.alt = file.name.replace(/\.[^.]+$/, '')
+        if (range && editor.contains(range.commonAncestorContainer)) {
+          range.deleteContents()
+          range.insertNode(img)
+          range.setStartAfter(img)
+          range.collapse(true)
+        } else {
+          editor.append(img)
+          range = null
+        }
+      }
+      hydrateImages()
+      pushChange()
+      commitHistory(history.current, editor, true)
+    },
+    [hydrateImages, pushChange]
+  )
 
   const runFormat = (kind: InlineFormat, value = ''): void => {
     const editor = editorRef.current
@@ -289,8 +348,37 @@ export default function NoteEditor({
     return () => editor.removeEventListener('beforeinput', onBefore)
   }, [pushChange])
 
-  /** 只收纯文本：外部 HTML 进不来，白名单模型才成立。 */
+  const imageFiles = (list: FileList | null | undefined): File[] =>
+    [...(list ?? [])].filter((f) => f.type.startsWith('image/'))
+
+  /**
+   * 图片拖进正文就插到落点，不走「拖文件进来解析成日程」那条全局管线——
+   * 所以命中图片时要拦住冒泡。拖别的东西（比如 PDF）照旧交给外层。
+   */
+  const onDrop = (e: React.DragEvent<HTMLDivElement>): void => {
+    const files = imageFiles(e.dataTransfer?.files)
+    if (!files.length) return
+    e.preventDefault()
+    e.stopPropagation()
+    const at = document.caretRangeFromPoint?.(e.clientX, e.clientY) ?? null
+    void insertImages(files, at)
+  }
+
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>): void => {
+    if (![...(e.dataTransfer?.items ?? [])].some((i) => i.kind === 'file')) return
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  /** 图片存下来插进正文；其余只收纯文本——外部 HTML 进不来，白名单模型才成立。 */
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>): void => {
+    const pics = imageFiles(e.clipboardData?.files)
+    if (pics.length) {
+      e.preventDefault()
+      const selection = window.getSelection()
+      void insertImages(pics, selection?.rangeCount ? selection.getRangeAt(0) : null)
+      return
+    }
     e.preventDefault()
     const text = e.clipboardData.getData('text/plain')
     if (!text) return
@@ -379,7 +467,7 @@ export default function NoteEditor({
         {empty && (
           <div className="pointer-events-none absolute inset-x-0 px-8 py-4">
             <div className="mx-auto max-w-3xl text-sm text-slate-300">
-              写点什么。选中一段会浮出工具栏，行首打 / 插入标题、列表或代码块。
+              写点什么。选中一段会浮出工具栏，行首打 / 插入标题、列表或代码块，图片可以直接拖进来。
             </div>
           </div>
         )}
@@ -399,6 +487,8 @@ export default function NoteEditor({
           }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
         />
       </div>
 

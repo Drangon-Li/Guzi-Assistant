@@ -160,5 +160,21 @@ check('img onerror 保持转义', !html('<img src=x onerror=alert(1)>').includes
 check('带别的属性的 mark 不还原', !html('<mark data-color="red" onclick="x()">y</mark>').includes('<mark class'))
 check('高亮里的加粗照常解析', html('<mark data-color="blue">**粗**</mark>').includes('<strong>粗</strong>'))
 
+// ---------- 图片引用 ----------
+// 正文只存文件名，图片本体在 userData 下。这条正则同时是白名单：
+// 不合形状的一律不当图片，挡住 ../ 和外部 URL。
+const SHA = 'a'.repeat(64)
+check('asset 图片还原成 img', html(`![猫](asset:${SHA}.png)`).includes(`<img data-asset="${SHA}.png" alt="猫">`))
+check('jpg/webp/gif 也认', html(`![](asset:${SHA}.webp)`).includes('<img data-asset='))
+check('空 alt 不报错', html(`![](asset:${SHA}.png)`).includes('alt=""'))
+check('路径穿越不成图', !html('![x](asset:../../etc/passwd)').includes('<img'))
+check('外部图片地址不成图', !html('![x](https://evil.com/a.png)').includes('<img'))
+check('哈希长度不对不成图', !html('![x](asset:abc.png)').includes('<img'))
+check('扩展名不在白名单不成图', !html(`![x](asset:${SHA}.svg)`).includes('<img'))
+check(
+  '图片排在链接之前解析',
+  html(`![图](asset:${SHA}.png)`).includes('<img') && !html(`![图](asset:${SHA}.png)`).includes('<a ')
+)
+
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)
