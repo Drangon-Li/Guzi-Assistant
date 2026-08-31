@@ -8,6 +8,7 @@ import {
   applyTemplate,
   isValidRange,
   labelToMinutes,
+  scopeLabel,
   type BlockDraft,
   type TimeBlock,
   type TemplateBlock,
@@ -146,6 +147,41 @@ function insertBlock(draft: BlockDraft): TimeBlock | null {
   return row
 }
 
+/** 落一个模板和它的块；名字为空返回 null。界面上的「存为模板」和对话里的建模板都走这里。 */
+function insertTemplate(
+  name: string,
+  weekdays: readonly number[],
+  dayTypes: unknown,
+  blocks: readonly Omit<TemplateBlock, 'id' | 'templateId'>[]
+): string | null {
+  const trimmed = name.trim()
+  if (!trimmed) return null
+  const db = getDb()
+  const id = randomUUID()
+  const insertTpl = db.prepare(
+    'INSERT INTO p_timeblock_template (id, name, weekdays, day_types, created_at) VALUES (?, ?, ?, ?, ?)'
+  )
+  const insertBlk = db.prepare(
+    `INSERT INTO p_timeblock_template_block (id, template_id, start_min, end_min, title, tag)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  )
+  // 模板和它的块必须一起落库，否则会留下没有块的空模板
+  db.transaction(() => {
+    insertTpl.run(
+      id,
+      trimmed,
+      JSON.stringify(normalizeWeekdays(weekdays)),
+      JSON.stringify(normalizeDayTypes(dayTypes)),
+      localNowSec()
+    )
+    for (const b of blocks) {
+      if (!isValidRange(b.startMin, b.endMin) || !b.title.trim()) continue
+      insertBlk.run(randomUUID(), id, b.startMin, b.endMin, b.title.trim(), b.tag)
+    }
+  })()
+  return id
+}
+
 const initTables = (db: Database.Database): void => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS p_timeblock_block (
@@ -275,34 +311,7 @@ const timeblock: PluginMainModule = {
       weekdays: number[],
       dayTypes: string[],
       blocks: Omit<TemplateBlock, 'id' | 'templateId'>[]
-    ) => {
-      const trimmed = name.trim()
-      if (!trimmed) return null
-      const db = getDb()
-      const id = randomUUID()
-      const insertTpl = db.prepare(
-        'INSERT INTO p_timeblock_template (id, name, weekdays, day_types, created_at) VALUES (?, ?, ?, ?, ?)'
-      )
-      const insertBlk = db.prepare(
-        `INSERT INTO p_timeblock_template_block (id, template_id, start_min, end_min, title, tag)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      // 模板和它的块必须一起落库，否则会留下没有块的空模板
-      db.transaction(() => {
-        insertTpl.run(
-          id,
-          trimmed,
-          JSON.stringify(normalizeWeekdays(weekdays)),
-          JSON.stringify(normalizeDayTypes(dayTypes)),
-          localNowSec()
-        )
-        for (const b of blocks) {
-          if (!isValidRange(b.startMin, b.endMin) || !b.title.trim()) continue
-          insertBlk.run(randomUUID(), id, b.startMin, b.endMin, b.title.trim(), b.tag)
-        }
-      })()
-      return id
-    },
+    ) => insertTemplate(name, weekdays, dayTypes, blocks),
 
     /**
      * 改模板的名字和适用范围。块不在这里改——要换内容就重新「把今天存为模板」，
@@ -378,6 +387,37 @@ const timeblock: PluginMainModule = {
       if (!row) return { ok: false, message: '没能排上' }
       const when = date === dayKey(new Date()) ? '今天' : date
       return { ok: true, message: `${when} ${args.start}–${args.end} 排上了：${title}` }
+    },
+
+    // 「建一个工作日模板，上午九点到十二点写代码，中午休息一小时」走到这里。
+    // 一段都解析不出来就失败：宁可让它回去把时段问清楚，也不要存一个空模板。
+    'create-template': (args) => {
+      const name = typeof args.name === 'string' ? args.name.trim().slice(0, 40) : ''
+      if (!name) return { ok: false, message: '没说模板叫什么' }
+
+      const blocks: Omit<TemplateBlock, 'id' | 'templateId'>[] = []
+      for (const raw of Array.isArray(args.blocks) ? args.blocks : []) {
+        const b = raw as Record<string, unknown>
+        const title = typeof b.title === 'string' ? b.title.trim().slice(0, 60) : ''
+        const startMin = typeof b.start === 'string' ? labelToMinutes(b.start) : null
+        const endMin = typeof b.end === 'string' ? labelToMinutes(b.end) : null
+        if (!title || startMin === null || endMin === null || !isValidRange(startMin, endMin)) continue
+        blocks.push({ startMin, endMin, title, tag: null })
+      }
+      if (!blocks.length) return { ok: false, message: '没说要排哪些时段' }
+
+      const weekdays = normalizeWeekdays(
+        Array.isArray(args.weekdays)
+          ? args.weekdays.filter((n): n is number => typeof n === 'number')
+          : [0, 1, 2, 3, 4, 5, 6]
+      )
+      const dayTypes = normalizeDayTypes(args.dayTypes)
+      if (!insertTemplate(name, weekdays, dayTypes, blocks))
+        return { ok: false, message: '没能建起来' }
+      return {
+        ok: true,
+        message: `模板「${name}」建好了：${blocks.length} 段，${scopeLabel(weekdays, dayTypes)}`
+      }
     }
   },
 
