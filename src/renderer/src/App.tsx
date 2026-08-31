@@ -227,9 +227,12 @@ function MainApp(): React.JSX.Element | null {
   }, [page, shownPage])
 
   const handleDrop = async (e: React.DragEvent): Promise<void> => {
-    e.preventDefault()
+    // 收遮罩要排在最前：里层（如笔记正文接图片）可能已经接手，那时下面直接返回，
+    // 但「松开以提交文件」这块蒙版无论如何都得收掉，否则会一直挂在界面上。
     dragDepth.current = 0
     setDragging(false)
+    if (e.defaultPrevented) return
+    e.preventDefault()
     const paths = Array.from(e.dataTransfer.files).map((f) => window.guziAssistant.pathForFile(f))
     if (!paths.length) return
     showToast(`正在解析 ${paths.length} 个文件…`)

@@ -137,7 +137,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   }
 
   return (
-    <div className="mx-auto flex max-w-4xl gap-6 px-8 py-8">
+    <div className="mx-auto flex max-w-6xl gap-6 px-8 py-8">
       {/* sticky：右侧内容长页滚动时分类栏钉在视口，不跟着滚走 */}
       <nav className="sticky top-8 flex w-28 shrink-0 flex-col gap-1 self-start pt-0.5">
         <h1 className="mb-2 px-3 text-lg font-semibold">设置</h1>

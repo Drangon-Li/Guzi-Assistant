@@ -165,7 +165,7 @@ export default function Reports(): React.JSX.Element {
 
   if (view === 'activity')
     return (
-      <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10">
         {header}
         <div key="activity" className="animate-page flex flex-col gap-6">
           <ActivityDetail preset={preset} />
@@ -174,7 +174,7 @@ export default function Reports(): React.JSX.Element {
     )
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10">
       {header}
 
       <div key="work" className="animate-page flex flex-col gap-6">

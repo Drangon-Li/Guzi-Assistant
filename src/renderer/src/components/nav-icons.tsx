@@ -130,6 +130,17 @@ export function IconHabit(): React.JSX.Element {
   )
 }
 
+/** 记事本：翻开的本子 */
+export function IconNotebook(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" className={cls} {...base}>
+      <path d="M5 4.5h5a2 2 0 0 1 2 2v13a1.7 1.7 0 0 0-1.7-1.5H5Z" />
+      <path d="M19 4.5h-5a2 2 0 0 0-2 2v13a1.7 1.7 0 0 1 1.7-1.5H19Z" />
+      <path d="M12 6.5v13" />
+    </svg>
+  )
+}
+
 /** 成就：一支谷穗 */
 export function IconAchievement(): React.JSX.Element {
   return (

@@ -8,12 +8,14 @@ import { lockedCountByPlugin } from '@shared/achievement'
 import { findPlugin } from '@shared/plugin-registry'
 import { api } from '../api'
 import { PLUGIN_UI } from '../plugins'
+import { Toggle } from '../components/ui'
 
 const CATEGORY_LABELS: Record<string, string> = {
   planning: '规划',
   focus: '专注',
   habit: '习惯',
-  reward: '激励'
+  reward: '激励',
+  note: '记录'
 }
 
 const nameOf = (id: string): string => findPlugin(id)?.name ?? id
@@ -84,7 +86,7 @@ export default function Market(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-8 py-8">
+    <div className="mx-auto max-w-6xl px-8 py-8">
       <header className="mb-6">
         <h1 className="text-lg font-semibold">市场</h1>
         <p className="mt-0.5 max-w-2xl text-xs text-slate-400">
@@ -99,6 +101,9 @@ export default function Market(): React.JSX.Element {
           const Icon = PLUGIN_UI[id]?.Icon
           const open = expanded === id
           const achievements = lockedCountByPlugin(id)
+          const actions = s.manifest.contributes.assistantActions ?? []
+          const sinks = s.manifest.contributes.contentSinks ?? []
+          const context = s.manifest.contributes.assistantContext
           return (
             <div
               key={id}
@@ -137,6 +142,50 @@ export default function Market(): React.JSX.Element {
                     <p className="mt-2 text-sm leading-relaxed text-slate-500">
                       {s.manifest.description}
                     </p>
+                  )}
+
+                  {/* 插件给谷子开放了哪些能力，摊开写清楚——不然用户不知道能对它说什么。
+                      这些动作只有在插件启用时才会进对话提示词，没装就等于不存在。 */}
+                  {open && (actions.length > 0 || sinks.length > 0) && (
+                    <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2.5">
+                      {actions.length > 0 && (
+                        <>
+                          <div className="text-[11px] font-medium text-slate-500">
+                            启用后，可以直接对谷子说
+                          </div>
+                          <ul className="mt-1 space-y-1">
+                            {actions.map((a) => (
+                              <li key={a.name} className="text-xs leading-5 text-slate-500">
+                                · {a.summary}
+                                <span className="ml-1 text-slate-400">— {a.when}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                      {sinks.length > 0 && (
+                        <div className={actions.length ? 'mt-2' : ''}>
+                          <div className="text-[11px] font-medium text-slate-500">
+                            也可以接收别处的内容
+                          </div>
+                          <ul className="mt-1 space-y-0.5">
+                            {sinks.map((k) => (
+                              <li key={k.action} className="text-xs leading-5 text-slate-500">
+                                · {k.label}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {context && (
+                        <div className={actions.length || sinks.length ? 'mt-2' : ''}>
+                          <div className="text-[11px] font-medium text-slate-500">
+                            会让谷子看到
+                          </div>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">· {context.summary}</p>
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   <div className="mt-2 space-y-1 text-xs">
@@ -178,23 +227,13 @@ export default function Market(): React.JSX.Element {
                 </div>
 
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
-                  {s.enabled ? (
-                    <button
-                      disabled={busy === id}
-                      onClick={() => void disable(s)}
-                      className="rounded-lg border border-slate-200 px-4 py-1.5 text-sm text-slate-500 hover:border-slate-300 disabled:opacity-50"
-                    >
-                      停用
-                    </button>
-                  ) : (
-                    <button
-                      disabled={busy === id || !s.available}
-                      onClick={() => void enable(s)}
-                      className="rounded-lg bg-brand px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40"
-                    >
-                      启用
-                    </button>
-                  )}
+                  {/* 与设置页同一个开关：启停是个二元状态，用开关比一颗会变字的按钮更直观 */}
+                  <Toggle
+                    checked={s.enabled}
+                    disabled={busy === id || (!s.enabled && !s.available)}
+                    ariaLabel={`${s.enabled ? '停用' : '启用'}${s.manifest.name}`}
+                    onChange={(next) => (next ? enable(s) : disable(s))}
+                  />
                   {!s.enabled && (
                     <button
                       disabled={busy === id}

@@ -75,7 +75,7 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 pb-16">
+    <div className="mx-auto flex max-w-5xl flex-col gap-5 px-8 py-8 pb-16">
       <h1 className="text-lg font-semibold">个人</h1>
 
       <Section title="账户">

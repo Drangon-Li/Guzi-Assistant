@@ -133,6 +133,39 @@ export const PLUGINS = [
       nav: { label: '成就', order: 130 }
     },
     storage: { tables: ['p_achievement_unlock'] }
+  },
+  {
+    id: 'notebook',
+    name: '记事本',
+    version: '1.0.0',
+    minAppVersion: '0.7.0',
+    summary: '随手写点什么，Markdown 记，按分类和标签收',
+    description:
+      '不进日程也不进打卡的那些内容——想法、会议纪要、读到的东西，都往这儿放。' +
+      '正文是 Markdown，选中文字会浮出工具栏，加粗、标题、高亮点一下就行。' +
+      '笔记可以放进分类（分类能套分类），也可以打标签，两种归拢方式互不影响。' +
+      '生成日报后可以直接存成一篇笔记，接着在上面补自己的话。',
+    category: 'note',
+    contributes: {
+      nav: { label: '记事本', order: 140 },
+      contentSinks: [{ action: 'save-content', label: '保存到记事本' }],
+      assistantContext: {
+        summary: '让谷子知道你记过哪些笔记（只给标题和摘要，可在记事本的设置里逐个排除）'
+      },
+      assistantActions: [
+        {
+          name: 'create-note',
+          summary: '记一篇笔记',
+          args:
+            '{"title":标题（可省，省了就取正文第一行）,"content":正文，可用 Markdown,' +
+            '"folder":可选，分类名，没有这个分类会新建,"tags":可选，标签数组}',
+          when:
+            '用户说「记一下…」「帮我记个笔记…」「把这段存起来」这类**要留存一段内容**、' +
+            '而不是要办的事时用。是待办或有时间的安排就不要用这个，那些该进日程。'
+        }
+      ]
+    },
+    storage: { tables: ['p_notebook_folder', 'p_notebook_note'] }
   }
 ] as const satisfies PluginRegistry
 

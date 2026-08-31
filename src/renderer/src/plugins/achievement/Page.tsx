@@ -68,7 +68,7 @@ export default function AchievementPage(_props: PluginPageProps): React.JSX.Elem
   const overall = summary.available > 0 ? summary.unlocked / summary.available : 0
 
   return (
-    <div className="mx-auto max-w-4xl px-8 py-8">
+    <div className="mx-auto max-w-6xl px-8 py-8">
       <header className="mb-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

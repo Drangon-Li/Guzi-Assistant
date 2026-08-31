@@ -151,6 +151,14 @@ export const api = {
     inv<AssistantTurnResult>('assistant:quick-chat', payload),
   assistantAdd: (payload: { sourceText: string; item: ParsedItem; force?: boolean }) =>
     inv<AddedInfo>('assistant:add', payload),
+  /**
+   * 对话历史，整体存取（消息结构只有渲染层认识）。
+   * scope='assistant' 是桌宠气泡与悬浮助手共用的那份，'quickbar' 是快捷提问框自己的——
+   * 两边的消息结构不一样，凑成一种反而要互相迁就。
+   */
+  chatHistory: <T>(scope: string) => inv<T[]>('chat:history', scope),
+  chatSave: (scope: string, msgs: unknown[]) => inv<void>('chat:save', scope, msgs),
+  chatClear: (scope: string) => inv<void>('chat:clear', scope),
   focusMain: (route?: string) => inv<void>('app:focus-main', route),
 
   exportTaskIcs: (task: TaskRecord) =>
@@ -170,6 +178,8 @@ export const api = {
   petSetPaused: (v: boolean) => inv<void>('pet:set-paused', v),
   petResetPosition: () => inv<void>('pet:reset-position'),
   petChatHide: () => inv<void>('pet:chat-hide'),
+  /** 正文不滚动的话窗口该多高；主进程夹进屏幕范围后调整 */
+  petChatResize: (height: number) => inv<void>('pet:chat-resize', height),
   appVersion: () => inv<string>('app:version'),
   /** 手动检查更新：结果通过系统对话框反馈，返回值供按钮态使用 */
   checkUpdate: () => inv<{ status: 'update' | 'latest' | 'error'; version?: string }>('app:check-update'),

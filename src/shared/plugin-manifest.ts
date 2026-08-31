@@ -8,7 +8,7 @@
 //  - 表名必须 p_<id>_ 开头 → 卸载时按前缀 DROP，够不到核心表
 //  - IPC 通道必须 plugin:<id>: 开头 → preload 可按前缀校验，不必逐条登记
 
-export type PluginCategory = 'planning' | 'focus' | 'habit' | 'reward'
+export type PluginCategory = 'planning' | 'focus' | 'habit' | 'reward' | 'note'
 
 /**
  * 助手可调用的动作。声明会被拼进对话提示词——**只拼已启用插件的**，
@@ -43,6 +43,20 @@ export function pluginEventName(from: string, name: string): string {
   return `${from}:${name}`
 }
 
+/**
+ * 内容接收器：核心功能把一段内容交给插件收下（目前是日报「保存到…」）。
+ *
+ * 核心不能认识某个具体插件——否则停用它，日报页那个按钮就指向空气了。所以核心只问
+ * 「已启用的插件里谁能收」，装了记事本就多一个去处，一个都没装时按钮根本不出现。
+ * 和导航、助手动作一样，宿主依赖的是这份契约，不是某个 id。
+ */
+export interface ContentSinkSpec {
+  /** 动作名，对应主进程 handlers 里的同名 key */
+  action: string
+  /** 菜单里显示的文案，如「保存到记事本」 */
+  label: string
+}
+
 export interface PluginContributes {
   /** 侧边栏导航项；order 越小越靠上，核心页占 0-99，插件从 100 起 */
   nav?: { label: string; order: number }
@@ -58,6 +72,10 @@ export interface PluginContributes {
   emits?: readonly PluginEventSpec[]
   /** 本插件监听的事件（完整名 <plugin>:<event>），只用于校验与 Market 的联动提示 */
   listens?: readonly string[]
+  /** 能收下核心交来的内容（日报「保存到…」按已启用插件列出这些） */
+  contentSinks?: readonly ContentSinkSpec[]
+  /** 向助手的对话提示词贡献只读上下文；summary 写清楚给的是什么，Market 里要显示 */
+  assistantContext?: { summary: string }
 }
 
 export interface PluginManifest {
@@ -287,6 +305,21 @@ export function assistantActionsBlock(
     }
   }
   return lines.join('\n')
+}
+
+/** 已启用插件提供的内容去处，按注册表顺序。空数组表示「保存到…」整个不显示。 */
+export function contentSinksOf(
+  registry: PluginRegistry,
+  enabled: readonly string[]
+): { pluginId: string; pluginName: string; action: string; label: string }[] {
+  const out: { pluginId: string; pluginName: string; action: string; label: string }[] = []
+  for (const m of registry) {
+    if (!enabled.includes(m.id)) continue
+    for (const s of m.contributes.contentSinks ?? []) {
+      out.push({ pluginId: m.id, pluginName: m.name, action: s.action, label: s.label })
+    }
+  }
+  return out
 }
 
 /** 校验一个动作调用是否指向已启用插件里真实存在的动作。 */

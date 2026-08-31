@@ -27,6 +27,7 @@ import { getDb } from '../db/connection.ts'
 import { broadcast } from '../windows'
 import achievement from './achievement/index.ts'
 import habit from './habit/index.ts'
+import notebook from './notebook/index.ts'
 import pomodoro from './pomodoro/index.ts'
 import timeblock from './timeblock/index.ts'
 import type { AssistantActionResult, PluginMainModule } from './types.ts'
@@ -35,7 +36,8 @@ export const PLUGIN_MODULES: Record<string, PluginMainModule> = {
   timeblock,
   pomodoro,
   habit,
-  achievement
+  achievement,
+  notebook
 }
 
 /**
@@ -128,6 +130,26 @@ export function states(): PluginState[] {
 /** 已启用插件的助手动作清单，拼进对话提示词。 */
 export function assistantActions(): string {
   return assistantActionsBlock(PLUGINS, readEnabledPlugins())
+}
+
+/**
+ * 已启用插件贡献的只读上下文，拼进对话提示词。
+ * 用户排除掉的内容由插件自己过滤——这里不知道也不该知道各插件的隐私口径。
+ * 单个插件出错不影响其余的：拿不到它那段，总比整轮对话失去上下文好。
+ */
+export function assistantContext(): string {
+  const parts: string[] = []
+  for (const id of readEnabledPlugins()) {
+    const fn = PLUGIN_MODULES[id]?.assistantContext
+    if (!fn) continue
+    try {
+      const text = fn().trim()
+      if (text) parts.push(text)
+    } catch (e) {
+      console.error(`[plugins] ${id} 提供助手上下文失败：`, e)
+    }
+  }
+  return parts.join('\n\n')
 }
 
 /**

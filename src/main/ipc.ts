@@ -4,6 +4,9 @@ import {
   addFocusTask,
   appUsageSummary,
   bulkUpdateStatus,
+  clearChatMessages,
+  listChatMessages,
+  saveChatMessages,
   deleteReport,
   deleteSourceContent,
   deleteTask,
@@ -78,7 +81,15 @@ import { pickHistoryApps } from './history/app-picker.ts'
 import { setSession } from './session'
 import { closePayment, openPayment } from './payment'
 import { clearAllShots, deleteShot, readShotDataUrl } from './shotvault'
-import { broadcast, broadcastTheme, focusMain, hidePreview, resizePreview, showPreview } from './windows'
+import {
+  broadcast,
+  broadcastExcept,
+  broadcastTheme,
+  focusMain,
+  hidePreview,
+  resizePreview,
+  showPreview
+} from './windows'
 import {
   disablePlugin,
   enablePlugin,
@@ -101,7 +112,7 @@ import { hideReminderWindow, resizeReminder } from './reminder-window'
 import { applyTaskReminderSchedule } from './task-reminder'
 import { applyClipWatchSettings } from './clipwatch'
 import { localIso } from '@shared/task-reminder'
-import { hidePetChat } from './pet/pet-chat-window'
+import { hidePetChat, resizePetChat } from './pet/pet-chat-window'
 import { hideQuickBar, isQuickBarVisible, resizeQuickBar } from './quickbar'
 import { applyMcpSettings } from './mcp-server'
 import { checkForUpdates } from './updater'
@@ -546,6 +557,19 @@ export function registerIpc(): void {
     'assistant:add',
     (_e, payload: { sourceText: string; item: ParsedItem; force?: boolean }) => assistantAdd(payload)
   )
+
+  // 对话历史：桌宠气泡和主窗悬浮助手是两个渲染进程，共用库里这一份，
+  // 任一处改动落库后通知另一处重拉（快捷提问框不参与，它按设计每次都是新对话）。
+  ipcMain.handle('pet:chat-resize', (_e, height: number) => resizePetChat(height))
+  ipcMain.handle('chat:history', (_e, scope: string) => listChatMessages(scope))
+  ipcMain.handle('chat:save', (e, scope: string, msgs: unknown[]) => {
+    saveChatMessages(scope, msgs)
+    broadcastExcept(e.sender.id, 'guzi-assistant:chat-updated', { scope })
+  })
+  ipcMain.handle('chat:clear', (e, scope: string) => {
+    clearChatMessages(scope)
+    broadcastExcept(e.sender.id, 'guzi-assistant:chat-updated', { scope })
+  })
 
   ipcMain.handle('app:focus-main', (_e, route?: string) => {
     hidePreview()

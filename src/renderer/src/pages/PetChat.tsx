@@ -9,6 +9,7 @@ export default function PetChat(): React.JSX.Element {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [hotkeyLabel, setHotkeyLabel] = useState('⌥ C')
+  const [clearNonce, setClearNonce] = useState(0)
   // 桌宠拖入文件 → 主进程推来「总结+找日程」请求，注入对话
   const [injected, setInjected] = useState<{ content: string; display: string; nonce: number } | null>(null)
   const dropNonce = useRef(0)
@@ -33,21 +34,36 @@ export default function PetChat(): React.JSX.Element {
     return off
   }, [refresh])
 
-  // Esc 收起对话框
+  // Esc 收起对话框，⌘K 清屏
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') void api.petChatHide()
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setClearNonce((n) => n + 1)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   const noop = useCallback(() => {}, [])
+  // 正文要多高，窗口就长多高（主进程会夹进屏幕范围）：打开就该看到整段回复，而不是先滚一下
+  const onIdealHeight = useCallback((px: number) => {
+    void api.petChatResize(px)
+  }, [])
 
   return (
     <div className="flex h-full w-full flex-col p-2">
       <div className="animate-modal-in flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-surface shadow-2xl">
-        <header className="flex shrink-0 items-center justify-end px-2 pt-1.5">
+        <header className="flex shrink-0 items-center justify-between px-2 pt-1.5">
+          <button
+            onClick={() => setClearNonce((n) => n + 1)}
+            title="清屏（⌘K）"
+            className="rounded-lg px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            清屏
+          </button>
           <button
             onClick={() => void api.petChatHide()}
             aria-label="收起"
@@ -64,6 +80,8 @@ export default function PetChat(): React.JSX.Element {
               hotkeyLabel={hotkeyLabel}
               userName={profile.name}
               injected={injected}
+              clearNonce={clearNonce}
+              onIdealHeight={onIdealHeight}
             />
           ) : (
             <div className="flex h-full items-center justify-center">

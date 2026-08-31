@@ -190,3 +190,100 @@ textarea {
   z-index: 30;
   -webkit-app-region: drag;
 }
+
+/* ---------- 记事本插件：笔记正文排版与七色标记 ----------
+   颜色在笔记里存的是名字（data-color="red"），不是色值——明暗主题各自解析成不同的
+   变量，换主题不用改笔记内容。深色覆盖见 theme.css。 */
+:root {
+  --note-red: #c0392b;
+  --note-orange: #b3610e;
+  --note-yellow: #8a6d0b;
+  --note-green: #1f7a45;
+  --note-blue: #1663a6;
+  --note-purple: #6b45c0;
+  --note-gray: #6b7684;
+  --note-mark-red: #ffd9d2;
+  --note-mark-orange: #ffe3c2;
+  --note-mark-yellow: #fff3b0;
+  --note-mark-green: #cdf0d8;
+  --note-mark-blue: #d2e7fb;
+  --note-mark-purple: #e6ddfb;
+  --note-mark-gray: #e3e7ec;
+}
+
+.note-color-red { color: var(--note-red); }
+.note-color-orange { color: var(--note-orange); }
+.note-color-yellow { color: var(--note-yellow); }
+.note-color-green { color: var(--note-green); }
+.note-color-blue { color: var(--note-blue); }
+.note-color-purple { color: var(--note-purple); }
+.note-color-gray { color: var(--note-gray); }
+
+.note-mark { padding: 0.05em 0.2em; border-radius: 0.2em; background: var(--note-mark-yellow); color: inherit; }
+.note-mark-red { background: var(--note-mark-red); }
+.note-mark-orange { background: var(--note-mark-orange); }
+.note-mark-yellow { background: var(--note-mark-yellow); }
+.note-mark-green { background: var(--note-mark-green); }
+.note-mark-blue { background: var(--note-mark-blue); }
+.note-mark-purple { background: var(--note-mark-purple); }
+.note-mark-gray { background: var(--note-mark-gray); }
+
+/* 色板圆点：文字色用实心点，高亮用底色块 */
+.note-swatch-red { background: var(--note-red); }
+.note-swatch-orange { background: var(--note-orange); }
+.note-swatch-yellow { background: var(--note-yellow); }
+.note-swatch-green { background: var(--note-green); }
+.note-swatch-blue { background: var(--note-blue); }
+.note-swatch-purple { background: var(--note-purple); }
+.note-swatch-gray { background: var(--note-gray); }
+.note-swatch-mark-red { background: var(--note-mark-red); }
+.note-swatch-mark-orange { background: var(--note-mark-orange); }
+.note-swatch-mark-yellow { background: var(--note-mark-yellow); }
+.note-swatch-mark-green { background: var(--note-mark-green); }
+.note-swatch-mark-blue { background: var(--note-mark-blue); }
+.note-swatch-mark-purple { background: var(--note-mark-purple); }
+.note-swatch-mark-gray { background: var(--note-mark-gray); }
+
+/* body 全局禁用了选中，可编辑区必须放开，否则连选区都划不出来 */
+.note-body { -webkit-user-select: text; user-select: text; }
+.note-body h1 { font-size: 1.4em; font-weight: 600; margin: 0.8em 0 0.4em; }
+.note-body h2 { font-size: 1.2em; font-weight: 600; margin: 0.7em 0 0.35em; }
+.note-body h3 { font-size: 1.05em; font-weight: 600; margin: 0.6em 0 0.3em; }
+.note-body p { margin: 0.4em 0; }
+.note-body ul, .note-body ol { margin: 0.4em 0; padding-left: 1.4em; }
+.note-body ul { list-style: disc; }
+.note-body ol { list-style: decimal; }
+.note-body ul.note-todo { list-style: none; padding-left: 0.2em; }
+.note-body ul.note-todo li { display: flex; align-items: baseline; gap: 0.5em; }
+.note-body ul.note-todo li[data-checked='true'] { color: var(--color-slate-400); text-decoration: line-through; }
+.note-body blockquote {
+  margin: 0.5em 0;
+  padding-left: 0.8em;
+  border-left: 3px solid var(--color-line);
+  color: var(--color-slate-500);
+}
+.note-body pre {
+  margin: 0.6em 0;
+  padding: 0.7em 0.9em;
+  border-radius: 0.5em;
+  background: var(--color-elevated);
+  overflow-x: auto;
+  font-size: 0.9em;
+}
+.note-body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+.note-body :not(pre) > code {
+  padding: 0.1em 0.3em;
+  border-radius: 0.3em;
+  background: var(--color-elevated);
+}
+.note-body hr { margin: 1em 0; border: none; border-top: 1px solid var(--color-line); }
+.note-body a { color: var(--color-brand); text-decoration: underline; }
+.note-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.6em 0;
+  border-radius: 0.5em;
+}
+/* src 还没填上（异步读盘中）时占个位，免得段落先塌下去再弹开 */
+.note-body img:not([src]) { min-height: 2em; background: var(--color-elevated); }

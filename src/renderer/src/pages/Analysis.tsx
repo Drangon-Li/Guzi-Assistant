@@ -161,7 +161,7 @@ export default function Analysis(): React.JSX.Element {
   ]
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">分析</h1>

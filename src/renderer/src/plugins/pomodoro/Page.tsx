@@ -209,7 +209,7 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
   const startMinutes = customMin ?? prefs.focusMin
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <div className="mx-auto max-w-5xl px-8 py-8">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">专注</h1>

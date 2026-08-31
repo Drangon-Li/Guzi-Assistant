@@ -29,7 +29,12 @@ interface Msg {
 /** 快捷提问框（#/quickbar）：全局快捷键唤起的独立气泡对话模式。
  *  窗口本体是 vibrancy 磨砂卡（Spotlight 式），对话区在上、输入条在下、一张卡到底。
  *  Enter 单入口：问答/记日程/口头指令（「XX 做完了标记完成」，带一键撤销）都走助手；
- *  Esc/失焦收起。每次唤起都是全新对话（用户明确要求：⌥Space 即新会话）。 */
+ *  Esc/失焦收起。
+ *  对话留着：再唤起时接着上次说，⌘K 清空。早先是「每次唤起即新会话」，
+ *  但收起后回头找不到刚问过什么，用户要求改成留住历史。 */
+/** 这一份历史只属于快捷提问框：它的消息带任务操作和撤销，和助手那边结构不同。 */
+const SCOPE = 'quickbar'
+
 export default function QuickBar(): React.JSX.Element {
   const [text, setText] = useState('')
   const [msgs, setMsgs] = useState<Msg[]>([])
@@ -40,17 +45,38 @@ export default function QuickBar(): React.JSX.Element {
   const listRef = useRef<HTMLDivElement | null>(null)
   const boxRef = useRef<HTMLDivElement | null>(null)
   const idRef = useRef(0)
+  const loaded = useRef(false)
 
-  // 每次唤起：全新对话（清空气泡与输入）、聚焦
+  const clearHistory = (): void => {
+    setMsgs([])
+    idRef.current = 0
+    void api.chatClear(SCOPE)
+  }
+
+  // 唤起：清掉没发出去的输入、聚焦，对话本身留着接着上次说
   useEffect(() => {
     return api.on('guzi-assistant:quickbar-show', () => {
-      setMsgs([])
       setText('')
       setBusy(false)
       setShowNonce((n) => n + 1)
       inputRef.current?.focus()
     })
   }, [])
+
+  // 开窗时取回上次的对话。窗口是预创建的，所以这一次就够，之后靠下面那个 effect 落库
+  useEffect(() => {
+    void api.chatHistory<Msg>(SCOPE).then((rows) => {
+      setMsgs(rows)
+      idRef.current = rows.reduce((max, m) => Math.max(max, m.id ?? 0), 0)
+      loaded.current = true
+    })
+  }, [])
+
+  // 改动落库。取回历史之前不写，否则初始的空列表会把上次的对话覆盖掉
+  useEffect(() => {
+    if (!loaded.current) return
+    void api.chatSave(SCOPE, msgs)
+  }, [msgs])
 
   // 内容高度变化（气泡展开/收起）→ 主进程按底边固定调整窗口高度
   useEffect(() => {
@@ -148,6 +174,11 @@ export default function QuickBar(): React.JSX.Element {
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.nativeEvent.isComposing) return // 中文输入法上屏的 Enter 不当提交
     if (e.key === 'Escape') void api.quickbarHide()
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault()
+      clearHistory()
+      return
+    }
     if (e.key !== 'Enter') return
     e.preventDefault()
     // 记日程与问答同走助手（明确的添加请求模型会当轮直接加入），不再单设 ⌘Enter 通道
@@ -263,7 +294,7 @@ export default function QuickBar(): React.JSX.Element {
             {busy
               ? '处理中…可直接关闭，完成后桌宠会告诉你'
               : msgs.length
-                ? '⏎ 发送 · Esc 退出'
+                ? '⏎ 发送 · ⌘K 清空 · Esc 退出'
                 : '⏎ 问助手或记日程 · Esc 关闭'}
           </div>
         </div>

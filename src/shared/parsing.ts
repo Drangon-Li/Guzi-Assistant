@@ -216,6 +216,20 @@ ${pluginActions}
 `
 }
 
+/**
+ * 已启用插件贡献的只读上下文（如记事本里的笔记标题）。
+ * 用户在插件里排除掉的内容不会走到这里——排除在插件那侧就已经过滤了。
+ */
+function pluginContextSection(pluginContext: string): string {
+  if (!pluginContext.trim()) return ''
+  return `
+# 扩展功能里的内容（只读，供回答问题时参考）
+${pluginContext}
+- 这些是用户自己记下的内容，不是待办；不要擅自把它们变成日程
+- 用户没问到就不要主动复述
+`
+}
+
 /** 助手对话的系统提示词：捕获 + 日程问答 + 候选确认 + 插件动作 */
 export function buildAssistantInstructions(
   profile: Profile,
@@ -223,7 +237,9 @@ export function buildAssistantInstructions(
   candidates: ParsedItem[] | null,
   personalMemory = '',
   /** 已启用插件的可调用动作清单（assistantActionsBlock 渲染），空串表示一个都没有 */
-  pluginActions = ''
+  pluginActions = '',
+  /** 已启用插件贡献的只读上下文，空串表示没有 */
+  pluginContext = ''
 ): string {
   const now = localNow()
   const weekday = WEEKDAYS[new Date().getDay()]
@@ -274,6 +290,7 @@ ${EXTRACT_RULES}
 - id 必须原样取自上方「用户的任务数据」；用户描述模糊、可能对应多条任务时**不要填 ops**，在 reply 里列出疑似项让用户确认
 - done=标记完成；ignored=忽略/不再关注（用户说"删除"也用 ignored）
 - 执行后在 reply 里用一句话确认（任务标题 + 做了什么）；找不到对应任务时 ops 为 [] 并在 reply 里直说
+${pluginContextSection(pluginContext)}
 ${pluginActionsSection(pluginActions)}
 # 当前候选列表（用户上一轮收到的草稿）
 ${candidates && candidates.length ? JSON.stringify(candidates.map((c, i) => ({ 序号: i + 1, ...c }))) : '（无）'}
