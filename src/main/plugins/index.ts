@@ -27,6 +27,7 @@ import { getDb } from '../db/connection.ts'
 import { broadcast } from '../windows'
 import achievement from './achievement/index.ts'
 import habit from './habit/index.ts'
+import notebook from './notebook/index.ts'
 import pomodoro from './pomodoro/index.ts'
 import timeblock from './timeblock/index.ts'
 import type { AssistantActionResult, PluginMainModule } from './types.ts'
@@ -35,7 +36,8 @@ export const PLUGIN_MODULES: Record<string, PluginMainModule> = {
   timeblock,
   pomodoro,
   habit,
-  achievement
+  achievement,
+  notebook
 }
 
 /**

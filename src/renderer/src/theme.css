@@ -38,6 +38,23 @@
   --color-emerald-800: #6ee7b7 !important;
   --color-red-50: #2c1417 !important;
   --color-red-600: #f87171 !important;
+
+  /* 记事本的七色标记：浅色下是深字配浅底，深色下反过来——深字在深底上根本读不出来。
+     笔记里存的是颜色名，所以换主题不用改任何一条笔记。 */
+  --note-red: #ff9b8f !important;
+  --note-orange: #ffbe7a !important;
+  --note-yellow: #f2d472 !important;
+  --note-green: #79dda2 !important;
+  --note-blue: #8bc2f5 !important;
+  --note-purple: #bda6f5 !important;
+  --note-gray: #aeb8c2 !important;
+  --note-mark-red: #5d2a25 !important;
+  --note-mark-orange: #5a3c17 !important;
+  --note-mark-yellow: #544716 !important;
+  --note-mark-green: #1f4630 !important;
+  --note-mark-blue: #1d3a55 !important;
+  --note-mark-purple: #372a55 !important;
+  --note-mark-gray: #333a42 !important;
 }
 
 

@@ -133,6 +133,24 @@ export const PLUGINS = [
       nav: { label: '成就', order: 130 }
     },
     storage: { tables: ['p_achievement_unlock'] }
+  },
+  {
+    id: 'notebook',
+    name: '记事本',
+    version: '1.0.0',
+    minAppVersion: '0.7.0',
+    summary: '随手写点什么，Markdown 记，按分类和标签收',
+    description:
+      '不进日程也不进打卡的那些内容——想法、会议纪要、读到的东西，都往这儿放。' +
+      '正文是 Markdown，选中文字会浮出工具栏，加粗、标题、高亮点一下就行。' +
+      '笔记可以放进分类（分类能套分类），也可以打标签，两种归拢方式互不影响。' +
+      '生成日报后可以直接存成一篇笔记，接着在上面补自己的话。',
+    category: 'note',
+    contributes: {
+      nav: { label: '记事本', order: 140 },
+      contentSinks: [{ action: 'save-content', label: '保存到记事本' }]
+    },
+    storage: { tables: ['p_notebook_folder', 'p_notebook_note'] }
   }
 ] as const satisfies PluginRegistry
 

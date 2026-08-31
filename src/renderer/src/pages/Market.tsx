@@ -13,7 +13,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   planning: '规划',
   focus: '专注',
   habit: '习惯',
-  reward: '激励'
+  reward: '激励',
+  note: '记录'
 }
 
 const nameOf = (id: string): string => findPlugin(id)?.name ?? id

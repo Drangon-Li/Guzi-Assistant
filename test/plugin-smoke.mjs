@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url'
 import {
   assistantActionsBlock,
   channelPrefix,
+  contentSinksOf,
   danglingListeners,
   declaredEvents,
   isKnownAssistantAction,
@@ -214,6 +215,33 @@ for (const p of PLUGINS) {
     `${p.id}: 每条动作都写了触发场景`,
     specs.every((s) => s.when.length > 4 && s.summary.length > 2)
   )
+}
+
+// ---------- 内容接收器 ----------
+// 核心的「保存到…」只按契约列出已启用插件的接收器，自己不认识任何具体插件。
+// 声明了却没实现，点下去就是静默失败——和助手动作一样两个方向都要卡住。
+const SINKS = [
+  { ...base, id: 'sink', contributes: { contentSinks: [{ action: 'save-content', label: '存进去' }] } },
+  { ...base, id: 'plain', storage: { tables: ['p_plain_x'] }, contributes: {} }
+]
+check('没启用时一个去处都没有', contentSinksOf(SINKS, []).length === 0)
+check('启用后列出来', contentSinksOf(SINKS, ['sink'])[0].action === 'save-content')
+check('带上插件名字供界面显示', contentSinksOf(SINKS, ['sink'])[0].pluginName === base.name)
+check('没声明接收器的插件不出现', contentSinksOf(SINKS, ['plain']).length === 0)
+check('顺序跟注册表一致', contentSinksOf(SINKS, ['sink', 'plain']).length === 1)
+
+for (const p of PLUGINS) {
+  const sinks = 'contentSinks' in p.contributes ? p.contributes.contentSinks : []
+  if (!sinks.length) continue
+  const src = readFileSync(join(root, 'src/main/plugins', p.id, 'index.ts'), 'utf-8')
+  for (const sink of sinks) {
+    check(
+      `${p.id}: 声明的接收器「${sink.action}」有实现`,
+      new RegExp(`['"]${sink.action}['"]\\s*:`).test(src),
+      `main/plugins/${p.id}/index.ts 的 handlers 里没有 ${sink.action}`
+    )
+    check(`${p.id}: 接收器写了菜单文案`, sink.label.length > 1)
+  }
 }
 
 // ---------- 插件事件 ----------
