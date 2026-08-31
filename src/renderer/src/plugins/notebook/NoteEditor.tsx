@@ -319,7 +319,7 @@ export default function NoteEditor({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-slate-100 px-6 pt-5 pb-3">
+      <header className="shrink-0 border-b border-slate-100 px-6 pt-10 pb-3">
         <input
           value={note.title}
           onChange={(e) => onChange({ title: e.target.value })}

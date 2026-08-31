@@ -288,9 +288,11 @@ export default function NotebookPage(): React.JSX.Element {
     id ? (folders.find((f) => f.id === id)?.name ?? '未分类') : '未分类'
 
   return (
-    <div className="flex h-full min-h-0">
+    // 外壳给页面的容器是块级、高度随内容，h-full 在这里会落空，分隔线就只长到内容底部。
+    // 这一页是满屏三栏（不是纵向滚动页），自己定高最省事，也不必去动所有页面共用的那层容器。
+    <div className="flex h-screen min-h-0 overflow-hidden">
       {/* 左栏：分类与标签 */}
-      <aside className="flex w-52 shrink-0 flex-col gap-4 overflow-y-auto border-r border-slate-200 px-3 py-4">
+      <aside className="flex w-52 shrink-0 flex-col gap-4 overflow-y-auto border-r border-slate-200 px-3 pt-10 pb-4">
         <div>
           <div className="mb-1 flex items-center justify-between px-1">
             <span className="text-xs font-semibold text-slate-400">分类</span>
@@ -379,7 +381,7 @@ export default function NotebookPage(): React.JSX.Element {
 
       {/* 中栏：笔记列表 */}
       <section className="flex w-72 shrink-0 flex-col border-r border-slate-200">
-        <div className="flex shrink-0 items-center gap-2 px-3 py-3">
+        <div className="flex shrink-0 items-center gap-2 px-3 pt-10 pb-3">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
