@@ -30,10 +30,18 @@
 
 | 平台 | 产物 | 当前状态 |
 | --- | --- | --- |
-| macOS Apple Silicon | `.dmg` | GitHub 发布版（未签名） |
-| macOS Apple Silicon | `.zip` | GitHub 发布版（未签名） |
+| macOS Apple Silicon | `.dmg` | GitHub 发布版（adhoc 签名，未公证） |
+| macOS Apple Silicon | `.zip` | GitHub 发布版（adhoc 签名，未公证） |
 
-安装包未使用 Apple Developer ID 签名或公证。首次打开如果遇到 Gatekeeper 提示，请在 Finder 中右键「谷子助手.app」并选择「打开」，再确认提示。
+**装完先跑这一行**（不是「如果遇到提示」，是每个人都会遇到）：安装包没有经过 Apple 公证，macOS 会拦下所有从网上下载的未公证 app。把「谷子助手.app」拖进「应用程序」后，在终端执行：
+
+```sh
+xattr -dr com.apple.quarantine /Applications/谷子助手.app
+```
+
+然后双击即可。这条命令删的是 macOS 给下载物盖的来源标记，不改 app 本身。
+
+不跑这一行的话，双击会弹「无法验证开发者」——不是安装包坏了，是缺 Apple 公证。绕过入口在「系统设置 → 隐私与安全性 → 仍要打开」；Finder 里右键「打开」从 macOS 15 起已经不再能绕过。
 
 部分功能需要额外的系统权限：屏幕感知需要「屏幕录制」，活动历史需要「辅助功能」和「输入监控」，剪贴板自动捕获需要 macOS 15.4 及以上。
 

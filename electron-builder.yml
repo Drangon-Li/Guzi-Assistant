@@ -1,9 +1,12 @@
-# 打包配置（macOS）。v1 目标：本地可分发的未签名 dmg/zip。
+# 打包配置（macOS）。v1 目标：本地可分发的 dmg/zip（adhoc 签名，未公证）。
 # 外部品牌统一使用中文；afterPack 会把 Electron helper 的内部路径恢复为 GuziAssistant。
 # appId 暂保留旧值，维持 macOS 权限与升级身份连续性。
 appId: cn.shilong.gooz
 productName: 谷子助手
-artifactName: '谷子助手-${version}-${arch}.${ext}'
+# 产物文件名走纯 ASCII：GitHub Release 会把 asset 名里的非 ASCII 整段吃掉
+# （谷子助手-0.9.0-arm64.dmg 挂上去变成 -0.9.0-arm64.dmg，横杠开头、认不出是什么软件）。
+# 中文品牌由 productName / CFBundleDisplayName 承担，用户看到的仍然是「谷子助手」。
+artifactName: 'GuziAssistant-${version}-${arch}.${ext}'
 afterPack: scripts/after-pack.cjs
 directories:
   buildResources: build
@@ -29,7 +32,9 @@ mac:
       arch: [arm64]
   category: public.app-category.productivity
   icon: build/icon.png
-  # 暂无开发者证书：明确跳过签名（用户首次打开需右键 → 打开）
+  # 暂无 Developer ID 证书：跳过 electron-builder 的签名步骤，改由 afterPack 钩子完整 adhoc 签一遍。
+  # 不能只留 identity: null —— 那样包里不会有 _CodeSignature，Gatekeeper 判签名损坏、提示「已损坏」（#127）。
+  # 拿到证书后：删掉这行 identity，配 CSC_LINK / CSC_KEY_PASSWORD，并加 hardenedRuntime + entitlements + notarize。
   identity: null
   extendInfo:
     # 主进程内部 Bundle/可执行文件保持 GuziAssistant，桌面和菜单显示中文品牌。

@@ -396,7 +396,7 @@ npm run pack:dir    # 生成未签名的 arm64 .app 目录
 npm run pack:mac    # 生成 arm64 DMG + ZIP
 ```
 
-当前公开版本是 [v0.2.0](https://github.com/Chinese-Dragon-Li/Guzi-Assistant/releases/tag/v0.2.0)。安装包未使用 Apple Developer ID 签名或公证；Apple Silicon Mac 首次打开如遇 Gatekeeper，请在 Finder 中右键选择「打开」。
+当前公开版本是 [v0.2.0](https://github.com/Chinese-Dragon-Li/Guzi-Assistant/releases/tag/v0.2.0)。安装包由 `scripts/after-pack.cjs` 完整 adhoc 签名，但**未经 Apple 公证**——所以从网上下载后必然被 Gatekeeper 拦一次，用户需要 `xattr -dr com.apple.quarantine /Applications/谷子助手.app` 或走「系统设置 → 隐私与安全性 → 仍要打开」。想做到双击零提示，需要 Developer ID 证书 + `notarytool submit` 公证 + `stapler staple` 盖章（见 #127）。
 
 ---
 
