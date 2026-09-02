@@ -921,6 +921,9 @@ const TaskRow = memo(function TaskRow({
 function PendingDetections(): React.JSX.Element | null {
   const [dets, setDets] = useState<DetectionRecord[]>([])
   const [open, setOpen] = useState(false)
+  const [multi, setMulti] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
 
   const load = useCallback((): void => void api.listDetections().then(setDets), [])
   useEffect(() => {
@@ -929,8 +932,22 @@ function PendingDetections(): React.JSX.Element | null {
     return api.on('guzi-assistant:tasks-updated', load)
   }, [load])
 
-  const fresh = dets.filter((d) => d.status === 'new')
-  if (!fresh.length) return null
+  // 主进程只回 status='new'：没过入队门槛的存成 archived，压根不到这里
+  if (!dets.length) return null
+  const shown = dets.slice(0, 10)
+  const allShownSelected = shown.every((d) => selected.has(d.id))
+
+  const exitMulti = (): void => {
+    setMulti(false)
+    setSelected(new Set())
+  }
+  const toggleSelect = (id: string): void =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   const accept = async (id: string): Promise<void> => {
     await api.acceptDetection(id)
@@ -942,8 +959,29 @@ function PendingDetections(): React.JSX.Element | null {
   }
   // 积压兜底：历史弱信号可能攒几百条，逐条忽略不现实
   const dismissAll = async (): Promise<void> => {
-    await Promise.all(fresh.map((d) => api.dismissDetection(d.id)))
+    await Promise.all(dets.map((d) => api.dismissDetection(d.id)))
     load()
+  }
+  // 批量同意串行：acceptDetection 内部要查重，并发会让同一件事的两种表述都漏过去
+  const acceptSelected = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      for (const id of selected) await api.acceptDetection(id)
+    } finally {
+      setBusy(false)
+      exitMulti()
+      load()
+    }
+  }
+  const dismissSelected = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await Promise.all([...selected].map((id) => api.dismissDetection(id)))
+    } finally {
+      setBusy(false)
+      exitMulti()
+      load()
+    }
   }
 
   return (
@@ -952,11 +990,12 @@ function PendingDetections(): React.JSX.Element | null {
         className="flex w-full items-center justify-between px-4 py-3 text-left"
         onClick={() => {
           if (!open) load()
+          else exitMulti() // 收起时退出多选，免得下次展开还留着上次的勾选
           setOpen(!open)
         }}
       >
         <span className="text-sm text-slate-600">
-          有 <b className="text-brand">{fresh.length}</b> 条检测待确认
+          有 <b className="text-brand">{dets.length}</b> 条检测待确认
           <span className="ml-2 text-xs text-slate-400">检测到但还没确认的日程；已过时的会自动转入忽略</span>
         </span>
         <span className={`shrink-0 text-xs text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`}>
@@ -965,18 +1004,75 @@ function PendingDetections(): React.JSX.Element | null {
       </button>
       {open && (
         <ul className="border-t border-slate-100 px-4 py-1">
-          {fresh.length > 3 && (
-            <li className="flex justify-end py-1.5">
-              <button
-                className="text-[11px] text-slate-400 hover:text-red-500"
-                onClick={() => void dismissAll()}
-              >
-                全部忽略（{fresh.length}）
-              </button>
-            </li>
-          )}
-          {fresh.slice(0, 10).map((d) => (
-            <li key={d.id} className="flex items-center gap-3 border-b border-slate-100 py-2 last:border-b-0">
+          <li className="flex items-center justify-between gap-2 py-1.5">
+            {multi ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <button className="text-[11px] text-slate-400 hover:text-slate-700" onClick={exitMulti}>
+                    退出多选
+                  </button>
+                  <button
+                    className="text-[11px] text-slate-500 hover:text-brand"
+                    onClick={() =>
+                      setSelected(allShownSelected ? new Set() : new Set(shown.map((d) => d.id)))
+                    }
+                  >
+                    {allShownSelected ? '取消全选' : '全选'}
+                  </button>
+                  <span className="text-[11px] text-slate-400">已选 {selected.size}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-50 hover:text-red-500 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                    disabled={!selected.size || busy}
+                    onClick={() => void dismissSelected()}
+                  >
+                    忽略选中
+                  </button>
+                  <button
+                    className="rounded-lg bg-brand px-3 py-1 text-[11px] text-white hover:bg-brand-dark disabled:opacity-40 disabled:hover:bg-brand"
+                    disabled={!selected.size || busy}
+                    onClick={() => void acceptSelected()}
+                  >
+                    确认选中
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  className="text-[11px] text-slate-500 hover:text-brand"
+                  onClick={() => setMulti(true)}
+                >
+                  多选
+                </button>
+                {dets.length > 3 && (
+                  <button
+                    className="text-[11px] text-slate-400 hover:text-red-500"
+                    onClick={() => void dismissAll()}
+                  >
+                    全部忽略（{dets.length}）
+                  </button>
+                )}
+              </>
+            )}
+          </li>
+          {shown.map((d) => (
+            <li
+              key={d.id}
+              className={`flex items-center gap-3 border-b border-slate-100 py-2 last:border-b-0 ${
+                multi ? 'cursor-pointer' : ''
+              }`}
+              onClick={multi ? () => toggleSelect(d.id) : undefined}
+            >
+              {multi && (
+                <input
+                  type="checkbox"
+                  readOnly
+                  checked={selected.has(d.id)}
+                  className="size-4 shrink-0 accent-brand"
+                />
+              )}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm">{d.title}</div>
                 <div className="mt-0.5 text-[11px] text-slate-400">
@@ -984,23 +1080,27 @@ function PendingDetections(): React.JSX.Element | null {
                   {d.createdAt.slice(5, 16).replace('T', ' ')}
                 </div>
               </div>
-              <button
-                className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-50 hover:text-slate-700"
-                onClick={() => void dismiss(d.id)}
-              >
-                忽略
-              </button>
-              <button
-                className="shrink-0 rounded-lg bg-brand px-3 py-1 text-[11px] text-white hover:bg-brand-dark"
-                onClick={() => void accept(d.id)}
-              >
-                同意
-              </button>
+              {!multi && (
+                <>
+                  <button
+                    className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+                    onClick={() => void dismiss(d.id)}
+                  >
+                    忽略
+                  </button>
+                  <button
+                    className="shrink-0 rounded-lg bg-brand px-3 py-1 text-[11px] text-white hover:bg-brand-dark"
+                    onClick={() => void accept(d.id)}
+                  >
+                    同意
+                  </button>
+                </>
+              )}
             </li>
           ))}
-          {fresh.length > 10 && (
+          {dets.length > 10 && (
             <li className="py-2 text-center text-[11px] text-slate-400">
-              还有 {fresh.length - 10} 条，处理后自动显示
+              还有 {dets.length - 10} 条，处理后自动显示
             </li>
           )}
         </ul>
