@@ -29,10 +29,10 @@ export default function PetSettings(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3 text-sm">
       <label className="flex items-center justify-between gap-4">
-        <span className="text-slate-500">显示桌宠</span>
+        <span className="text-slate-500">显示悬浮球</span>
         <Toggle
           checked={enabled}
-          ariaLabel="显示桌宠"
+          ariaLabel="显示悬浮球"
           onChange={(v) => {
             setEnabled(v)
             void api.petSetEnabled(v)
@@ -61,7 +61,7 @@ export default function PetSettings(): React.JSX.Element {
         <span className="text-slate-500">暂停（变暗冻结）</span>
         <Toggle
           checked={paused}
-          ariaLabel="暂停桌宠"
+          ariaLabel="暂停悬浮球"
           onChange={(v) => {
             setPaused(v)
             void api.petSetPaused(v)
@@ -93,7 +93,7 @@ export default function PetSettings(): React.JSX.Element {
           重置到右下角
         </button>
       </div>
-      <p className="text-xs leading-5 text-slate-400">桌宠替代了原右下角的悬浮助手——点它即可打开对话。</p>
+      <p className="text-xs leading-5 text-slate-400">悬浮球常驻在桌面上，点它即可打开对话。</p>
     </div>
   )
 }

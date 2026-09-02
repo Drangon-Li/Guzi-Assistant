@@ -92,7 +92,7 @@ function buildTrayMenu(): void {
   items.push(
     { type: 'separator' },
     {
-      label: isPetVisible() ? '隐藏桌宠' : '显示桌宠',
+      label: isPetVisible() ? '隐藏悬浮球' : '显示悬浮球',
       click: () => {
         if (isPetVisible()) hidePet()
         else showPet()
@@ -100,7 +100,7 @@ function buildTrayMenu(): void {
       }
     },
     {
-      label: getPetPausedState() ? '恢复桌宠' : '暂停桌宠',
+      label: getPetPausedState() ? '恢复悬浮球' : '暂停悬浮球',
       click: () => {
         setPetPausedState(!getPetPausedState())
         buildTrayMenu()
