@@ -39,7 +39,14 @@ import {
   type ActivityScanReason
 } from './activity-tracker'
 import { decideOcrTrigger, type OcrTriggerReason } from '@shared/hybrid-history'
-import { buildDetectionCards, parsedToExtraction, showDetectedCards, type DetectHit } from './detection-cards'
+import {
+  buildDetectionCards,
+  parsedToExtraction,
+  showDetectedCards,
+  sweepCompletedDetections,
+  type DetectHit
+} from './detection-cards'
+import { detectionQueueDecision } from '@shared/detection-gate'
 import {
   legacyWorkSummaryHint,
   maybeAddWorkRecord,
@@ -73,9 +80,15 @@ function cropForegroundDataUrl(png: string): string | null {
   }
 }
 
-/** 一个候选是否「值得花一次视觉确认」：解出了具体时间、且不是明确别人的事。 */
+/**
+ * 一个候选是否「值得花一次视觉确认」：只要它打算进待确认队列就值得。
+ *
+ * 原先要求「已解出具体时间」才复查，于是越像噪声的越没人管——一屏 37 条无时间候选，
+ * 复查员一次都没被叫醒（#128）。反过来，没时间的恰恰最需要再看一眼版面；
+ * 而没过入队门槛的那些压根不会打扰用户，也就不必为它们花一次视觉调用。
+ */
 function isScheduleCandidate(h: DetectHit): boolean {
-  return h.extraction.strong && h.item.belongs_to_user !== 'no'
+  return detectionQueueDecision(h.item, h.extraction.strong) === 'queue'
 }
 
 interface DetectResult {
@@ -197,6 +210,7 @@ export async function scanOnce(): Promise<ScanResult> {
         return { status: 'empty', message: '屏幕上没有识别到文字' }
       }
       debugEvent('ocr-text', `OCR 原文已处理：${text.length} 字（内容不写诊断日志）`)
+      sweepCompletedDetections(text)
 
       const t0 = Date.now()
       const { hits, workSummary, focusTask } = await detectAll(text, screenSenseWorkLog, png, screenSenseVlmConfirm)
@@ -453,6 +467,10 @@ async function watchTick(): Promise<void> {
     const th = textHash(text)
     if (th === lastTextHash) return // 文本没变 → 静默跳过
     lastTextHash = th
+
+    // 完成即撤：纯本地比对，放在云端冷却判断之前——屏幕显示某条已做完时，
+    // 哪怕这一轮不跑模型也该把它撤掉。
+    sweepCompletedDetections(text)
 
     // 内容冷却（同内容 10 分钟内不重复跑模型/弹卡）→ 放模型前，省推理
     const now = Date.now()

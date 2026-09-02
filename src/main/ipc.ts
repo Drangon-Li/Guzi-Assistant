@@ -25,7 +25,7 @@ import {
   cleanupStaleDetections,
   getSource,
   getTask,
-  listDetections,
+  listPendingDetections,
   listReports,
   listTasks,
   listWorkRecords,
@@ -428,10 +428,12 @@ export function registerIpc(): void {
     (_e, p: { entries: { item: ParsedItem; sourceText: string; detectionId?: string }[] }) =>
       acceptLocalBatch(p)
   )
-  // 检测回看（日程页「待确认」区）：错过/自动隐藏的弹卡在这里兜底处理；拉取前先清过期项
+  // 检测回看（日程页「待确认」区）：错过/自动隐藏的弹卡在这里兜底处理；拉取前先清过期项。
+  // 只取 status='new'——没过入队门槛的候选也在同一张表里（archived，供去重），
+  // 若按「最近 N 条」不分状态地取，它们会把真正待确认的挤出窗口（#128）。
   ipcMain.handle('detections:list', () => {
     cleanupStaleDetections()
-    return listDetections()
+    return listPendingDetections()
   })
   ipcMain.handle('detections:accept', (_e, id: string) => acceptDetection(id))
   ipcMain.handle('detections:dismiss', (_e, id: string) => dismissDetection(id))

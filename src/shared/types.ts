@@ -56,7 +56,9 @@ export interface MemoryHit {
   taskCount: number
 }
 
-/** 屏幕感知本地检测记录：被动留存到「记忆」页回看。status: new=待处理 / accepted=已加入 / dismissed=已忽略 */
+/** 屏幕感知本地检测记录：被动留存到「记忆」页回看。
+ *  status: new=待处理 / accepted=已加入 / dismissed=用户手动忽略 / archived=系统自动归档
+ *  archived 与 dismissed 分开，是为了让「没过入队门槛」和「用户看过并拒绝」在回看时仍能区分。 */
 export interface DetectionRecord {
   id: string
   title: string
@@ -65,7 +67,7 @@ export interface DetectionRecord {
   sourceText: string
   hits: string[]
   app: string | null
-  status: 'new' | 'accepted' | 'dismissed'
+  status: 'new' | 'accepted' | 'dismissed' | 'archived'
   createdAt: string
 }
 
