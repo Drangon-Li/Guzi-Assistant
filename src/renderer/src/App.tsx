@@ -13,7 +13,7 @@ import Reports from './pages/Reports'
 import Analysis from './pages/Analysis'
 import Home from './pages/Home'
 import Account from './pages/Account'
-import Settings from './pages/Settings'
+import Settings, { type SettingsCat } from './pages/Settings'
 import Market from './pages/Market'
 import PreviewCard from './pages/PreviewCard'
 import ReminderCard from './pages/ReminderCard'
@@ -79,6 +79,13 @@ function MainApp(): React.JSX.Element | null {
   const [screenPerm, setScreenPerm] = useState<string | undefined>(undefined)
   const [screenGateSkipped, setScreenGateSkipped] = useState(false)
   const [page, setPage] = useState<Page>('home')
+  // 深链到设置页的某个分区（首页「去设置开启」直接落到屏幕感知）。
+  // 每次导航都重设：从侧栏进设置时传 undefined，才不会残留上一次的分区。
+  const [settingsCat, setSettingsCat] = useState<SettingsCat | undefined>(undefined)
+  const navigate = useCallback((next: Page, cat?: SettingsCat): void => {
+    setSettingsCat(cat)
+    setPage(next)
+  }, [])
   const [chatOpen, setChatOpen] = useState(false)
   const [shownPage, setShownPage] = useState<Page>('home')
   const [welcomed, setWelcomed] = useState(
@@ -198,14 +205,14 @@ function MainApp(): React.JSX.Element | null {
     const offNav = api.on('guzi-assistant:navigate', (route) => {
       if (route === 'inbox' || route === 'assistant') setChatOpen(true)
       else if (route === 'timeline')
-        setPage('schedule') // 旧路由兼容：时间轴已并入日程页
+        navigate('schedule') // 旧路由兼容：时间轴已并入日程页
       else if (route === 'memory')
-        setPage('account') // 旧路由兼容：记忆页已拆解，个人记忆并入个人页
+        navigate('account') // 旧路由兼容：记忆页已拆解，个人记忆并入个人页
       else if (route === 'history')
-        setPage('reports') // 旧路由兼容：历史页已并入日报页的「活动明细」
-      else if (typeof route === 'string' && CORE_PAGES.includes(route as CorePage)) setPage(route)
+        navigate('reports') // 旧路由兼容：历史页已并入日报页的「活动明细」
+      else if (typeof route === 'string' && CORE_PAGES.includes(route as CorePage)) navigate(route)
       // 插件页也能被导航到（桌宠气泡、提醒卡都可能想跳过去）；没启用就当没这条路由
-      else if (typeof route === 'string' && PLUGINS.some((p) => p.id === route)) setPage(route)
+      else if (typeof route === 'string' && PLUGINS.some((p) => p.id === route)) navigate(route)
     })
     return () => {
       offTasks()
@@ -336,7 +343,7 @@ function MainApp(): React.JSX.Element | null {
             <IconMarket />
             <span>市场</span>
           </button>
-          <button onClick={() => setPage('settings')} className={navItemClass(page === 'settings')}>
+          <button onClick={() => navigate('settings')} className={navItemClass(page === 'settings')}>
             <IconSettings />
             <span>设置</span>
           </button>
@@ -357,7 +364,7 @@ function MainApp(): React.JSX.Element | null {
             <Home
               tasks={tasks}
               userName={profile.name}
-              onNavigate={setPage}
+              onNavigate={navigate}
               pluginCards={pluginHomeCards}
             />
           )}
@@ -371,7 +378,7 @@ function MainApp(): React.JSX.Element | null {
           {shownPage === 'reports' && <Reports />}
           {shownPage === 'analysis' && <Analysis />}
           {shownPage === 'account' && <Account onProfileChange={setProfile} />}
-          {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
+          {shownPage === 'settings' && <Settings onProfileChange={setProfile} initialCat={settingsCat} />}
           {shownPage === 'market' && <Market />}
           {/* 插件页：lazy 加载，没启用的插件不进首屏 chunk */}
           {PluginPage && (

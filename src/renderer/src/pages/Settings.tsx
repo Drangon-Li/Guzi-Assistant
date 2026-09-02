@@ -18,16 +18,22 @@ import IntegrationSection from '../components/settings/IntegrationSection'
 import ScreenSenseSection from '../components/settings/ScreenSenseSection'
 import { eventToAccelerator, type HotkeyField } from '../components/settings/shared'
 
-interface Props {
-  onProfileChange: (p: Profile) => void
-}
-
 // 分区导航；每个分区的渲染在 components/settings/ 下各自一个文件，状态仍集中在本组件。
 // 这里只有核心功能的设置：插件的配置在各插件自己的页面里，跟着插件走，
 // 停用插件不会在这儿留下一个空分区，用户也不用先想「这是核心还是插件」。
 const CATS = ['通用', '快捷键', '助手', '集成', '屏幕感知', '数据', '关于'] as const
 
-export default function Settings({ onProfileChange }: Props): React.JSX.Element {
+/** 供别处深链到某个分区用（如首页「去设置开启」直接落到屏幕感知） */
+export type SettingsCat = (typeof CATS)[number]
+
+interface Props {
+  onProfileChange: (p: Profile) => void
+  /** 进入设置页时先落在哪个分区；不传则回到「通用」。
+   *  App 用 key={shownPage} 重挂本组件，所以每次进来 useState 的初值都会重新求值。 */
+  initialCat?: SettingsCat
+}
+
+export default function Settings({ onProfileChange, initialCat }: Props): React.JSX.Element {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
@@ -35,7 +41,7 @@ export default function Settings({ onProfileChange }: Props): React.JSX.Element 
   const [recordingKey, setRecordingKey] = useState<HotkeyField | null>(null)
   const [appVersion, setAppVersion] = useState('')
   const [checkingUpdate, setCheckingUpdate] = useState(false)
-  const [cat, setCat] = useState<(typeof CATS)[number]>('通用')
+  const [cat, setCat] = useState<SettingsCat>(initialCat ?? '通用')
   const [qaInstalled, setQaInstalled] = useState(false)
   const [feishu, setFeishu] = useState<FeishuStatus | null>(null)
   const [activityStatus, setActivityStatus] = useState<ScreenActivityStatus | null>(null)
