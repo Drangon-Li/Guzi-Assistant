@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Identity, Profile } from '@shared/types'
 import { api } from '../api'
-import { IDENTITIES, IDENTITY_PROFILE_FIELDS } from '../labels'
+import { fillFromPlaceholder, IDENTITIES, IDENTITY_PROFILE_FIELDS } from '../labels'
 import AccountSection from '../components/AccountSection'
 import PersonalMemory from '../components/PersonalMemory'
 
@@ -129,6 +129,7 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
               className={input}
               value={notMine}
               onChange={(e) => setNotMine(e.target.value)}
+              onKeyDown={(e) => fillFromPlaceholder(e, notMine, fields.notMinePlaceholder, setNotMine)}
               placeholder={fields.notMinePlaceholder}
             />
           </label>
@@ -138,6 +139,11 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
               className={input}
               value={profile.org}
               onChange={(e) => setProfile({ ...profile, org: e.target.value })}
+              onKeyDown={(e) =>
+                fillFromPlaceholder(e, profile.org, fields.org.placeholder, (v) =>
+                  setProfile({ ...profile, org: v })
+                )
+              }
               placeholder={fields.org.placeholder}
             />
           </label>
@@ -147,6 +153,11 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
               className={input}
               value={profile.group}
               onChange={(e) => setProfile({ ...profile, group: e.target.value })}
+              onKeyDown={(e) =>
+                fillFromPlaceholder(e, profile.group, fields.group.placeholder, (v) =>
+                  setProfile({ ...profile, group: v })
+                )
+              }
               placeholder={fields.group.placeholder}
             />
           </label>
@@ -156,6 +167,11 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
               className={input}
               value={profile.workHours}
               onChange={(e) => setProfile({ ...profile, workHours: e.target.value })}
+              onKeyDown={(e) =>
+                fillFromPlaceholder(e, profile.workHours, fields.workHours.placeholder, (v) =>
+                  setProfile({ ...profile, workHours: v })
+                )
+              }
               placeholder={fields.workHours.placeholder}
             />
           </label>

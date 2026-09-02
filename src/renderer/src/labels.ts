@@ -185,3 +185,30 @@ export const REMIND_OPTIONS: { value: string; label: string }[] = [
 
 export const remindToInput = (value: number | null): string => (value == null ? '' : String(value))
 export const remindFromInput = (value: string): number | null => (value === '' ? null : Number(value))
+
+// ---------- 引导页/个人页的 Tab 补全 ----------
+
+/** 从 placeholder 取出可直接填进输入框的示例值：去掉「如：」这类引导词。
+ *  不剥的话用户档案里会存进「如：北京中关村学院」。 */
+export function placeholderExample(placeholder: string): string {
+  return placeholder.replace(/^如\s*[：:]\s*/, '').trim()
+}
+
+/**
+ * Tab 补全当前输入框：示例是灰的，用户看得见却打不出来，Tab 填进去比手敲一遍快。
+ *
+ * 只在**输入框还空着**时接管；已经打了字就放行 Tab 的默认行为（跳下一个框）——
+ * 否则用户填到一半按 Tab 会被示例整个覆盖掉。Shift+Tab 一律放行，那是往回跳。
+ */
+export function fillFromPlaceholder(
+  e: { key: string; shiftKey: boolean; preventDefault: () => void },
+  value: string,
+  placeholder: string,
+  set: (v: string) => void
+): void {
+  if (e.key !== 'Tab' || e.shiftKey || value.trim()) return
+  const example = placeholderExample(placeholder)
+  if (!example) return
+  e.preventDefault()
+  set(example)
+}

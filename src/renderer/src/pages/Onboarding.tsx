@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import type { ConfirmMode, Identity, Profile } from '@shared/types'
 import { api } from '../api'
-import { CONFIRM_MODES, IDENTITIES, IDENTITY_PROFILE_FIELDS } from '../labels'
+import {
+  CONFIRM_MODES,
+  fillFromPlaceholder,
+  IDENTITIES,
+  IDENTITY_PROFILE_FIELDS
+} from '../labels'
 
 interface Props {
   onDone: (p: Profile) => void
@@ -79,6 +84,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
                   className={input}
                   value={nicknames}
                   onChange={(e) => setNicknames(e.target.value)}
+                  onKeyDown={(e) => fillFromPlaceholder(e, nicknames, '如：小李, Leo', setNicknames)}
                   placeholder="如：小李, Leo"
                 />
               </label>
@@ -91,6 +97,7 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
                   className={input}
                   value={accounts}
                   onChange={(e) => setAccounts(e.target.value)}
+                  onKeyDown={(e) => fillFromPlaceholder(e, accounts, '如：lisi2024', setAccounts)}
                   placeholder="如：lisi2024"
                 />
               </label>
@@ -125,6 +132,14 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
                     className={input}
                     value={org}
                     onChange={(e) => setOrg(e.target.value)}
+                    onKeyDown={(e) =>
+                      fillFromPlaceholder(
+                        e,
+                        org,
+                        IDENTITY_PROFILE_FIELDS[identity].org.placeholder,
+                        setOrg
+                      )
+                    }
                     placeholder={IDENTITY_PROFILE_FIELDS[identity].org.placeholder}
                   />
                 </label>
@@ -134,6 +149,14 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
                     className={input}
                     value={group}
                     onChange={(e) => setGroup(e.target.value)}
+                    onKeyDown={(e) =>
+                      fillFromPlaceholder(
+                        e,
+                        group,
+                        IDENTITY_PROFILE_FIELDS[identity].group.placeholder,
+                        setGroup
+                      )
+                    }
                     placeholder={IDENTITY_PROFILE_FIELDS[identity].group.placeholder}
                   />
                 </label>
@@ -144,6 +167,14 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
                   className={input}
                   value={workHours}
                   onChange={(e) => setWorkHours(e.target.value)}
+                  onKeyDown={(e) =>
+                    fillFromPlaceholder(
+                      e,
+                      workHours,
+                      IDENTITY_PROFILE_FIELDS[identity].workHours.placeholder,
+                      setWorkHours
+                    )
+                  }
                   placeholder={IDENTITY_PROFILE_FIELDS[identity].workHours.placeholder}
                 />
               </label>
