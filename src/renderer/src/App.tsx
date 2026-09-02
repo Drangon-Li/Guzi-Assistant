@@ -2,6 +2,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { shouldRemindRenew } from '@shared/subscription'
 import { api } from './api'
+import { startCapture, stopCapture } from './voice-capture'
+import type { VoiceSessionRecord } from '@shared/voicenotes'
 import { supabase, functionsBase } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
@@ -171,6 +173,27 @@ function MainApp(): React.JSX.Element | null {
   useEffect(() => {
     void api.permissions().then((p) => setScreenPerm(p.screen))
   }, [])
+
+  // 语音纪要：录音只能在渲染层做，主进程判定「该不该录」，这里跟着它的会话状态开关麦克风。
+  // 挂在主窗而不是某个页面里——切页面不该把正在开的会掐掉。
+  useEffect(() => {
+    const sync = (session: VoiceSessionRecord | null): void => {
+      if (session && session.status === 'recording') {
+        void startCapture(session.id).catch((e: unknown) => {
+          showToast(`麦克风不可用：${e instanceof Error ? e.message : String(e)}`)
+          void api.voiceStop()
+        })
+      } else {
+        void stopCapture()
+      }
+    }
+    void api.voiceState().then(sync)
+    const off = api.on('guzi-assistant:voice-state', (s) => sync(s as VoiceSessionRecord | null))
+    return () => {
+      off()
+      void stopCapture()
+    }
+  }, [showToast])
 
   // 订阅/试用到期前 3 天：让桌宠主动提醒一次（否则到期像故障——用户走查 P0）
   useEffect(() => {

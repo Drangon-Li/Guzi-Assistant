@@ -13,6 +13,12 @@ export const INVOKE_CHANNELS = [
   'settings:get',
   'settings:save',
   'model:probe',
+  'voice:probe',
+  'voice:start',
+  'voice:stop',
+  'voice:segment',
+  'voice:state',
+  'voice:sessions',
   'auth:set-session',
   'capture:clipboard',
   'capture:files',
@@ -125,7 +131,9 @@ export const EVENT_CHANNELS = [
   'guzi-assistant:reminder',
   'guzi-assistant:theme',
   'guzi-assistant:plugins-updated',
-  'guzi-assistant:plugin-event'
+  'guzi-assistant:plugin-event',
+  'guzi-assistant:voice-state',
+  'guzi-assistant:voice-updated'
 ] as const
 
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]

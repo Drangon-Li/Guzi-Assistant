@@ -36,4 +36,6 @@ mac:
     CFBundleDisplayName: 谷子助手
     CFBundleName: GuziAssistant
     NSScreenCaptureUsageDescription: 谷子助手需要屏幕录制权限来识别屏幕上的日程与工作内容（截图仅在本机 OCR，默认只上传文字）。
+    # 语音纪要要录麦克风；缺这条 macOS 会在首次 getUserMedia 时直接终止进程，而不是弹授权框
+    NSMicrophoneUsageDescription: 谷子助手需要麦克风权限来记录会议内容并转成文字纪要（仅在你开启语音纪要时录制）。
 npmRebuild: true

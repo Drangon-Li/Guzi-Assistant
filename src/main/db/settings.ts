@@ -101,7 +101,14 @@ export function getSettings(): AppSettings {
         : 180,
     historyV2Enabled: map.historyV2Enabled === 'true',
     historyDerivedWorkEnabled: map.historyDerivedWorkEnabled === 'true',
-    historyCaptureText: map.historyCaptureText === 'true'
+    historyCaptureText: map.historyCaptureText === 'true',
+    voiceNotesEnabled: map.voiceNotesEnabled === 'true',
+    voiceAutoStart: map.voiceAutoStart !== 'false',
+    voiceKeepAudio: map.voiceKeepAudio === 'true',
+    // 设置页填的优先；没填则回落到 .env，便于本地不把 key 存进库就能测
+    voiceApiBase: map.voiceApiBase || env.GUZI_ASSISTANT_VOICE_API_BASE || '',
+    voiceApiKey: map.voiceApiKey || env.GUZI_ASSISTANT_VOICE_API_KEY || '',
+    voiceModel: map.voiceModel || env.GUZI_ASSISTANT_VOICE_MODEL || ''
   }
 }
 

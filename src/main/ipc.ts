@@ -26,6 +26,7 @@ import {
   getSource,
   getTask,
   listPendingDetections,
+  listVoiceSessions,
   listReports,
   listTasks,
   listWorkRecords,
@@ -115,6 +116,14 @@ import { localIso } from '@shared/task-reminder'
 import { hidePetChat, resizePetChat } from './pet/pet-chat-window'
 import { hideQuickBar, isQuickBarVisible, resizeQuickBar } from './quickbar'
 import { applyMcpSettings } from './mcp-server'
+import { probeTranscription } from './voicenotes/transcribe'
+import {
+  applyVoiceSettings,
+  currentVoiceSession,
+  ingestSegment,
+  startVoiceSession,
+  stopVoiceSession
+} from './voicenotes/service'
 import { checkForUpdates } from './updater'
 import type {
   AppSettings,
@@ -125,6 +134,7 @@ import type {
   TaskStatus
 } from '@shared/types'
 import type { HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
+import type { PcmSegment } from '@shared/voicenotes'
 
 const STATUSES: TaskStatus[] = [
   'pending',
@@ -181,6 +191,16 @@ export function registerIpc(): void {
   ipcMain.handle('model:probe', (_e, apiBase: string, apiKey: string) =>
     probeModelEndpoint(String(apiBase ?? ''), String(apiKey ?? ''))
   )
+  // ---------- 语音纪要 ----------
+  ipcMain.handle('voice:probe', () => probeTranscription())
+  ipcMain.handle('voice:start', () => startVoiceSession(null))
+  ipcMain.handle('voice:stop', () => stopVoiceSession())
+  ipcMain.handle('voice:state', () => currentVoiceSession())
+  ipcMain.handle('voice:sessions', () => listVoiceSessions())
+  // 分段是渲染层按停顿切好后送来的；转录耗时长，这里不 await，避免堵住录音那一侧
+  ipcMain.handle('voice:segment', (_e, segment: PcmSegment) => {
+    void ingestSegment(segment)
+  })
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {
     let ok = true
     if (
@@ -256,6 +276,8 @@ export function registerIpc(): void {
     if (patch.clipWatchEnabled !== undefined) applyClipWatchSettings()
     if (patch.mcpEnabled !== undefined || patch.mcpPort !== undefined || patch.mcpToken !== undefined)
       applyMcpSettings()
+    if (patch.voiceNotesEnabled !== undefined || patch.voiceAutoStart !== undefined)
+      applyVoiceSettings()
     broadcast('guzi-assistant:settings-updated')
     return ok
   })
@@ -390,6 +412,10 @@ export function registerIpc(): void {
     return {
       screen:
         process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'granted',
+      microphone:
+        process.platform === 'darwin'
+          ? systemPreferences.getMediaAccessStatus('microphone')
+          : 'granted',
       apiConfigured: !!(settings.apiBase && settings.apiKey)
     }
   })

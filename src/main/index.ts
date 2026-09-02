@@ -1,4 +1,5 @@
 import { app, Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions } from 'electron'
+import { applyVoiceSettings, recoverStaleVoiceSession } from './voicenotes/service'
 import { initDb, getSettings } from './db'
 import { registerIpc, triggerClipboardCapture, triggerScreenshotCapture } from './ipc'
 import { initHotkey, initNamedHotkey, initScreenshotHotkey, stopHotkey } from './hotkey'
@@ -182,6 +183,9 @@ if (!app.requestSingleInstanceLock()) {
     startWellnessReminder()
     applyTaskReminderSchedule() // 设置里关掉时连提醒窗都不建
     applyClipWatchSettings()
+    // 语音纪要：上次强退可能留下没收尾的录制会话，先收干净再起监听
+    recoverStaleVoiceSession()
+    applyVoiceSettings()
     if (app.isPackaged) scheduleStartupUpdateCheck() // dev 实例天天重启，别拿开发机刷清单
   })
 

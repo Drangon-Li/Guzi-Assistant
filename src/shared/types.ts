@@ -7,6 +7,7 @@ export type SourceType =
   | 'text_input'
   | 'feishu'
   | 'screen_scan'
+  | 'voice_note'
 
 export type ItemType = 'deadline' | 'meeting' | 'reminder' | 'preparation' | 'follow_up' | 'other'
 export type Belongs = 'yes' | 'no' | 'uncertain'
@@ -160,6 +161,8 @@ export interface ParseSummary {
 
 export interface PermissionStatus {
   screen: string
+  /** macOS 麦克风授权状态；非 macOS 恒为 granted。语音纪要要用 */
+  microphone: string
   apiConfigured: boolean
 }
 
@@ -264,6 +267,17 @@ export interface AppSettings {
   historyDerivedWorkEnabled: boolean
   /** 未来可选的文本捕获；默认关闭，第一阶段 schema 永不保存原始文本。 */
   historyCaptureText: boolean
+  /** 语音纪要总开关。默认 false（opt-in：要占麦克风、音频要出设备去转录） */
+  voiceNotesEnabled: boolean
+  /** 检测到会议应用在前台时自动开始录制。关掉则只能手动起录。默认 true */
+  voiceAutoStart: boolean
+  /** 转录完是否留着本地音频文件。默认 false——会议录音是最敏感的一类捕获，用完即删 */
+  voiceKeepAudio: boolean
+  /** 转录服务的 OpenAI 兼容端点，如 https://example.com 或 .../v1 */
+  voiceApiBase: string
+  voiceApiKey: string
+  /** 转录模型名，如 gpt-4o-mini-transcribe / whisper-1 */
+  voiceModel: string
 }
 
 export interface FeishuStatus {
