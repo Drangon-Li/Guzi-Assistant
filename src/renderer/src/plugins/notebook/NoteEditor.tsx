@@ -66,7 +66,8 @@ const SLASH_ITEMS: { id: SlashId; icon: string; label: string; keys: string }[] 
   { id: 'ol', icon: '1.', label: '编号列表', keys: 'ol 编号 列表 number' },
   { id: 'quote', icon: '❝', label: '引用', keys: 'quote 引用' },
   { id: 'code', icon: '{ }', label: '代码块', keys: 'code 代码' },
-  { id: 'divider', icon: '—', label: '分隔线', keys: 'divider 分隔 hr' }
+  { id: 'divider', icon: '—', label: '分隔线', keys: 'divider 分隔 hr' },
+  { id: 'math', icon: '∑', label: '数学公式', keys: 'math 公式 latex tex formula' }
 ]
 
 export default function NoteEditor({
@@ -243,6 +244,24 @@ export default function NoteEditor({
       ;(node.firstElementChild as HTMLElement).textContent = body
     } else if (id === 'divider') {
       node = make('<hr>')
+    } else if (id === 'math') {
+      // 公式先以源码形态插入，用户打完 TeX 失焦时才渲染（见 renderPendingMath）
+      node = make('<p></p>')
+      node.textContent = `$$${body}$$`
+      block.replaceWith(node)
+      const text = node.firstChild
+      const selection = window.getSelection()
+      if (text && selection) {
+        const range = document.createRange()
+        range.setStart(text, 2) // 落在两组 $$ 中间
+        range.collapse(true)
+        selection.removeAllRanges()
+        selection.addRange(range)
+      }
+      editor.focus()
+      pushChange()
+      commitHistory(history.current, editor, true)
+      return
     } else if (id === 'todo') {
       node = make('<ul class="note-todo"><li data-checked="false"><input type="checkbox" contenteditable="false"></li></ul>')
       node.querySelector('li')?.append(body)
@@ -296,6 +315,52 @@ export default function NoteEditor({
     // 前缀之后的内容留下来（在行首打前缀时通常为空，但用户也可能回头补前缀）
     const rest = (block.textContent ?? '').slice(before.toString().length)
     convertBlock(kind, block, rest.trim())
+    return true
+  }
+
+  // 已渲染的公式在 textContent 里不含 $（KaTeX 只留 TeX 注解），
+  // 所以这条只在有「新打的、还没渲染的」源码时命中，不会每次失焦都重排。
+  const RAW_MATH = /\$\$?[^$\n]+\$\$?/
+
+  /** 失焦时把新打的 $…$ 变成公式。整篇重渲染——内容本来就一直在 Markdown 上往返。 */
+  const renderPendingMath = (): void => {
+    const editor = editorRef.current
+    if (!editor || !RAW_MATH.test(editor.textContent ?? '')) return
+    editor.innerHTML = renderNoteHTML(editorMarkdown(editor))
+    hydrateImages()
+    pushChange()
+    commitHistory(history.current, editor, true)
+  }
+
+  /** 点已渲染的公式 → 换回 $…$ 源码就地改；改完失焦再渲染回去。 */
+  const openMathSource = (target: HTMLElement): boolean => {
+    const math = target.closest<HTMLElement>('[data-tex]')
+    const editor = editorRef.current
+    if (!math || !editor || !editor.contains(math)) return false
+    const tex = math.dataset.tex ?? ''
+    const display = math.classList.contains('note-math')
+    const src = display ? `$$${tex}$$` : `$${tex}$`
+    let caretNode: Node
+    if (display) {
+      const p = make('<p></p>')
+      p.textContent = src
+      math.replaceWith(p)
+      caretNode = p.firstChild ?? p
+    } else {
+      const text = document.createTextNode(src)
+      math.replaceWith(text)
+      caretNode = text
+    }
+    const selection = window.getSelection()
+    if (selection && caretNode.nodeType === Node.TEXT_NODE) {
+      const range = document.createRange()
+      range.setStart(caretNode, Math.max(0, (caretNode.nodeValue ?? '').length - (display ? 2 : 1)))
+      range.collapse(true)
+      selection.removeAllRanges()
+      selection.addRange(range)
+    }
+    editor.focus()
+    pushChange()
     return true
   }
 
@@ -539,6 +604,14 @@ export default function NoteEditor({
           onPaste={onPaste}
           onDrop={onDrop}
           onDragOver={onDragOver}
+          onClick={(e) => {
+            if (openMathSource(e.target as HTMLElement)) e.preventDefault()
+          }}
+          onBlur={(e) => {
+            // 点浮动工具栏也会让编辑区失焦，那时候不能重排——会把用户的选区弄丢
+            if ((e.relatedTarget as HTMLElement | null)?.closest('[data-note-bar]')) return
+            renderPendingMath()
+          }}
         />
       </div>
 

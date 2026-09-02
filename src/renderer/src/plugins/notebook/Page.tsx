@@ -17,6 +17,7 @@ import {
   type NoteRecord,
   type NoteSummary
 } from '@shared/notebook'
+import 'katex/dist/katex.min.css' // 公式样式；记事本是懒加载页，不进首屏 chunk
 import { api } from '../../api'
 import ContextMenu, { type MenuEntry } from '../../components/ContextMenu'
 import NoteEditor from './NoteEditor'

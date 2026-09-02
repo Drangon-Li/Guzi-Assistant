@@ -222,6 +222,23 @@ check('路径穿越不成图', !html('![x](asset:../../etc/passwd)').includes('<
 check('外部图片地址不成图', !html('![x](https://evil.com/a.png)').includes('<img'))
 check('哈希长度不对不成图', !html('![x](asset:abc.png)').includes('<img'))
 check('扩展名不在白名单不成图', !html(`![x](asset:${SHA}.svg)`).includes('<img'))
+// ---- 公式（KaTeX）----
+check('行内公式渲染成原子节点', html('质能 $E=mc^2$ 方程').includes('note-math-inline'))
+check('块级公式独占一块', html('$$x^2$$').includes('class="note-math"'))
+check('KaTeX 真的渲染了', html('$E=mc^2$').includes('katex'))
+check('源码留在 data-tex 上供还原', /data-tex="E=mc\^2"/.test(html('$E=mc^2$')))
+check('公式内容不被转义规则啃掉', /data-tex="a_1 \+ b_2"/.test(html('$a_1 + b_2$')))
+check(
+  '公式外的强调照常生效',
+  html('$x$ 和 **粗体**').includes('note-math-inline') && html('$x$ 和 **粗体**').includes('<strong>')
+)
+check('单个 $ 不触发公式', !html('价格是 $5 元').includes('note-math'))
+check(
+  '公式里的反斜杠命令保留',
+  /data-tex="\\frac{a}{b}"/.test(html('$$\\frac{a}{b}$$'))
+)
+check('语法错误不炸整篇', html('$\\bogus{}$').length > 0)
+
 check(
   '图片排在链接之前解析',
   html(`![图](asset:${SHA}.png)`).includes('<img') && !html(`![图](asset:${SHA}.png)`).includes('<a ')

@@ -8,11 +8,23 @@
 // 安全模型不靠消毒库：渲染时先把整段文本转义掉，再只把上面那两条**精确匹配**的
 // 转义标签解回真标签。别的 HTML 永远保持转义原样显示，所以这是白名单而不是 innerHTML 直通。
 
+import katex from 'katex'
+
 export const NOTE_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'] as const
 export type NoteColor = (typeof NOTE_COLORS)[number]
 
 /** 可通过 / 菜单或 Markdown 输入规则生成的块。 */
-export type BlockKind = 'h1' | 'h2' | 'h3' | 'todo' | 'ul' | 'ol' | 'quote' | 'code' | 'divider'
+export type BlockKind =
+  | 'h1'
+  | 'h2'
+  | 'h3'
+  | 'todo'
+  | 'ul'
+  | 'ol'
+  | 'quote'
+  | 'code'
+  | 'divider'
+  | 'math'
 
 // 块首打这些前缀再敲空格，就地变成对应的块——存的本来就是 Markdown，
 // 手打 Markdown 却只能得到一行字面量「# 标题」，是这个编辑器一直缺的一环。
@@ -116,6 +128,9 @@ function inlineMarkdown(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return escapeText(node.nodeValue ?? '')
   if (node.nodeType !== Node.ELEMENT_NODE) return ''
   const el = node as HTMLElement
+  // 渲染后的公式：只认 data-tex 上的原文，绝不走进 KaTeX 生成的那堆 span
+  const tex = el.dataset.tex
+  if (tex !== undefined) return el.classList.contains('note-math') ? `$$${tex}$$` : `$${tex}$`
   const tag = el.tagName.toLowerCase()
   const content = [...el.childNodes].map(inlineMarkdown).join('')
   if (tag === 'br') return '\n'
@@ -147,6 +162,7 @@ function blockMarkdown(node: Node): string {
   }
   if (node.nodeType !== Node.ELEMENT_NODE) return ''
   const el = node as HTMLElement
+  if (el.dataset.tex !== undefined) return inlineMarkdown(el)
   const tag = el.tagName.toLowerCase()
   const content = [...el.childNodes].map(inlineMarkdown).join('').trim()
   if (['strong', 'b', 'em', 'i', 'del', 's', 'mark', 'span', 'code', 'a', 'img'].includes(tag)) {
@@ -202,10 +218,40 @@ export function editorMarkdown(editor: HTMLElement): string {
 
 // ---------- Markdown → HTML ----------
 
+/**
+ * 渲染一段 TeX。data-tex 上留原文，序列化时照它还原——KaTeX 的输出是一大坨 span，
+ * 从里面反推不回源码。contenteditable=false 让公式在编辑器里是一个不可分的原子，
+ * 点它才换回源码编辑（见 NoteEditor 的 openMathSource）。
+ */
+function renderMath(tex: string, display: boolean): string {
+  const source = escapeHTML(tex)
+  const wrap = (body: string): string =>
+    display
+      ? `<div class="note-math" data-tex="${source}" contenteditable="false">${body}</div>`
+      : `<span class="note-math-inline" data-tex="${source}" contenteditable="false">${body}</span>`
+  try {
+    // throwOnError:false 让语法错误就地显示成红字，而不是把整篇笔记炸掉
+    return wrap(katex.renderToString(tex, { displayMode: display, throwOnError: false }))
+  } catch {
+    return wrap(escapeHTML(display ? `$$${tex}$$` : `$${tex}$`))
+  }
+}
+
 function inlineHTML(value: string): string {
+  // 公式整体先抽走再处理其余行内语法：TeX 里满是 * _ ` \，留在原地会被强调和行内码规则啃掉
+  const maths: string[] = []
+  const parkMath = (tex: string, display: boolean): string => {
+    maths.push(renderMath(tex, display))
+    return `\uE002${maths.length - 1}\uE003`
+  }
+  const withoutMath = String(value ?? '').replace(
+    /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/g,
+    (_m, block: string | undefined, inline: string | undefined) =>
+      block !== undefined ? parkMath(block, true) : parkMath(inline ?? '', false)
+  )
   const escaped: string[] = []
   // 反斜杠转义的字符先抽走，免得后面的强调规则把它们当标记
-  const parked = String(value ?? '').replace(/\\([\\*_`[\]#>+\-.!()])/g, (_m, ch: string) => {
+  const parked = withoutMath.replace(/\\([\\*_`[\]#>+\-.!()])/g, (_m, ch: string) => {
     escaped.push(ch)
     return `\uE000${escaped.length - 1}\uE001`
   })
@@ -233,7 +279,10 @@ function inlineHTML(value: string): string {
       (_m, token: string, inner: string) =>
         `<span class="note-color note-color-${token}" data-color="${token}">${inner}</span>`
     )
-  return safe.replace(/\uE000(\d+)\uE001/g, (_m, i: string) => escapeHTML(escaped[Number(i)] ?? ''))
+  return safe
+    .replace(/\uE000(\d+)\uE001/g, (_m, i: string) => escapeHTML(escaped[Number(i)] ?? ''))
+    // 公式最后放回：KaTeX 的输出是成品 HTML，绝不能再过一遍转义或强调规则
+    .replace(/\uE002(\d+)\uE003/g, (_m, i: string) => maths[Number(i)] ?? '')
 }
 
 interface ListState {
