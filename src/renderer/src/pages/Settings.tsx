@@ -200,7 +200,6 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
             setHistoryStatus={setHistoryStatus}
             loadPerms={loadPerms}
             loadActivityStatus={loadActivityStatus}
-            loadHistoryStatus={loadHistoryStatus}
             flash={flash}
           />
         )}
