@@ -16,12 +16,22 @@ import {
   type InlineFormat
 } from './commands'
 import { commitHistory, createHistory, resetHistory, stepHistory } from './history'
-import { COLOR_LABELS, NOTE_COLORS, editorMarkdown, renderNoteHTML, type NoteColor } from './markdown'
+import {
+  COLOR_LABELS,
+  NOTE_COLORS,
+  editorMarkdown,
+  markdownBlockRule,
+  renderNoteHTML,
+  type BlockKind,
+  type NoteColor
+} from './markdown'
 
 interface Props {
   note: NoteRecord
   folderLabel: string
   folders: NoteFolder[]
+  /** 正文字号倍率（⌘+/⌘- 调）。CSS 里标题、代码的字号都是 em，跟着根字号一起缩放 */
+  fontScale: number
   onChange: (patch: { title?: string; content?: string; tags?: string[] }) => void
   onMove: (folderId: string) => void
 }
@@ -45,7 +55,7 @@ const readAsDataURL = (file: File): Promise<string> =>
     reader.readAsDataURL(file)
   })
 
-type SlashId = 'h1' | 'h2' | 'h3' | 'todo' | 'ul' | 'ol' | 'quote' | 'code' | 'divider'
+type SlashId = BlockKind
 
 const SLASH_ITEMS: { id: SlashId; icon: string; label: string; keys: string }[] = [
   { id: 'h1', icon: 'H1', label: '一级标题', keys: 'h1 标题 title' },
@@ -63,6 +73,7 @@ export default function NoteEditor({
   note,
   folderLabel,
   folders,
+  fontScale,
   onChange,
   onMove
 }: Props): React.JSX.Element {
@@ -210,19 +221,16 @@ export default function NoteEditor({
   }
 
   /** slash 菜单：把光标所在的整块换成目标块型。 */
-  const applySlash = (id: SlashId): void => {
+  const make = (html: string): HTMLElement => {
+    const wrap = document.createElement('div')
+    wrap.innerHTML = html
+    return wrap.firstElementChild as HTMLElement
+  }
+
+  /** 把当前块换成目标块并落好光标。/ 菜单和 Markdown 输入规则共用。 */
+  const convertBlock = (id: SlashId, block: HTMLElement, body: string): void => {
     const editor = editorRef.current
-    const block = currentBlock(editor)
-    if (!editor || !block || !slash) return
-    // 先把触发用的 "/query" 从文本里抹掉
-    const text = block.textContent ?? ''
-    const cleaned = text.slice(0, slash.at) + text.slice(slash.at + slash.query.length + 1)
-    const make = (html: string): HTMLElement => {
-      const wrap = document.createElement('div')
-      wrap.innerHTML = html
-      return wrap.firstElementChild as HTMLElement
-    }
-    const body = cleaned.trim()
+    if (!editor) return
     let node: HTMLElement
     if (id === 'h1' || id === 'h2' || id === 'h3') {
       node = make(`<${id}></${id}>`)
@@ -253,10 +261,42 @@ export default function NoteEditor({
     } else {
       placeCaret(node.querySelector('li') ?? node)
     }
-    setSlash(null)
     editor.focus()
     pushChange()
     commitHistory(history.current, editor, true)
+  }
+
+  const applySlash = (id: SlashId): void => {
+    const block = currentBlock(editorRef.current)
+    if (!block || !slash) return
+    // 先把触发用的 "/query" 从文本里抹掉
+    const text = block.textContent ?? ''
+    const cleaned = text.slice(0, slash.at) + text.slice(slash.at + slash.query.length + 1)
+    setSlash(null)
+    convertBlock(id, block, cleaned.trim())
+  }
+
+  /**
+   * Markdown 输入规则：块首打 `# `、`- `、`1. ` 这类前缀立刻变成对应的块。
+   * 命中返回 true，调用方据此吃掉这次空格。
+   */
+  const applyMarkdownRule = (): boolean => {
+    const editor = editorRef.current
+    const block = currentBlock(editor)
+    const selection = window.getSelection()
+    if (!editor || !block || !selection?.rangeCount) return false
+    const range = selection.getRangeAt(0)
+    if (!range.collapsed) return false
+    // 取块内光标之前的全部文字：markdownBlockRule 只认整段恰好等于前缀的情况
+    const before = range.cloneRange()
+    before.selectNodeContents(block)
+    before.setEnd(range.endContainer, range.endOffset)
+    const kind = markdownBlockRule(before.toString())
+    if (!kind) return false
+    // 前缀之后的内容留下来（在行首打前缀时通常为空，但用户也可能回头补前缀）
+    const rest = (block.textContent ?? '').slice(before.toString().length)
+    convertBlock(kind, block, rest.trim())
+    return true
   }
 
   /** 行首或空白后打 / 才算触发，正文里的网址不会误弹菜单。 */
@@ -290,6 +330,8 @@ export default function NoteEditor({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     const editor = editorRef.current
+    // 中文输入法选字期间，方向键/回车/空格都归输入法，不能当快捷键截走
+    if (e.nativeEvent.isComposing) return
     if (slash && matched.length) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -314,6 +356,11 @@ export default function NoteEditor({
     if (e.key === 'Escape') {
       setBar(null)
       setPalette(null)
+      return
+    }
+    // Markdown 输入规则：块首「# 」「- 」「1. 」…敲空格就变块，空格本身吃掉
+    if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && applyMarkdownRule()) {
+      e.preventDefault()
       return
     }
     if (!(e.metaKey || e.ctrlKey)) return
@@ -471,6 +518,8 @@ export default function NoteEditor({
             </div>
           </div>
         )}
+        {/* 字号只设在正文这一层：CSS 里标题、代码、行内码的 font-size 全是 em，会等比跟随。
+            用 style 而不是 Tailwind 的 text-sm——固定值会盖掉倍率。 */}
         <div
           ref={editorRef}
           contentEditable
@@ -479,7 +528,8 @@ export default function NoteEditor({
           aria-multiline="true"
           aria-label="笔记正文"
           spellCheck
-          className="note-body mx-auto min-h-full max-w-3xl px-8 py-4 text-sm leading-7 outline-none"
+          style={{ fontSize: `${(14 * fontScale).toFixed(1)}px` }}
+          className="note-body mx-auto min-h-full max-w-3xl px-8 py-4 leading-7 outline-none"
           onInput={() => {
             pushChange()
             commitHistory(history.current, editorRef.current)

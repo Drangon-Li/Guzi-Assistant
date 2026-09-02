@@ -10,6 +10,9 @@ import {
   descendantIds,
   excerptOf,
   filterNotes,
+  clampFontScale,
+  FONT_SCALE_MAX,
+  FONT_SCALE_MIN,
   normalizePrefs,
   normalizeTags,
   noteTimeOf,
@@ -17,7 +20,11 @@ import {
   titleFromContent,
   visibleToAssistant
 } from '../src/shared/notebook.ts'
-import { colorToken, renderNoteHTML } from '../src/renderer/src/plugins/notebook/markdown.ts'
+import {
+  colorToken,
+  markdownBlockRule,
+  renderNoteHTML
+} from '../src/renderer/src/plugins/notebook/markdown.ts'
 
 let failed = 0
 function check(name, ok, detail) {
@@ -169,6 +176,15 @@ check('默认显示最后修改', normalizePrefs(null).timeField === 'updated')
 check('认得创建时间', normalizePrefs({ timeField: 'created' }).timeField === 'created')
 check('非法口径落回默认', normalizePrefs({ timeField: '乱填' }).timeField === 'updated')
 check('排除列表只收字符串', eq(normalizePrefs({ hiddenNotes: ['a', 3, null] }).hiddenNotes, ['a']))
+check('字号默认 1 倍', normalizePrefs(null).fontScale === 1)
+check('字号夹到上限', normalizePrefs({ fontScale: 99 }).fontScale === FONT_SCALE_MAX)
+check('字号夹到下限', normalizePrefs({ fontScale: 0.1 }).fontScale === FONT_SCALE_MIN)
+check('字号 NaN 落回 1', normalizePrefs({ fontScale: NaN }).fontScale === 1)
+check('字号字符串落回 1', normalizePrefs({ fontScale: '大' }).fontScale === 1)
+check('字号对齐到步进', clampFontScale(1.23) === 1.2)
+check('沉浸模式默认关', normalizePrefs(null).immersive === false)
+check('沉浸模式只认 true', normalizePrefs({ immersive: 'yes' }).immersive === false)
+check('沉浸模式认 true', normalizePrefs({ immersive: true }).immersive === true)
 check('缺字段补空数组', eq(normalizePrefs({}).hiddenFolders, []))
 
 const VIS_FOLDERS = [folder('f1', '公开'), folder('f2', '私密'), folder('f3', '私密子', 'f2')]
@@ -210,6 +226,26 @@ check(
   '图片排在链接之前解析',
   html(`![图](asset:${SHA}.png)`).includes('<img') && !html(`![图](asset:${SHA}.png)`).includes('<a ')
 )
+
+// ---- Markdown 输入规则（块首打前缀 + 空格就地变块）----
+check('# → 一级标题', markdownBlockRule('#') === 'h1')
+check('## → 二级标题', markdownBlockRule('##') === 'h2')
+check('### → 三级标题', markdownBlockRule('###') === 'h3')
+check('#### 不是规则（只到三级）', markdownBlockRule('####') === null)
+check('> → 引用', markdownBlockRule('>') === 'quote')
+check('- → 项目列表', markdownBlockRule('-') === 'ul')
+check('* → 项目列表', markdownBlockRule('*') === 'ul')
+check('1. → 编号列表', markdownBlockRule('1.') === 'ol')
+check('中文顿号编号也认', markdownBlockRule('12、') === 'ol')
+check('[] → 待办', markdownBlockRule('[]') === 'todo')
+check('[x] → 待办', markdownBlockRule('[x]') === 'todo')
+check('``` → 代码块', markdownBlockRule('```') === 'code')
+check('--- → 分隔线', markdownBlockRule('---') === 'divider')
+check('普通文字不触发', markdownBlockRule('标题') === null)
+check('空串不触发', markdownBlockRule('') === null)
+check('前缀前有空格 → 不触发（不在块首）', markdownBlockRule(' #') === null)
+check('前缀后已有文字 → 不触发', markdownBlockRule('# 标题') === null)
+check('正文中间的 # 不触发', markdownBlockRule('见 #') === null)
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

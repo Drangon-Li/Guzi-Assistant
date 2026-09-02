@@ -11,6 +11,35 @@
 export const NOTE_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'] as const
 export type NoteColor = (typeof NOTE_COLORS)[number]
 
+/** 可通过 / 菜单或 Markdown 输入规则生成的块。 */
+export type BlockKind = 'h1' | 'h2' | 'h3' | 'todo' | 'ul' | 'ol' | 'quote' | 'code' | 'divider'
+
+// 块首打这些前缀再敲空格，就地变成对应的块——存的本来就是 Markdown，
+// 手打 Markdown 却只能得到一行字面量「# 标题」，是这个编辑器一直缺的一环。
+const BLOCK_RULES: [RegExp, BlockKind][] = [
+  [/^###$/, 'h3'],
+  [/^##$/, 'h2'],
+  [/^#$/, 'h1'],
+  [/^>$/, 'quote'],
+  [/^[-*+]$/, 'ul'],
+  [/^\d{1,9}[.、]$/, 'ol'],
+  [/^\[[ xX]?\]$/, 'todo'],
+  [/^(?:```|~~~)$/, 'code'],
+  [/^(?:---|\*\*\*|___)$/, 'divider']
+]
+
+/**
+ * 光标前那截文字是不是一条输入规则的触发前缀。
+ * 传进来的应当是**块内光标之前的全部文字**：只有整段恰好等于前缀才算，
+ * 也就是说只在块首触发——正文中间打个「#」不该把整块变成标题。
+ */
+export function markdownBlockRule(beforeCaret: string): BlockKind | null {
+  const prefix = beforeCaret.trim()
+  if (!prefix || prefix !== beforeCaret) return null // 前面有空格/缩进就不算块首
+  for (const [re, kind] of BLOCK_RULES) if (re.test(prefix)) return kind
+  return null
+}
+
 export const COLOR_LABELS: Record<NoteColor, string> = {
   red: '红色',
   orange: '橙色',
