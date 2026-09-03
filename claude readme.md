@@ -108,7 +108,7 @@ TS 分两个 project：`tsconfig.node.json`（main + preload + shared + server�
 
 ### 核心表
 
-`profile` `settings` `sources` `tasks` `detections` `work_records` `app_usage` `reports` `chat_messages` `personal_memory` `focus_tasks` `detection_notes` `app_switches` `app_categories` `activity_segments` `ocr_evidence`
+`profile` `settings` `sources` `tasks` `detections` `work_records` `app_usage` `reports` `chat_messages` `personal_memory` `focus_tasks` `detection_notes` `app_switches` `app_categories` `activity_segments` `ocr_evidence` `voice_sessions` `voice_segments`
 
 插件表另在各自 `initTables` 里建，前缀 `p_<id>_`。
 
@@ -159,9 +159,27 @@ if (!cols.includes('新列')) db.exec('ALTER TABLE 表名 ADD COLUMN 新列 ... 
 - `screenwatch.ts` — 屏幕感知主线（截图 → OCR → 云端解析的门控与编排）
 - `detection-cards.ts` — 候选 → 记忆历史 → 弹卡 → 入库的共用内核
 - `task-ingest.ts` — **ParsedItem → 任务落库的统一映射**。capture / assistant / detection-cards 三条接受流共用，新增任务字段只改这一处
-- `parser.ts` — 解析
+- `parser.ts` — 解析。直连时按 `settings.apiFormat` 走三套协议之一，翻译层在 `shared/api-formats.ts`
+- `detection-gate.ts`（shared）— 屏幕感知候选的**入队门槛**与「完成即撤」。模型给的
+  `confidence` / `suggested_action` 在这里被采纳；没过门槛的存成 `archived`，
+  留痕参与去重但不进用户的待确认队列（issue #128）
 - `privacy.ts` — 上云前的隐私门（本应用识别、排除名单、私密浏览、安全输入）
 - `ocr.ts`、`shotvault.ts`、`phash.ts` — OCR 与截图留存
+
+### 语音纪要
+
+`voicenotes/` 三个文件：`service.ts` 会话生命周期与会议应用自动触发、
+`transcribe.ts` OpenAI 兼容的 `/v1/audio/transcriptions` 客户端、`parse.ts` 转录文本 → 任务。
+
+**录音在渲染层**（`renderer/src/voice-capture.ts`，只有那里拿得到 `getUserMedia`），
+主进程只判定「何时该录」、收分段、调转录、落任务。判定逻辑在 `shared/voicenotes.ts`：
+会议应用识别、按停顿切段（不按固定时钟窗口）、WAV 封装，都是纯函数。
+
+解析时会注入用户档案 + 最近三天的工作记录——会上说的话十有八九不是给用户的，
+没有这两块上下文，模型判不出「这活是谁的」。会议来的任务一律走待确认。
+
+macOS 需要 `NSMicrophoneUsageDescription`（`electron-builder.yml`），
+缺这条系统会在首次 `getUserMedia` 时直接终止进程，而不是弹授权框。
 
 ### 助手对话
 
@@ -193,6 +211,10 @@ if (!cols.includes('新列')) db.exec('ALTER TABLE 表名 ADD COLUMN 新列 ... 
 
 主导航：**今日 / 日程 / 日报 / 分析 / 个人**（`App.tsx:55` 的 `NAV`）。设置和市场固定在侧边栏底部，不在主导航里。插件页由 `PLUGIN_UI[page]?.Page` 渲染。
 
+页面跳转统一走 `App.tsx` 的 `navigate(page, cat?)`，第二个参数只对设置页有意义
+（深链到某个分区，如首页「去设置开启」直接落到屏幕感知）。每次导航都重设，
+所以从侧栏进设置不会残留上一次的分区。
+
 ### 关键文件
 
 - `api.ts` — 渲染层调主进程的统一入口，含 `api.plugin()`
@@ -200,7 +222,9 @@ if (!cols.includes('新列')) db.exec('ALTER TABLE 表名 ADD COLUMN 新列 ... 
 - `components/Modal.tsx` — 弹窗，用法 `<Modal panelClass onClose>{(close) => …}</Modal>`
 - `components/AssistantChat.tsx` — 聊天组件，桌宠对话框和悬浮助手共用
 - `textarea.ts` — `autoGrow()` 按 scrollHeight 自适应高度、`insertNewline()` 在光标处插换行
-- `labels.ts` — 文案与格式化
+- `labels.ts` — 文案与格式化，以及引导页/个人页的 Tab 补全（`fillFromPlaceholder`）
+- `voice-capture.ts` — 麦克风采集：16kHz 单声道 PCM + 能量 VAD 按停顿切段
+- `components/settings/` — 设置分区各一个文件；分区清单在 `pages/Settings.tsx` 的 `CATS`
 
 ---
 
@@ -312,6 +336,9 @@ console.log(b.includes(Buffer.from('某个新加的中文串','utf8')))"
 - **嵌套的 drop 区域不要 `stopPropagation`**，否则 `App.tsx` 的 `handleDrop` 收不到，拖放遮罩会卡住不消失
 - **CSP 是 `img-src 'self' data:`**，图片要以 data URL 回读
 - **`h-full` 在 `App.tsx` 的 `animate-page` 容器里解析成 `auto`**（那个 div 是块级、高度由内容撑）。需要满高的插件页用 `h-screen`，不要改共用容器——会影响所有核心页的滚动
+- **contentEditable 里新起的行常常是 `<div>` 而不是 `<p>`**（Chromium 的 `defaultParagraphSeparator` 就是 div）。记事本的 `currentBlock()` 曾因白名单漏了 DIV，导致 slash 菜单、Markdown 输入规则、公式块级渲染在新打的行上**一起静默失效**——载入时的渲染照常工作，所以症状像「有时行有时不行」。凡是靠标签白名单找块的地方都要留兜底
+- **contentEditable 里空的块元素不是合法落点**，浏览器会把光标弹到上一行。新建空块必须塞一个 `<br>`；而落光标时「内容末尾」等于落在 `<br>` 之后（又跑下一行），空块要显式落块首
+- **中文输入法激活时 `keydown` 上报的 `key` 不可靠**（常见 `Process` / keyCode 229）。要判具体字符的输入规则挂 `beforeinput`，按 `inputType === 'insertText' && data === '…'` 判断，组合输入期间是 `insertCompositionText`，天然不会误命中
 
 ### 中文日期 / 节假日
 
