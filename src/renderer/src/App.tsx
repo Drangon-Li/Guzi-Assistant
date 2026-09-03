@@ -2,6 +2,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { shouldRemindRenew } from '@shared/subscription'
 import { api } from './api'
+import { startCapture, stopCapture } from './voice-capture'
+import type { VoiceSessionRecord } from '@shared/voicenotes'
 import { supabase, functionsBase } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
 import Onboarding from './pages/Onboarding'
@@ -13,7 +15,7 @@ import Reports from './pages/Reports'
 import Analysis from './pages/Analysis'
 import Home from './pages/Home'
 import Account from './pages/Account'
-import Settings from './pages/Settings'
+import Settings, { type SettingsCat } from './pages/Settings'
 import Market from './pages/Market'
 import PreviewCard from './pages/PreviewCard'
 import ReminderCard from './pages/ReminderCard'
@@ -79,6 +81,13 @@ function MainApp(): React.JSX.Element | null {
   const [screenPerm, setScreenPerm] = useState<string | undefined>(undefined)
   const [screenGateSkipped, setScreenGateSkipped] = useState(false)
   const [page, setPage] = useState<Page>('home')
+  // 深链到设置页的某个分区（首页「去设置开启」直接落到屏幕感知）。
+  // 每次导航都重设：从侧栏进设置时传 undefined，才不会残留上一次的分区。
+  const [settingsCat, setSettingsCat] = useState<SettingsCat | undefined>(undefined)
+  const navigate = useCallback((next: Page, cat?: SettingsCat): void => {
+    setSettingsCat(cat)
+    setPage(next)
+  }, [])
   const [chatOpen, setChatOpen] = useState(false)
   const [shownPage, setShownPage] = useState<Page>('home')
   const [welcomed, setWelcomed] = useState(
@@ -165,6 +174,27 @@ function MainApp(): React.JSX.Element | null {
     void api.permissions().then((p) => setScreenPerm(p.screen))
   }, [])
 
+  // 语音纪要：录音只能在渲染层做，主进程判定「该不该录」，这里跟着它的会话状态开关麦克风。
+  // 挂在主窗而不是某个页面里——切页面不该把正在开的会掐掉。
+  useEffect(() => {
+    const sync = (session: VoiceSessionRecord | null): void => {
+      if (session && session.status === 'recording') {
+        void startCapture(session.id).catch((e: unknown) => {
+          showToast(`麦克风不可用：${e instanceof Error ? e.message : String(e)}`)
+          void api.voiceStop()
+        })
+      } else {
+        void stopCapture()
+      }
+    }
+    void api.voiceState().then(sync)
+    const off = api.on('guzi-assistant:voice-state', (s) => sync(s as VoiceSessionRecord | null))
+    return () => {
+      off()
+      void stopCapture()
+    }
+  }, [showToast])
+
   // 订阅/试用到期前 3 天：让桌宠主动提醒一次（否则到期像故障——用户走查 P0）
   useEffect(() => {
     if (!supabase) return
@@ -198,14 +228,14 @@ function MainApp(): React.JSX.Element | null {
     const offNav = api.on('guzi-assistant:navigate', (route) => {
       if (route === 'inbox' || route === 'assistant') setChatOpen(true)
       else if (route === 'timeline')
-        setPage('schedule') // 旧路由兼容：时间轴已并入日程页
+        navigate('schedule') // 旧路由兼容：时间轴已并入日程页
       else if (route === 'memory')
-        setPage('account') // 旧路由兼容：记忆页已拆解，个人记忆并入个人页
+        navigate('account') // 旧路由兼容：记忆页已拆解，个人记忆并入个人页
       else if (route === 'history')
-        setPage('reports') // 旧路由兼容：历史页已并入日报页的「活动明细」
-      else if (typeof route === 'string' && CORE_PAGES.includes(route as CorePage)) setPage(route)
+        navigate('reports') // 旧路由兼容：历史页已并入日报页的「活动明细」
+      else if (typeof route === 'string' && CORE_PAGES.includes(route as CorePage)) navigate(route)
       // 插件页也能被导航到（桌宠气泡、提醒卡都可能想跳过去）；没启用就当没这条路由
-      else if (typeof route === 'string' && PLUGINS.some((p) => p.id === route)) setPage(route)
+      else if (typeof route === 'string' && PLUGINS.some((p) => p.id === route)) navigate(route)
     })
     return () => {
       offTasks()
@@ -336,7 +366,7 @@ function MainApp(): React.JSX.Element | null {
             <IconMarket />
             <span>市场</span>
           </button>
-          <button onClick={() => setPage('settings')} className={navItemClass(page === 'settings')}>
+          <button onClick={() => navigate('settings')} className={navItemClass(page === 'settings')}>
             <IconSettings />
             <span>设置</span>
           </button>
@@ -357,7 +387,7 @@ function MainApp(): React.JSX.Element | null {
             <Home
               tasks={tasks}
               userName={profile.name}
-              onNavigate={setPage}
+              onNavigate={navigate}
               pluginCards={pluginHomeCards}
             />
           )}
@@ -371,7 +401,7 @@ function MainApp(): React.JSX.Element | null {
           {shownPage === 'reports' && <Reports />}
           {shownPage === 'analysis' && <Analysis />}
           {shownPage === 'account' && <Account onProfileChange={setProfile} />}
-          {shownPage === 'settings' && <Settings onProfileChange={setProfile} />}
+          {shownPage === 'settings' && <Settings onProfileChange={setProfile} initialCat={settingsCat} />}
           {shownPage === 'market' && <Market />}
           {/* 插件页：lazy 加载，没启用的插件不进首屏 chunk */}
           {PluginPage && (

@@ -12,10 +12,19 @@ import {
   modelForAction,
   modelsEndpoint,
   parseModelList,
-  responsesEndpoint,
   type ModelAction,
   type ModelProbeResult
 } from '@shared/model-configuration'
+import {
+  chatBody,
+  chatEndpoint,
+  chatError,
+  chatHeaders,
+  chatText,
+  normalizeApiFormat,
+  type ApiFormat,
+  type CanonicalMessage
+} from '@shared/api-formats'
 import { getSession } from './session'
 
 export type { ParsedItem }
@@ -62,15 +71,17 @@ async function viaGateway(
   return payload.data ?? ({} as ResponsesOutput)
 }
 
-/** 直连模型（开发/自托管兜底，兼容 GUZI_ASSISTANT_API_*、OPENAI_* 和旧 ESHELL_API_*）。 */
+/** 直连模型（开发/自托管兜底，兼容 GUZI_ASSISTANT_API_*、OPENAI_* 和旧 ESHELL_API_*）。
+ *  按设置里选的接口格式翻译请求：Responses / Chat Completions / Anthropic Messages。 */
 async function viaDirect(
   instructions: string,
-  input: unknown[],
+  rawInput: unknown[],
   action: ParseAction,
   signal: AbortSignal
-): Promise<ResponsesOutput> {
+): Promise<string> {
   const settings = getSettings()
   const { apiBase, apiKey, useCustomModel } = settings
+  const format = normalizeApiFormat(settings.apiFormat)
   const model = modelForAction(action, settings)
   if (!apiBase || !apiKey)
     throw new Error(
@@ -79,9 +90,9 @@ async function viaDirect(
 
   const send = async (body: Record<string, unknown>): Promise<Response> => {
     try {
-      return await fetch(responsesEndpoint(apiBase), {
+      return await fetch(chatEndpoint(apiBase, format), {
         method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        headers: chatHeaders(apiKey, format),
         body: JSON.stringify(body),
         signal
       })
@@ -91,22 +102,26 @@ async function viaDirect(
     }
   }
 
-  const plain = { model, instructions, input }
+  const input = rawInput as CanonicalMessage[]
   // 抽取只要一段结构化 JSON，推理纯属浪费：同一请求实测 effort=none 比默认快 6 倍
   // （8.5s → 1.4s，925 输出 token 里 803 是推理），解析结果一致。
-  // 对话保留 low —— 那里的思考对回答质量有实际帮助。
+  // 对话保留 low —— 那里的思考对回答质量有实际帮助。effort 只有 Responses 那套吃。
   const effort = action === 'chat' ? 'low' : 'none'
-  let res = await send({ ...plain, reasoning: { effort } })
-  if (res.status === 400) {
+  const plain = { model, instructions, input }
+  let res = await send(chatBody({ ...plain, effort }, format))
+  if (res.status === 400 && format === 'openai-responses') {
     // BYOK 可以指向任意服务，非推理模型会因为不认识 reasoning 参数直接 400。
     // 只在报错确实指向这个参数时退一步重试，不做无差别兜底。
     const detail = await res.text()
     if (!/reasoning|effort/i.test(detail))
       throw new Error(`解析服务返回 400：${detail.slice(0, 300)}`)
-    res = await send(plain)
+    res = await send(chatBody(plain, format))
   }
   if (!res.ok) throw new Error(`解析服务返回 ${res.status}：${(await res.text()).slice(0, 300)}`)
-  return (await res.json()) as ResponsesOutput
+  const json: unknown = await res.json()
+  const err = chatError(json)
+  if (err) throw new Error(`解析服务错误：${err}`)
+  return chatText(json, format)
 }
 
 /** 调用解析模型并返回输出文本；优先走托管网关(登录态)，否则 env 直连兜底；120s 超时。 */
@@ -127,12 +142,12 @@ export async function callModel(
     // 自定义模型显式开启且配置完整时优先于托管网关——否则用户填了自己的 API 却因为
     // 登录着而完全不生效，是最容易让人以为「填了没用」的坑。
     const preferDirect = useCustomModel && !!apiBase && !!apiKey
-    const data =
-      !preferDirect && functionsBase && token
-        ? await viaGateway(functionsBase, token, instructions, input, action, controller.signal)
-        : await viaDirect(instructions, input, action, controller.signal)
-    if (data.error?.message) throw new Error(`解析服务错误：${data.error.message}`)
-    return extractText(data).trim()
+    if (!preferDirect && functionsBase && token) {
+      const data = await viaGateway(functionsBase, token, instructions, input, action, controller.signal)
+      if (data.error?.message) throw new Error(`解析服务错误：${data.error.message}`)
+      return extractText(data).trim()
+    }
+    return (await viaDirect(instructions, input, action, controller.signal)).trim()
   } catch (e) {
     if (externalSignal?.aborted) throw new Error('解析已取消')
     throw e
@@ -144,9 +159,14 @@ export async function callModel(
 
 /** 设置页「检测连接」：GET /v1/models 校验地址与 Key 并取回可选模型。
  *  注意它只验证凭据与连通性——真正推理走 /responses，两者未必同时可用，UI 文案需说明。 */
-export async function probeModelEndpoint(apiBase: string, apiKey: string): Promise<ModelProbeResult> {
+export async function probeModelEndpoint(
+  apiBase: string,
+  apiKey: string,
+  apiFormat?: string
+): Promise<ModelProbeResult> {
   const base = apiBase.trim()
   const key = apiKey.trim()
+  const format = normalizeApiFormat(apiFormat ?? getSettings().apiFormat)
   const fail = (error: string): ModelProbeResult => ({
     ok: false,
     models: [],
@@ -160,8 +180,9 @@ export async function probeModelEndpoint(apiBase: string, apiKey: string): Promi
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 15_000)
   try {
+    // 模型列表端点：Anthropic 也有 /v1/models，但要 x-api-key 头
     const res = await fetch(modelsEndpoint(base), {
-      headers: { Authorization: `Bearer ${key}` },
+      headers: chatHeaders(key, format),
       signal: controller.signal
     })
     if (res.status === 401 || res.status === 403)
@@ -172,7 +193,7 @@ export async function probeModelEndpoint(apiBase: string, apiKey: string): Promi
       ok: true,
       models: parseModelList(await res.json().catch(() => null)),
       error: null,
-      responsesAvailable: await probeResponsesEndpoint(base, key, controller.signal)
+      responsesAvailable: await probeChatEndpoint(base, key, format, controller.signal)
     }
   } catch (e) {
     if (controller.signal.aborted) return fail('连接超时（15 秒）')
@@ -182,18 +203,20 @@ export async function probeModelEndpoint(apiBase: string, apiKey: string): Promi
   }
 }
 
-/** 解析走的是 /v1/responses，但很多「OpenAI 兼容」服务只实现了 /v1/chat/completions。
- *  故意发一个不合法的空 body：404/405 说明端点不存在，其他状态码说明存在且只是拒绝了这个请求。
- *  不带 model/input，所以不会真的推理、不消耗 token。 */
-async function probeResponsesEndpoint(
+/** 所选格式的推理端点到底在不在。很多「OpenAI 兼容」服务只实现了 /v1/chat/completions，
+ *  拿不到 /v1/responses；反过来填错格式打 Anthropic 也是一样的症状。
+ *  故意发一个不合法的空 body：404/405 说明端点不存在，其他状态码说明存在、只是拒绝了这个请求。
+ *  不带 model/messages，所以不会真的推理、不消耗 token。 */
+async function probeChatEndpoint(
   base: string,
   key: string,
+  format: ApiFormat,
   signal: AbortSignal
 ): Promise<boolean | null> {
   try {
-    const res = await fetch(responsesEndpoint(base), {
+    const res = await fetch(chatEndpoint(base, format), {
       method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      headers: chatHeaders(key, format),
       body: '{}',
       signal
     })

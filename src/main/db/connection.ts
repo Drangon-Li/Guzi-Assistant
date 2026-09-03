@@ -124,6 +124,25 @@ export function initDb(): void {
       content TEXT NOT NULL DEFAULT '',
       updated_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS voice_sessions (
+      id TEXT PRIMARY KEY,
+      app TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      status TEXT NOT NULL DEFAULT 'recording',
+      transcript TEXT NOT NULL DEFAULT '',
+      task_count INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS voice_segments (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      started_at TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      text TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending'
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_segments_session ON voice_segments(session_id, seq);
     CREATE TABLE IF NOT EXISTS focus_tasks (
       name TEXT PRIMARY KEY,
       hidden INTEGER NOT NULL DEFAULT 0,

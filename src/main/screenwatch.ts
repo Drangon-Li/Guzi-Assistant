@@ -9,7 +9,7 @@ import { ocrImageDetailed } from './ocr'
 import { cloudReady, parseToItemsRaw } from './parser'
 import { addOcrEvidence, getSettings, getSource, listFocusTaskCandidates } from './db'
 import { applyReportSchedule } from './report-scheduler'
-import { debugEvent, debugIsOpen, showPreview, isPreviewVisible } from './windows'
+import { debugEvent, debugIsOpen, hideMainForCapture, showPreview, isPreviewVisible } from './windows'
 import { applyExternalPetSay, isPetVisible, setPetScanning } from './pet/controller'
 import { initScanHotkey, unregisterScanHotkey } from './hotkey'
 import { getFrontmostContext } from './frontapp'
@@ -39,7 +39,14 @@ import {
   type ActivityScanReason
 } from './activity-tracker'
 import { decideOcrTrigger, type OcrTriggerReason } from '@shared/hybrid-history'
-import { buildDetectionCards, parsedToExtraction, showDetectedCards, type DetectHit } from './detection-cards'
+import {
+  buildDetectionCards,
+  parsedToExtraction,
+  showDetectedCards,
+  sweepCompletedDetections,
+  type DetectHit
+} from './detection-cards'
+import { detectionQueueDecision } from '@shared/detection-gate'
 import {
   legacyWorkSummaryHint,
   maybeAddWorkRecord,
@@ -73,9 +80,15 @@ function cropForegroundDataUrl(png: string): string | null {
   }
 }
 
-/** 一个候选是否「值得花一次视觉确认」：解出了具体时间、且不是明确别人的事。 */
+/**
+ * 一个候选是否「值得花一次视觉确认」：只要它打算进待确认队列就值得。
+ *
+ * 原先要求「已解出具体时间」才复查，于是越像噪声的越没人管——一屏 37 条无时间候选，
+ * 复查员一次都没被叫醒（#128）。反过来，没时间的恰恰最需要再看一眼版面；
+ * 而没过入队门槛的那些压根不会打扰用户，也就不必为它们花一次视觉调用。
+ */
 function isScheduleCandidate(h: DetectHit): boolean {
-  return h.extraction.strong && h.item.belongs_to_user !== 'no'
+  return detectionQueueDecision(h.item, h.extraction.strong) === 'queue'
 }
 
 interface DetectResult {
@@ -144,6 +157,9 @@ function buildOcrText(boxes: TextBox[]): string {
   return text
 }
 
+/** 让开主窗后等焦点交还给上一个应用；getFrontmostContext 读的是系统当前前台，切换不是瞬时的 */
+const FOCUS_SETTLE_MS = 350
+
 /** 扫描一次当前屏幕：截图 → 本地 OCR → 云端解析 → 右下角弹建议卡 */
 export async function scanOnce(): Promise<ScanResult> {
   // 桌宠可见时用 Siri 式光环表达"正在扫描"；否则退回加载卡（让用户知道在工作）
@@ -151,9 +167,26 @@ export async function scanOnce(): Promise<ScanResult> {
   if (petGlow) setPetScanning(true)
   else showPreview({ busy: '正在扫描屏幕…' })
   debugEvent('tick', '手动扫描屏幕')
+  let restoreMain: (() => void) | null = null
   try {
     const context = await getFrontmostContext()
-    const privacy = context ? privacyForContext(context) : { suppressed: false, privacyState: 'normal' as const }
+    let privacy = context ? privacyForContext(context) : { suppressed: false, privacyState: 'normal' as const }
+    // 手动扫描时前台几乎必然是谷子助手自己——用户就是点着界面上的按钮触发的。
+    // 与其报「隐私抑制」把人挡回去（#128 之外的老问题），不如把主窗让开再截，截完恢复。
+    if (privacy.privacyState === 'own') {
+      restoreMain = hideMainForCapture()
+      if (restoreMain) {
+        await new Promise((r) => setTimeout(r, FOCUS_SETTLE_MS))
+        const after = await getFrontmostContext()
+        const rejudged = after ? privacyForContext(after) : privacy
+        // 让开后仍读到自己：说明没有别的可激活窗口，但屏幕上已经没有谷子助手了，照常截。
+        // 换成别的应用则重新按它的隐私状态判——排除名单/私密窗口照样拦。
+        privacy =
+          rejudged.privacyState === 'own'
+            ? { suppressed: false, privacyState: 'normal' as const }
+            : rejudged
+      }
+    }
     if (privacy.suppressed) {
       const message = '当前窗口处于隐私抑制状态，未执行扫描'
       debugEvent('skip', message)
@@ -163,6 +196,7 @@ export async function scanOnce(): Promise<ScanResult> {
     markActivityScan('manual')
     markOcrFallback('manual')
     const png = await captureScreenSilently()
+    restoreMain?.() // 图已到手，窗口立刻还给用户——后面的 OCR 和云端解析不该让人干等
     if (!png) {
       const message = '截图失败，请检查屏幕录制权限'
       debugEvent('error', message)
@@ -197,6 +231,7 @@ export async function scanOnce(): Promise<ScanResult> {
         return { status: 'empty', message: '屏幕上没有识别到文字' }
       }
       debugEvent('ocr-text', `OCR 原文已处理：${text.length} 字（内容不写诊断日志）`)
+      sweepCompletedDetections(text)
 
       const t0 = Date.now()
       const { hits, workSummary, focusTask } = await detectAll(text, screenSenseWorkLog, png, screenSenseVlmConfirm)
@@ -224,6 +259,7 @@ export async function scanOnce(): Promise<ScanResult> {
     showPreview({ summary: emptyParseSummary(message) })
     return { status: 'error', message }
   } finally {
+    restoreMain?.() // 幂等，正常路径截完就已恢复过；这里兜住提前 return 和抛错
     setPetScanning(false)
   }
 }
@@ -453,6 +489,10 @@ async function watchTick(): Promise<void> {
     const th = textHash(text)
     if (th === lastTextHash) return // 文本没变 → 静默跳过
     lastTextHash = th
+
+    // 完成即撤：纯本地比对，放在云端冷却判断之前——屏幕显示某条已做完时，
+    // 哪怕这一轮不跑模型也该把它撤掉。
+    sweepCompletedDetections(text)
 
     // 内容冷却（同内容 10 分钟内不重复跑模型/弹卡）→ 放模型前，省推理
     const now = Date.now()

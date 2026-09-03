@@ -3,6 +3,7 @@ import type { AppCategoryOverride, AppUsageEntry, TaskRecord, WorkRecord } from 
 import { dayKey, formatDuration, groupWorkPeriods, periodLabel } from '@shared/work-report'
 import { buildOverrideMap, categoryOf, deepWorkSeconds, productiveRuns } from '@shared/attention'
 import { api } from '../api'
+import type { SettingsCat } from './Settings'
 import { Section } from '../components/ui'
 import GrainEar from '../components/GrainEar'
 import brandMark from '../assets/agent-avatar.png'
@@ -12,7 +13,8 @@ const ACTIVE_STATUS = new Set(['not_started', 'scheduled', 'in_progress', 'overd
 interface Props {
   tasks: TaskRecord[]
   userName: string
-  onNavigate: (page: string) => void
+  /** 第二个参数只对 settings 有意义：直接落到设置页的某个分区 */
+  onNavigate: (page: string, settingsCat?: SettingsCat) => void
   /** 已启用插件贡献的卡片，排在问候语之下、今日概览之上 */
   pluginCards?: { key: string; Card: React.ComponentType }[]
 }
@@ -134,7 +136,7 @@ export default function Home({
           <span>屏幕感知未开启：开启后才会自动捕获待办与工作记录（检测走云端，消耗积分）。</span>
           <button
             className="shrink-0 rounded-lg border border-amber-300 px-3 py-1.5 text-xs hover:bg-amber-100"
-            onClick={() => onNavigate('settings')}
+            onClick={() => onNavigate('settings', '屏幕感知')}
           >
             去设置开启
           </button>

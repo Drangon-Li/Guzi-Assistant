@@ -44,7 +44,7 @@ export default function AssistantSection({
         <CustomModelSettings />
       </Section>
 
-      <Section title="桌宠">
+      <Section title="悬浮球">
         <PetSettings />
       </Section>
     </>

@@ -44,6 +44,8 @@ export function addDetection(input: {
   sourceText: string
   hits: string[]
   app: string | null
+  /** 没过入队门槛的候选存成 archived：留痕参与去重，但不进用户的待确认队列（#128） */
+  status?: DetectionRecord['status']
 }): { detection: DetectionRecord; isNew: boolean } {
   const dup = getDb()
     .prepare("SELECT * FROM detections WHERE title=? AND IFNULL(time_iso,'')=IFNULL(?,'')")
@@ -58,7 +60,7 @@ export function addDetection(input: {
     sourceText: input.sourceText,
     hits: input.hits,
     app: input.app,
-    status: 'new',
+    status: input.status ?? 'new',
     createdAt: localNow()
   }
   getDb().prepare(
@@ -95,6 +97,14 @@ export function getDetection(id: string): DetectionRecord | null {
 
 export function setDetectionStatus(id: string, status: DetectionRecord['status']): void {
   getDb().prepare('UPDATE detections SET status = ? WHERE id = ?').run(status, id)
+}
+
+/** 仍在等用户确认的检测（供「完成即撤」拿去和当前屏幕文字比对）。 */
+export function listPendingDetections(limit = 60): DetectionRecord[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM detections WHERE status='new' ORDER BY created_at DESC LIMIT ?")
+    .all(limit) as DetectionRow[]
+  return rows.map(rowToDetection)
 }
 
 /**

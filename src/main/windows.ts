@@ -53,6 +53,27 @@ export function focusMain(route?: string): void {
   if (route) win.webContents.send('guzi-assistant:navigate', route)
 }
 
+/**
+ * 手动扫描前把主窗让开，返回恢复函数；本来就不可见时返回 null（无须恢复）。
+ *
+ * 用户是点着界面上的按钮触发扫描的，所以前台必然是谷子助手自己——直接截等于截自己。
+ * 这里只隐藏主窗（不用 app.hide()，那样桌宠和预览卡会跟着消失），
+ * macOS 随即把焦点还给上一个应用，那才是用户想让谷子看的东西。
+ * 刻意不调 createMainWindow()：它在窗口不存在时会新建一个。
+ */
+export function hideMainForCapture(): (() => void) | null {
+  if (!mainWin || mainWin.isDestroyed() || !mainWin.isVisible()) return null
+  const win = mainWin
+  win.hide()
+  // 幂等：截完立刻恢复（别让用户干等 OCR 和云端解析），出错路径再由 finally 兜一次
+  let restored = false
+  return () => {
+    if (restored) return
+    restored = true
+    if (!win.isDestroyed()) win.show()
+  }
+}
+
 /** 切换主窗口显隐：已显示 → 隐藏；隐藏/最小化 → 显示并获焦。供双击桌宠调用。 */
 export function toggleMainWindow(): void {
   const win = createMainWindow()

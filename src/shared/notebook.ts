@@ -52,26 +52,46 @@ export interface NotebookPrefs {
   hiddenFolders: string[]
   /** 单独挑出来不给助手看的笔记 */
   hiddenNotes: string[]
+  /** 正文字号倍率（⌘+ / ⌘- 调，⌘0 复位）。正文之外的标题、代码都是 em，会跟着一起缩放 */
+  fontScale: number
+  /** 沉浸模式：收起记事本自己的分类栏和列表栏，只留正文 */
+  immersive: boolean
 }
 
 /** 「未分类」不是真的分类，但也要能整批排除，用这个占位 id 混在 hiddenFolders 里。 */
 export const UNFILED = '__none__'
 
+/** 字号倍率的上下限与步进。放得太大一行装不下几个字，缩得太小不如不缩。 */
+export const FONT_SCALE_MIN = 0.8
+export const FONT_SCALE_MAX = 1.8
+export const FONT_SCALE_STEP = 0.1
+
 export const DEFAULT_NOTEBOOK_PREFS: NotebookPrefs = {
   timeField: 'updated',
   hiddenFolders: [],
-  hiddenNotes: []
+  hiddenNotes: [],
+  fontScale: 1,
+  immersive: false
 }
 
 const idList = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x).slice(0, 500) : []
+
+/** 夹到合法区间并对齐到步进，顺便挡住 NaN——存进 JSON 的东西什么都可能变成。 */
+export function clampFontScale(v: unknown): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? v : 1
+  const stepped = Math.round(n / FONT_SCALE_STEP) * FONT_SCALE_STEP
+  return Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, Number(stepped.toFixed(2))))
+}
 
 export function normalizePrefs(raw: unknown): NotebookPrefs {
   const o = (raw ?? {}) as Partial<NotebookPrefs>
   return {
     timeField: o.timeField === 'created' ? 'created' : 'updated',
     hiddenFolders: idList(o.hiddenFolders),
-    hiddenNotes: idList(o.hiddenNotes)
+    hiddenNotes: idList(o.hiddenNotes),
+    fontScale: clampFontScale(o.fontScale),
+    immersive: o.immersive === true
   }
 }
 

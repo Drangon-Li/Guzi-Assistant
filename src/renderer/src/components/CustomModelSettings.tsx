@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ModelProbeResult } from '@shared/model-configuration'
 import { api } from '../api'
+import { API_FORMATS, chatEndpoint, normalizeApiFormat, type ApiFormat } from '@shared/api-formats'
 import { Toggle } from './ui'
 
 const input =
@@ -15,6 +16,7 @@ type Status =
 /** 设置页「自定义模型」分区：填自己的 OpenAI 兼容 API，检测连通性并选模型。 */
 export default function CustomModelSettings(): React.JSX.Element {
   const [enabled, setEnabled] = useState(false)
+  const [apiFormat, setApiFormat] = useState<ApiFormat>('openai-responses')
   const [apiBase, setApiBase] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('')
@@ -29,6 +31,7 @@ export default function CustomModelSettings(): React.JSX.Element {
   useEffect(() => {
     void api.getSettings().then((s) => {
       setEnabled(s.useCustomModel)
+      setApiFormat(normalizeApiFormat(s.apiFormat))
       setApiBase(s.apiBase)
       setApiKey(s.apiKey)
       setModel(s.model)
@@ -41,7 +44,7 @@ export default function CustomModelSettings(): React.JSX.Element {
     setStatus({ kind: 'probing' })
     let result: ModelProbeResult
     try {
-      result = await api.probeModel(apiBase, apiKey)
+      result = await api.probeModel(apiBase, apiKey, apiFormat)
     } catch (e) {
       setStatus({ kind: 'fail', message: e instanceof Error ? e.message : String(e) })
       return
@@ -59,7 +62,7 @@ export default function CustomModelSettings(): React.JSX.Element {
       responsesAvailable: result.responsesAvailable
     })
     // 探测成功顺带把地址和 Key 存下来，省得用户还要额外点一次别处才生效
-    await api.saveSettings({ apiBase: apiBase.trim(), apiKey: apiKey.trim() })
+    await api.saveSettings({ apiBase: apiBase.trim(), apiKey: apiKey.trim(), apiFormat })
   }
 
   const tiers = [
@@ -94,8 +97,34 @@ export default function CustomModelSettings(): React.JSX.Element {
     await api.saveSettings({ [key]: next })
   }
 
+  // 只取路径部分给提示用：地址还没填时 chatEndpoint 会拼出个半截 URL，展示全量反而更迷惑
+  const endpointPath = chatEndpoint('', apiFormat).replace(/^\/+/, '/')
+
   return (
     <div className="flex flex-col gap-3 text-sm">
+      <label className="flex flex-col gap-1">
+        <span className="text-slate-500">接口格式</span>
+        <select
+          className={input}
+          value={apiFormat}
+          onChange={(e) => {
+            const next = normalizeApiFormat(e.target.value)
+            setApiFormat(next)
+            setStatus({ kind: 'idle' }) // 换了协议，上次的检测结论不再作数
+            void api.saveSettings({ apiFormat: next })
+          }}
+        >
+          {API_FORMATS.map((f) => (
+            <option key={f.value} value={f.value}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-slate-400">
+          {API_FORMATS.find((f) => f.value === apiFormat)?.hint}
+        </span>
+      </label>
+
       <label className="flex flex-col gap-1">
         <span className="text-slate-500">API 地址</span>
         <input
@@ -145,14 +174,16 @@ export default function CustomModelSettings(): React.JSX.Element {
 
       {status.kind === 'ok' && status.responsesAvailable === false && (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
-          该服务没有提供 <code>/v1/responses</code>，而谷子助手的解析正是走这个接口——
-          Key 和模型列表都正常，但启用后解析会失败。多数「OpenAI 兼容」服务只实现了{' '}
-          <code>/v1/chat/completions</code>。
+          Key 和模型列表都正常，但该服务没有提供 <code>{endpointPath}</code>——
+          按当前的「{API_FORMATS.find((f) => f.value === apiFormat)?.label}」格式启用后解析会失败。
+          {apiFormat === 'openai-responses' && '多数第三方「OpenAI 兼容」服务只实现了 Chat Completions，换成上面的「OpenAI 兼容 (Chat)」再试。'}
+          {apiFormat === 'anthropic' && '确认这个地址确实是 Claude 官方或兼容 Anthropic 协议的服务。'}
+          {apiFormat === 'openai-chat' && '确认地址填的是服务根地址（不要带 /chat/completions）。'}
         </div>
       )}
       {status.kind === 'ok' && status.responsesAvailable === null && (
         <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
-          没能确认 <code>/v1/responses</code> 是否可用（网络原因），启用后如果解析报错，多半是这个原因。
+          没能确认 <code>{endpointPath}</code> 是否可用（网络原因），启用后如果解析报错，多半是这个原因。
         </div>
       )}
 

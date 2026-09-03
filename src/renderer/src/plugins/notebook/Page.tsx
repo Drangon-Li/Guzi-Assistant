@@ -5,8 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildFolderTree,
   collectTags,
+  clampFontScale,
   DEFAULT_NOTEBOOK_PREFS,
   filterNotes,
+  FONT_SCALE_STEP,
   noteTimeOf,
   sortNotes,
   type FolderNode,
@@ -15,6 +17,7 @@ import {
   type NoteRecord,
   type NoteSummary
 } from '@shared/notebook'
+import 'katex/dist/katex.min.css' // 公式样式；记事本是懒加载页，不进首屏 chunk
 import { api } from '../../api'
 import ContextMenu, { type MenuEntry } from '../../components/ContextMenu'
 import NoteEditor from './NoteEditor'
@@ -187,6 +190,36 @@ export default function NotebookPage(): React.JSX.Element {
     void reload()
   }, [reload])
 
+  /** 偏好改一处就存一次：先乐观更新，UI 不等往返。 */
+  const patchPrefs = useCallback((patch: Partial<NotebookPrefs>): void => {
+    setPrefs((prev) => ({ ...prev, ...patch }))
+    void call<NotebookPrefs>('set-prefs', patch)
+  }, [])
+
+  // ⌘+ / ⌘- 调正文字号、⌘0 复位。挂在 window 上而不是编辑器上——
+  // 光标在搜索框或列表里时也该好使。菜单栏没有占用这三个组合（只有重载和全屏）。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+      // ⌘+ 在无 shift 时上报的是 '='，按下 shift 才是 '+'
+      const bigger = e.key === '=' || e.key === '+'
+      const smaller = e.key === '-'
+      const reset = e.key === '0'
+      if (!bigger && !smaller && !reset) return
+      e.preventDefault()
+      setPrefs((prev) => {
+        const next = reset
+          ? 1
+          : clampFontScale(prev.fontScale + (bigger ? FONT_SCALE_STEP : -FONT_SCALE_STEP))
+        if (next === prev.fontScale) return prev
+        void call<NotebookPrefs>('set-prefs', { fontScale: next })
+        return { ...prev, fontScale: next }
+      })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const tree = useMemo(() => buildFolderTree(folders, notes), [folders, notes])
   const tags = useMemo(() => collectTags(notes), [notes])
   const visible = useMemo(
@@ -318,8 +351,17 @@ export default function NotebookPage(): React.JSX.Element {
   return (
     // 外壳给页面的容器是块级、高度随内容，h-full 在这里会落空，分隔线就只长到内容底部。
     // 这一页是满屏三栏（不是纵向滚动页），自己定高最省事，也不必去动所有页面共用的那层容器。
-    <div className="flex h-screen min-h-0 overflow-hidden">
+    <div className="relative flex h-screen min-h-0 overflow-hidden">
+      {/* 沉浸模式：只收起记事本自己的两栏，应用左侧导航不归这一页管 */}
+      <button
+        className="absolute top-3 right-4 z-10 rounded-lg px-2 py-1 text-[11px] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+        title={prefs.immersive ? '退出沉浸模式' : '沉浸模式：收起分类与列表，只留正文'}
+        onClick={() => patchPrefs({ immersive: !prefs.immersive })}
+      >
+        {prefs.immersive ? '退出沉浸' : '沉浸'}
+      </button>
       {/* 左栏：分类与标签 */}
+      {!prefs.immersive && (
       <aside className="flex w-56 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line px-3 pt-10 pb-6">
         <div>
           {/* 左栏所有文字都对齐到同一条竖线：分类项带展开箭头，标题和无箭头的项要跟着让出这段 */}
@@ -422,8 +464,10 @@ export default function NotebookPage(): React.JSX.Element {
           </div>
         )}
       </aside>
+      )}
 
       {/* 中栏：笔记列表 */}
+      {!prefs.immersive && (
       <section className="flex w-80 shrink-0 flex-col border-r border-line">
         <div className="shrink-0 px-4 pt-10 pb-3">
           <div className="flex items-center gap-2">
@@ -515,6 +559,7 @@ export default function NotebookPage(): React.JSX.Element {
           ))}
         </ul>
       </section>
+      )}
 
       {/* 右栏：编辑器 */}
       <section className="flex min-w-0 flex-1 flex-col">
@@ -524,6 +569,8 @@ export default function NotebookPage(): React.JSX.Element {
             note={active}
             folderLabel={folderName(active.folderId)}
             folders={folders}
+            fontScale={prefs.fontScale}
+            immersive={prefs.immersive}
             onChange={onEdit}
             onMove={(target) => void moveNote(active.id, target === 'none' ? null : target)}
           />

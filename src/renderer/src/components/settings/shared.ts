@@ -14,7 +14,7 @@ export const HOTKEY_ROWS: { key: HotkeyField; label: string }[] = [
   { key: 'screenshotHotkey', label: '提交屏幕截图' },
   { key: 'screenSenseHotkey', label: '整屏感知扫描' },
   { key: 'mainWindowHotkey', label: '打开主界面' },
-  { key: 'petVoiceHotkey', label: '桌宠说话模式' },
+  { key: 'petVoiceHotkey', label: '悬浮球说话模式' },
   { key: 'quickAskHotkey', label: '快捷提问框' }
 ]
 

@@ -1,5 +1,13 @@
 // 纯函数单测：倒计时/日期展示（锁 QA §18「已超期/病句」修复）。运行：npm run test:labels
-import { countdownLabel, daysUntil, dayKey, fmtTime, formatHotkey } from '../src/renderer/src/labels.ts'
+import {
+  countdownLabel,
+  daysUntil,
+  dayKey,
+  fillFromPlaceholder,
+  fmtTime,
+  formatHotkey,
+  placeholderExample
+} from '../src/renderer/src/labels.ts'
 
 let failed = 0
 function check(name, ok) {
@@ -31,6 +39,32 @@ check('fmtTime 非法时间原样返回', fmtTime('不是时间') === '不是时
 // ---- formatHotkey ----
 check('快捷键符号化', formatHotkey('CommandOrControl+Shift+K') === '⌘ ⇧ K')
 check('未知键原样保留', formatHotkey('Alt+C') === '⌥ C')
+
+// ---- Tab 补全 ----
+check('剥掉「如：」前缀', placeholderExample('如：北京中关村学院') === '北京中关村学院')
+check('半角冒号也剥', placeholderExample('如: lisi2024') === 'lisi2024')
+check('没有前缀的原样返回', placeholderExample('北京中关村学院') === '北京中关村学院')
+check('句中的「如：」不动', placeholderExample('比如：不该剥') === '比如：不该剥')
+
+function press(key, value, placeholder, opts = {}) {
+  let filled = null
+  let prevented = false
+  const e = { key, shiftKey: !!opts.shift, preventDefault: () => (prevented = true) }
+  fillFromPlaceholder(e, value, placeholder, (v) => (filled = v))
+  return { filled, prevented }
+}
+
+const hit = press('Tab', '', '如：北京中关村学院')
+check('空输入框按 Tab → 填示例并拦截默认行为', hit.filled === '北京中关村学院' && hit.prevented)
+check('已有内容 → 不覆盖，放行 Tab', press('Tab', '清华', '如：北京中关村学院').filled === null)
+check('只有空白也算空 → 仍然补全', press('Tab', '   ', '如：北京中关村学院').filled === '北京中关村学院')
+check(
+  'Shift+Tab 放行（那是往回跳）',
+  press('Tab', '', '如：北京中关村学院', { shift: true }).filled === null
+)
+check('其它按键不受影响', press('a', '', '如：北京中关村学院').filled === null)
+check('没有 placeholder → 放行', press('Tab', '', '').filled === null)
+check('placeholder 只有「如：」→ 放行，不填空串', press('Tab', '', '如：').filled === null)
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

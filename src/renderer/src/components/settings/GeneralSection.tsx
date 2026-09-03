@@ -77,7 +77,7 @@ export default function GeneralSection({
         </label>
       </Section>
 
-      <Section title="任务提醒" desc="到点前弹置顶提醒卡 + 桌宠气泡 + 系统通知；不点不消失。">
+      <Section title="任务提醒" desc="到点前弹置顶提醒卡 + 悬浮球气泡 + 系统通知；不点不消失。">
         <div className="flex flex-col gap-3">
           <label className="flex items-center justify-between gap-4 text-sm">
             <span>开启任务提醒</span>

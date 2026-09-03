@@ -25,7 +25,7 @@ const picker = read('../src/main/history/app-picker.ts')
 
 const checks = [
   // 只认模块路径，不钉死默认/具名导入的写法——加个具名导出不该算契约破坏
-  ['活动明细并入日报页且旧 history 路由重定向', /from ['"]\.\.\/components\/ActivityDetail['"]/.test(reports) && /'activity', '活动明细'/.test(reports) && !/key: 'history'/.test(app) && /route === 'history'/.test(app) && /setPage\('reports'\)/.test(app)],
+  ['活动明细并入日报页且旧 history 路由重定向', /from ['"]\.\.\/components\/ActivityDetail['"]/.test(reports) && /'activity', '活动明细'/.test(reports) && !/key: 'history'/.test(app) && /route === 'history'/.test(app) && /(?:setPage|navigate)\('reports'\)/.test(app)],
   ['展示 6 小时摘要与 10 分钟活动块', /6 小时摘要/.test(activity) && /10 分钟活动块/.test(activity) && /result\??\.sixHour/.test(activity) && /result\??\.tenMinute/.test(activity)],
   ['摘要卡展示时间、App、置信度与来源 segment', /formatTime\(item\.startAt\)/.test(activity) && /appList\(item\.apps\)/.test(activity) && /confidenceLabel\(item\.confidence\)/.test(activity) && /sourceSegmentIds/.test(activity)],
   ['事件类型作为辅助证据展开统计', /activityTypeCounts/.test(activity) && /<details/.test(activity) && /查看事件证据统计/.test(activity) && /查看辅助证据/.test(activity)],
@@ -37,15 +37,18 @@ const checks = [
   ['支持 10 分钟、1 小时、1 天和全部清理', /cleanRange\(/.test(settings) && /'10m', '最近 10 分钟'/.test(settings) && /'1h', '最近 1 小时'/.test(settings) && /'1d', '最近 1 天'/.test(settings) && /'all', '全部 48 小时'/.test(settings)],
   ['清理使用范围 API 或统一 clear API', /api\.historyDeleteRange\(/.test(settings) && /api\.historyClear\(/.test(settings)],
   ['设置展示采集器健康指标', /History 健康/.test(settings) && /lastHeartbeatAt/.test(settings) && /collectorRestartCount/.test(settings) && /collectorDroppedEventCount/.test(settings) && /currentSegmentId/.test(settings) && /retentionExpiresAt/.test(settings)],
-  ['设置提供独立 History v2 与派生开关', /historyV2Enabled/.test(settings) && /historyDerivedWorkEnabled/.test(settings) && /api\.saveSettings\(\{ historyV2Enabled: next \}\)/.test(settings) && /api\.saveSettings\(\{ historyDerivedWorkEnabled: next \}\)/.test(settings)],
+  // History v2 的两个开关已从设置页移除（技术性太强）：数据层仍可独立控制，
+  // 由下面「两个 History 开关默认关闭且可独立回滚」那条守着。UI 侧只保证没开时不留孤儿分区。
+  ['History v2 未开启时不显示相关分区', /settings\.historyV2Enabled && \(/.test(settings) && /settings\.historyV2Enabled && <HistoryDataSection/.test(settings) && !/api\.saveSettings\(\{ historyV2Enabled: next \}\)/.test(settings)],
   ['设置二值选项使用可访问 Toggle，圆钮有对称水平内边距', /role="switch"/.test(settingsUi) && /left-0\.5/.test(settingsUi) && /translate-x-0['"]/.test(settingsUi) && /translate-x-5/.test(settingsUi) && /<Toggle/.test(settings) && !/type="checkbox"/.test(settings)],
   ['屏幕感知技术参数默认折叠', /高级设置与隐私选项/.test(settings) && /查看采集器健康详情/.test(settings) && /<details/.test(settings)],
   ['删除/摘要完成后广播并由页面刷新',
     (historyService.match(/broadcast\('guzi-assistant:history-updated'\)/g) ?? []).length >= 4 &&
       /api\.on\('guzi-assistant:history-updated'/.test(activity) &&
       /api\.on\('guzi-assistant:history-updated'/.test(settings)],
-  ['两个 History 开关默认关闭且可独立回滚',
-    /historyV2Enabled: map\.historyV2Enabled === 'true'/.test(db) &&
+  // History v2 改为默认开启（设置页已不暴露开关）；派生工作记录仍默认关，两者可独立回滚。
+  ['History v2 默认开启、派生工作记录默认关闭且可独立回滚',
+    /historyV2Enabled: map\.historyV2Enabled !== 'false'/.test(db) &&
       /historyDerivedWorkEnabled: map\.historyDerivedWorkEnabled === 'true'/.test(db) &&
       /historyV2Enabled && settings\.historyDerivedWorkEnabled/.test(historyService)]
 ]

@@ -1,4 +1,5 @@
 // profile / settings：用户档案与应用设置（key-value 表，读出来规整成 AppSettings）。
+import { normalizeApiFormat } from '@shared/api-formats'
 import { getDb } from './connection.ts'
 import { loadEnv } from '../env'
 import { firstNonBlank } from '@shared/env-value'
@@ -42,6 +43,7 @@ export function getSettings(): AppSettings {
     petVoiceHotkey: map.petVoiceHotkey || 'Alt+V',
     quickAskHotkey: map.quickAskHotkey || 'Alt+Space',
     // ?? 而不是 ||：用户显式清空后不能从 .env 静默复活
+    apiFormat: normalizeApiFormat(map.apiFormat ?? env.GUZI_ASSISTANT_API_FORMAT),
     apiBase: directModel.apiBase,
     apiKey: directModel.apiKey,
     model: directModel.model,
@@ -99,9 +101,17 @@ export function getSettings(): AppSettings {
       map.todoScanIntervalSec != null
         ? Math.min(600, Math.max(60, Number(map.todoScanIntervalSec) || 180))
         : 180,
-    historyV2Enabled: map.historyV2Enabled === 'true',
+    // 默认开启：屏幕感知设置页不再暴露这个开关，留 false 的话没开过的用户永远开不了
+    historyV2Enabled: map.historyV2Enabled !== 'false',
     historyDerivedWorkEnabled: map.historyDerivedWorkEnabled === 'true',
-    historyCaptureText: map.historyCaptureText === 'true'
+    historyCaptureText: map.historyCaptureText === 'true',
+    voiceNotesEnabled: map.voiceNotesEnabled === 'true',
+    voiceAutoStart: map.voiceAutoStart !== 'false',
+    voiceKeepAudio: map.voiceKeepAudio === 'true',
+    // 设置页填的优先；没填则回落到 .env，便于本地不把 key 存进库就能测
+    voiceApiBase: map.voiceApiBase || env.GUZI_ASSISTANT_VOICE_API_BASE || '',
+    voiceApiKey: map.voiceApiKey || env.GUZI_ASSISTANT_VOICE_API_KEY || '',
+    voiceModel: map.voiceModel || env.GUZI_ASSISTANT_VOICE_MODEL || ''
   }
 }
 

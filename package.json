@@ -1,7 +1,7 @@
 {
   "name": "guzi-assistant",
   "productName": "谷子助手",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "谷子助手个人事项捕获助手",
   "main": "out/main/index.js",
   "private": true,
@@ -24,6 +24,7 @@
     "@larksuiteoapi/node-sdk": "^1.66.1",
     "@supabase/supabase-js": "^2.108.2",
     "better-sqlite3": "^12.2.0",
+    "katex": "^0.18.5",
     "mammoth": "^1.8.0",
     "pdf-parse": "^1.1.1",
     "react": "^19.1.0",

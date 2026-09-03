@@ -1,3 +1,4 @@
+import type { PcmSegment, VoiceSessionRecord } from '@shared/voicenotes'
 import type {
   AppCategory,
   AppCategoryOverride,
@@ -58,8 +59,8 @@ export const api = {
 
   getSettings: () => inv<AppSettings>('settings:get'),
   /** 返回 false 表示快捷键注册失败（被其他应用占用） */
-  probeModel: (apiBase: string, apiKey: string) =>
-    inv<ModelProbeResult>('model:probe', apiBase, apiKey),
+  probeModel: (apiBase: string, apiKey: string, apiFormat?: string) =>
+    inv<ModelProbeResult>('model:probe', apiBase, apiKey, apiFormat),
   saveSettings: (patch: Partial<AppSettings>) => inv<boolean>('settings:save', patch),
 
   listTasks: () => inv<TaskRecord[]>('tasks:list'),
@@ -91,6 +92,13 @@ export const api = {
 
   screenScan: () => inv<ScanResult>('screen:scan'),
   screenActivityStatus: () => inv<ScreenActivityStatus>('screen:activity-status'),
+  // 语音纪要
+  voiceProbe: () => inv<{ ok: boolean; message: string }>('voice:probe'),
+  voiceStart: () => inv<VoiceSessionRecord>('voice:start'),
+  voiceStop: () => inv<void>('voice:stop'),
+  voiceState: () => inv<VoiceSessionRecord | null>('voice:state'),
+  voiceSessions: () => inv<VoiceSessionRecord[]>('voice:sessions'),
+  voiceSegment: (segment: PcmSegment) => inv<void>('voice:segment', segment),
   historyStatus: () => inv<HistoryStatus>('history:status'),
   historyRecent: (options: HistoryQueryOptions = {}) => inv<HistoryRecentResult>('history:recent', options),
   historySearch: (options: HistorySearchOptions = {}) => inv<HistorySearchResult>('history:search', options),

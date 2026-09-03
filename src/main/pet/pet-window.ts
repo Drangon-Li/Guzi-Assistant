@@ -387,7 +387,7 @@ function bodyMarkup(reaction: PetReaction, bubbleText: string | null): string {
   const alert = bubbleText ? ' is-alert' : ''
   const mark = `<img class="mark" src="${escapeHtml(markUrl)}" alt="谷子助手" draggable="false" />`
   const bubble = bubbleText ? bubbleMarkup(bubbleText, reaction) : ''
-  return `<div class="stage" aria-label="谷子助手桌宠">
+  return `<div class="stage" aria-label="谷子助手悬浮球">
     ${bubble}
     <div class="pet-hitbox" aria-hidden="true"><div class="pet-shell${alert}">${mark}</div></div>
   </div>`
@@ -415,7 +415,7 @@ function fullHtml(reaction: PetReaction, bubbleText: string | null): string {
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>谷子助手桌宠</title>
+    <title>谷子助手悬浮球</title>
     <style>
       ${windowCss(prefs.paused, scale, nativeTheme.shouldUseDarkColors)}
     </style>

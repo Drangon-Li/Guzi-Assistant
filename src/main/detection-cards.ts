@@ -5,8 +5,10 @@ import {
   deleteSourceRow,
   findDuplicateTitle,
   getDetection,
+  listPendingDetections,
   setDetectionStatus
 } from './db'
+import { detectionQueueDecision, looksCompleted } from '@shared/detection-gate'
 import { createTaskFromItem, scheduledStatus } from './task-ingest'
 import { excerptOf } from './capture'
 import { broadcast, debugEvent, showPreview } from './windows'
@@ -61,6 +63,9 @@ export function buildDetectionCards(input: {
       'detect',
       `命中：「${extraction.title}」 ${extraction.isoTime ?? '无时间'} ${extraction.strong ? '[强]' : '[弱]'}`
     )
+    // 入队门槛（#128）：模型说别记的、明确是别人的、没时间又没把握的，存档留痕但不占待确认队列。
+    // 手动扫描是用户主动问「现在屏幕上有什么」，照样出卡，只是入库状态仍按门槛判。
+    const decision = detectionQueueDecision(item, extraction.strong)
     // 被动留存 + 长期去重：跨状态按 标题+时间 去重；已记录过的内容不再重复抓取/弹窗
     const { detection, isNew } = addDetection({
       title: extraction.title,
@@ -68,16 +73,23 @@ export function buildDetectionCards(input: {
       deadline: extraction.deadline,
       sourceText: input.sourceText,
       hits: extraction.hits,
-      app: input.app
+      app: input.app,
+      status: decision === 'archive' ? 'archived' : 'new'
     })
     if (!isNew && !input.manual) {
       debugEvent('record', '已存在，不重复抓取')
       continue
     }
     if (isNew) {
-      debugEvent('record', '已记入「记忆」历史（新）')
+      debugEvent(
+        'record',
+        decision === 'archive'
+          ? `已存档，不进待确认队列（${item.suggested_action}/${item.confidence}）`
+          : '已记入「记忆」历史（新）'
+      )
       input.onNewDetection?.()
     }
+    if (!input.manual && decision === 'archive') continue
     if (!input.manual && ((!extraction.strong && !listMode) || !input.popup)) {
       debugEvent('popup', '不弹卡（弱信号或弹窗关），留在记忆历史')
       continue
@@ -196,4 +208,21 @@ export function acceptDetection(id: string): AddedInfo | null {
 /** 从「记忆」历史里忽略一条检测。 */
 export function dismissDetection(id: string): void {
   setDetectionStatus(id, 'dismissed')
+}
+
+/**
+ * 完成即撤（#128）：屏幕上出现「这条已经做完」的迹象时自动归档，不留着等用户手动点忽略。
+ * 只扫仍在待确认的那些，靠标题锚点 + 同行完成标记判断——宁可漏撤也不误撤，
+ * 撤错了用户会丢掉一件真事，漏撤只是多一条待确认。
+ */
+export function sweepCompletedDetections(screenText: string): number {
+  if (!screenText.trim()) return 0
+  let swept = 0
+  for (const d of listPendingDetections()) {
+    if (!looksCompleted(d.title, screenText)) continue
+    setDetectionStatus(d.id, 'archived')
+    debugEvent('record', `屏幕显示已完成，自动撤回：「${d.title}」`)
+    swept += 1
+  }
+  return swept
 }

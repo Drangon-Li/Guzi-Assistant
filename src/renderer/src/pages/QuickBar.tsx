@@ -308,7 +308,7 @@ export default function QuickBar(): React.JSX.Element {
           />
           <div className="shrink-0 text-[11px] text-slate-600">
             {busy
-              ? '处理中…可直接关闭，完成后桌宠会告诉你'
+              ? '处理中…可直接关闭，完成后悬浮球会告诉你'
               : msgs.length
                 ? '⏎ 发送 · ⌘⏎ 换行 · ⌘K 清空 · Esc 退出'
                 : '⏎ 问助手或记日程 · ⌘⏎ 换行 · Esc 关闭'}

@@ -287,3 +287,17 @@ textarea {
 }
 /* src 还没填上（异步读盘中）时占个位，免得段落先塌下去再弹开 */
 .note-body img:not([src]) { min-height: 2em; background: var(--color-elevated); }
+
+/* 公式：块级居中独占一行，行内跟着文字走。KaTeX 自带字号是 1.21em，
+   块级再放大会挤掉行距，这里压回正文尺度。 */
+.note-body .note-math {
+  margin: 0.8em 0;
+  padding: 0.2em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.note-body .note-math-inline { display: inline-block; }
+.note-body .katex { font-size: 1.05em; }
+/* 点一下换回 $…$ 源码编辑，给个手势提示 */
+.note-body [data-tex] { cursor: pointer; border-radius: 0.25em; }
+.note-body [data-tex]:hover { background: var(--color-elevated); }

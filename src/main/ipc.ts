@@ -25,7 +25,8 @@ import {
   cleanupStaleDetections,
   getSource,
   getTask,
-  listDetections,
+  listPendingDetections,
+  listVoiceSessions,
   listReports,
   listTasks,
   listWorkRecords,
@@ -115,6 +116,14 @@ import { localIso } from '@shared/task-reminder'
 import { hidePetChat, resizePetChat } from './pet/pet-chat-window'
 import { hideQuickBar, isQuickBarVisible, resizeQuickBar } from './quickbar'
 import { applyMcpSettings } from './mcp-server'
+import { probeTranscription } from './voicenotes/transcribe'
+import {
+  applyVoiceSettings,
+  currentVoiceSession,
+  ingestSegment,
+  startVoiceSession,
+  stopVoiceSession
+} from './voicenotes/service'
 import { checkForUpdates } from './updater'
 import type {
   AppSettings,
@@ -125,6 +134,7 @@ import type {
   TaskStatus
 } from '@shared/types'
 import type { HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
+import type { PcmSegment } from '@shared/voicenotes'
 
 const STATUSES: TaskStatus[] = [
   'pending',
@@ -178,9 +188,19 @@ export function registerIpc(): void {
   // 系统外观变化（设置为「跟随系统」时）：广播给所有渲染窗口切 .dark（桌宠由 pet-window 自己的 nativeTheme 监听重渲染）
   nativeTheme.on('updated', () => broadcastTheme())
   // 设置页「检测连接」：用表单里的现值探测，不必先保存
-  ipcMain.handle('model:probe', (_e, apiBase: string, apiKey: string) =>
-    probeModelEndpoint(String(apiBase ?? ''), String(apiKey ?? ''))
+  ipcMain.handle('model:probe', (_e, apiBase: string, apiKey: string, apiFormat?: string) =>
+    probeModelEndpoint(String(apiBase ?? ''), String(apiKey ?? ''), apiFormat)
   )
+  // ---------- 语音纪要 ----------
+  ipcMain.handle('voice:probe', () => probeTranscription())
+  ipcMain.handle('voice:start', () => startVoiceSession(null))
+  ipcMain.handle('voice:stop', () => stopVoiceSession())
+  ipcMain.handle('voice:state', () => currentVoiceSession())
+  ipcMain.handle('voice:sessions', () => listVoiceSessions())
+  // 分段是渲染层按停顿切好后送来的；转录耗时长，这里不 await，避免堵住录音那一侧
+  ipcMain.handle('voice:segment', (_e, segment: PcmSegment) => {
+    void ingestSegment(segment)
+  })
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {
     let ok = true
     if (
@@ -256,6 +276,8 @@ export function registerIpc(): void {
     if (patch.clipWatchEnabled !== undefined) applyClipWatchSettings()
     if (patch.mcpEnabled !== undefined || patch.mcpPort !== undefined || patch.mcpToken !== undefined)
       applyMcpSettings()
+    if (patch.voiceNotesEnabled !== undefined || patch.voiceAutoStart !== undefined)
+      applyVoiceSettings()
     broadcast('guzi-assistant:settings-updated')
     return ok
   })
@@ -390,6 +412,10 @@ export function registerIpc(): void {
     return {
       screen:
         process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'granted',
+      microphone:
+        process.platform === 'darwin'
+          ? systemPreferences.getMediaAccessStatus('microphone')
+          : 'granted',
       apiConfigured: !!(settings.apiBase && settings.apiKey)
     }
   })
@@ -428,10 +454,12 @@ export function registerIpc(): void {
     (_e, p: { entries: { item: ParsedItem; sourceText: string; detectionId?: string }[] }) =>
       acceptLocalBatch(p)
   )
-  // 检测回看（日程页「待确认」区）：错过/自动隐藏的弹卡在这里兜底处理；拉取前先清过期项
+  // 检测回看（日程页「待确认」区）：错过/自动隐藏的弹卡在这里兜底处理；拉取前先清过期项。
+  // 只取 status='new'——没过入队门槛的候选也在同一张表里（archived，供去重），
+  // 若按「最近 N 条」不分状态地取，它们会把真正待确认的挤出窗口（#128）。
   ipcMain.handle('detections:list', () => {
     cleanupStaleDetections()
-    return listDetections()
+    return listPendingDetections()
   })
   ipcMain.handle('detections:accept', (_e, id: string) => acceptDetection(id))
   ipcMain.handle('detections:dismiss', (_e, id: string) => dismissDetection(id))

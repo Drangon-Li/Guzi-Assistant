@@ -15,68 +15,21 @@ interface Props {
   setHistoryStatus: Dispatch<SetStateAction<HistoryStatus | null>>
   loadPerms: () => void
   loadActivityStatus: () => void
-  loadHistoryStatus: () => void
   flash: (msg: string) => void
 }
 
 export default function ScreenSenseSection({
   settings, setSettings, perms, activityStatus, historyStatus, setHistoryStatus, loadPerms,
-  loadActivityStatus, loadHistoryStatus, flash
+  loadActivityStatus, flash
 }: Props): React.JSX.Element {
   return (
     <>
-      <Section title="屏幕感知（持续被动采集）">
+      <Section title="屏幕感知">
         <p className="mb-3 text-xs leading-5 text-slate-400">
-          屏幕感知默认关闭。开启后，谷子助手先在本机观察前台 App 与窗口变化，不记录键盘正文；Hybrid v2 会先评估语义完整度，只有语义不足时才截图并在本地 OCR。
-          默认只把脱敏后的 OCR 文字送解析，截图仅在你开启「日程深度确认」时上传。私密浏览始终跳过；原图用完即弃，证据缩略图也默认不保存。
+          让谷子留意你屏幕上出现的日程和待办，不用你手动录入。默认关闭。
+          开启后只把打码过的屏幕文字送去识别，截图不上传（除非你开了下面的「日程深度确认」）；
+          密码框和浏览器私密窗口一律跳过，截图用完即删。
         </p>
-        <div className="mb-4 border-b border-slate-100 pb-4">
-          <label className="flex items-center justify-between gap-4 text-sm">
-            <span>
-              History v2 原生活动记录
-              <span className="ml-2 text-xs text-slate-400">
-                独立采集 App、窗口和交互事件；默认关闭，不保存键盘正文或完整 URL
-              </span>
-            </span>
-            <Toggle
-              checked={settings.historyV2Enabled}
-              ariaLabel="History v2 原生活动记录"
-              onChange={async (next) => {
-                const ok = await api.saveSettings({ historyV2Enabled: next })
-                if (ok) {
-                  setSettings({ ...settings, historyV2Enabled: next })
-                  loadActivityStatus()
-                  loadHistoryStatus()
-                  flash(next ? '已开启 History v2 原生采集' : '已关闭 History v2 原生采集')
-                } else flash('History v2 设置保存失败')
-              }}
-            />
-          </label>
-          <label className="mt-3 flex items-center justify-between gap-4 text-sm">
-            <span>
-              从摘要派生工作记录
-              <span className="ml-2 text-xs text-slate-400">
-                单独控制 10 分钟摘要是否写入新的工作记录；需要同时开启 History v2
-              </span>
-            </span>
-            <Toggle
-              checked={settings.historyDerivedWorkEnabled}
-              disabled={!settings.historyV2Enabled}
-              ariaLabel="从摘要派生工作记录"
-              onChange={async (next) => {
-                const ok = await api.saveSettings({ historyDerivedWorkEnabled: next })
-                if (ok) {
-                  setSettings({ ...settings, historyDerivedWorkEnabled: next })
-                  loadActivityStatus()
-                  flash(next ? '已开启摘要派生工作记录' : '已关闭摘要派生工作记录')
-                } else flash('工作记录派生设置保存失败')
-              }}
-            />
-          </label>
-          {!settings.historyV2Enabled && (
-            <p className="mt-2 text-xs text-slate-400">先开启 History v2 后，才能启用摘要派生工作记录。</p>
-          )}
-        </div>
         <label className="flex items-center justify-between gap-4 text-sm">
           <span>屏幕感知</span>
           <Toggle
@@ -98,77 +51,6 @@ export default function ScreenSenseSection({
             </summary>
           <div className="mt-4 flex flex-col gap-4">
             <div className="border-y border-slate-100 py-3">
-              <label className="flex items-center justify-between gap-4 text-sm">
-                <span>
-                  事件驱动模式
-                  <span className="ml-2 text-xs text-slate-400">
-                    App/窗口变化触发扫描，静止时低频兜底；不可用时自动停止截图
-                  </span>
-                </span>
-                <Toggle
-                  checked={settings.screenSenseEventDriven}
-                  ariaLabel="事件驱动模式"
-                  onChange={async (next) => {
-                    const interval = next
-                      ? Math.max(5, settings.screenSenseIntervalSec)
-                      : settings.screenSenseIntervalSec
-                    setSettings({
-                      ...settings,
-                      screenSenseEventDriven: next,
-                      screenSenseIntervalSec: interval
-                    })
-                    await api.saveSettings({
-                      screenSenseEventDriven: next,
-                      screenSenseIntervalSec: interval
-                    })
-                    loadActivityStatus()
-                    flash(next ? '已开启事件驱动模式' : '已恢复固定间隔扫描')
-                  }}
-                />
-              </label>
-              {settings.screenSenseEventDriven && (
-                <label className="mt-3 flex items-center gap-3 text-sm">
-                  <span className="text-slate-500">静止兜底间隔</span>
-                  <input
-                    type="number"
-                    min={30}
-                    max={60}
-                    className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
-                    value={settings.screenSenseFallbackIntervalSec}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        screenSenseFallbackIntervalSec: Number(e.target.value)
-                      })
-                    }
-                    onBlur={async (e) => {
-                      const v = Math.min(60, Math.max(30, Number(e.target.value) || 45))
-                      setSettings({ ...settings, screenSenseFallbackIntervalSec: v })
-                      await api.saveSettings({ screenSenseFallbackIntervalSec: v })
-                      flash(`静止时最多每 ${v} 秒检查一次`)
-                    }}
-                  />
-                  <span className="text-xs text-slate-400">秒</span>
-                </label>
-              )}
-              <label className="mt-3 flex items-center justify-between gap-4 text-sm">
-                <span>
-                  Hybrid History v2
-                  <span className="ml-2 text-xs text-slate-400">
-                    语义充分直接进入片段；语义不足才按需 OCR。关闭后回到 legacy 事件/兜底扫描
-                  </span>
-                </span>
-                <Toggle
-                  checked={settings.screenSenseHybridV2}
-                  ariaLabel="Hybrid History v2"
-                  onChange={async (next) => {
-                    setSettings({ ...settings, screenSenseHybridV2: next })
-                    await api.saveSettings({ screenSenseHybridV2: next })
-                    loadActivityStatus()
-                    flash(next ? '已开启 Hybrid History v2' : '已回到 legacy 扫描模式')
-                  }}
-                />
-              </label>
               {activityStatus && (
                 <details className="mt-3">
                   <summary className="cursor-pointer select-none text-xs text-slate-400">
@@ -262,29 +144,6 @@ export default function ScreenSenseSection({
                   }}
                 />
               </label>
-              {settings.todoScanEnabled && (
-                <label className="flex items-center gap-3 pl-1 text-sm">
-                  <span className="text-slate-500">最短识别间隔</span>
-                  <input
-                    type="number"
-                    min={60}
-                    max={600}
-                    step={30}
-                    className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
-                    value={settings.todoScanIntervalSec}
-                    onChange={(e) =>
-                      setSettings({ ...settings, todoScanIntervalSec: Number(e.target.value) })
-                    }
-                    onBlur={async (e) => {
-                      const v = Math.min(600, Math.max(60, Number(e.target.value) || 180))
-                      setSettings({ ...settings, todoScanIntervalSec: v })
-                      await api.saveSettings({ todoScanIntervalSec: v })
-                      flash(`最短 ${v} 秒识别一次待办`)
-                    }}
-                  />
-                  <span className="text-xs text-slate-400">秒，60-600；屏幕没变化时不会真的调用</span>
-                </label>
-              )}
             </div>
             <div>
               <label className="flex items-center justify-between gap-4 text-sm">
@@ -305,29 +164,6 @@ export default function ScreenSenseSection({
                 />
               </label>
             </div>
-
-            {settings.screenSensePopup && (
-              <label className="flex items-center gap-3 pl-1 text-sm">
-                <span className="text-slate-500">弹窗无操作自动忽略</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={600}
-                  className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
-                  value={settings.screenSenseCardHideSec}
-                  onChange={(e) =>
-                    setSettings({ ...settings, screenSenseCardHideSec: Number(e.target.value) })
-                  }
-                  onBlur={async (e) => {
-                    const v = Math.min(600, Math.max(0, Number(e.target.value) || 0))
-                    setSettings({ ...settings, screenSenseCardHideSec: v })
-                    await api.saveSettings({ screenSenseCardHideSec: v })
-                    flash(v ? `弹窗 ${v} 秒无操作自动忽略` : '弹窗将一直显示，需手动处理')
-                  }}
-                />
-                <span className="text-xs text-slate-400">秒（进度条走满自动忽略），0 = 一直显示</span>
-              </label>
-            )}
 
             <div className="border-t border-slate-100 pt-4">
               <label className="flex items-center justify-between gap-4 text-sm">
@@ -404,29 +240,8 @@ export default function ScreenSenseSection({
               </label>
               {settings.screenSenseContinuous && (
                 <div className="mt-3 flex flex-col gap-2">
-                  <label className="flex items-center gap-3 text-sm">
-                    <span className="text-slate-500">门控检查间隔</span>
-                    <input
-                      type="number"
-                      min={settings.screenSenseEventDriven ? 5 : 1}
-                      max={60}
-                      className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
-                      value={settings.screenSenseIntervalSec}
-                      onChange={(e) =>
-                        setSettings({ ...settings, screenSenseIntervalSec: Number(e.target.value) })
-                      }
-                      onBlur={async (e) => {
-                        const min = settings.screenSenseEventDriven ? 5 : 1
-                        const v = Math.min(60, Math.max(min, Number(e.target.value) || 5))
-                        setSettings({ ...settings, screenSenseIntervalSec: v })
-                        await api.saveSettings({ screenSenseIntervalSec: v })
-                        flash('已保存监控间隔')
-                      }}
-                    />
-                    <span className="text-xs text-slate-400">秒</span>
-                  </label>
                   <p className="text-xs leading-5 text-slate-400">
-                    事件驱动开启时，此间隔只检查是否需要扫描，不会每轮都截图。连续 60 秒无键鼠输入、锁屏或睡眠时不计应用时长。可在菜单栏随时暂停，暂停会取消尚未完成的云端解析。
+                    连续 60 秒没有键鼠操作、锁屏或睡眠时都不会采集。可在菜单栏随时暂停，暂停会取消尚未完成的云端解析。
                   </p>
 
                   <div className="mt-2 border-t border-slate-100 pt-3">
@@ -485,7 +300,10 @@ export default function ScreenSenseSection({
         )}
       </Section>
 
-      <Section title="History 健康" desc="实时状态来自本地 collector 与 48 小时 History store；不会展示原始事件正文。">
+      {/* History v2 的开关已从设置页移除（技术性太强）。它没开时这两段只会显示
+          「未开启」和一个点不动的按钮，索性一并收起，页面才不会剩下够不着的东西。 */}
+      {settings.historyV2Enabled && (
+        <Section title="History 健康" desc="实时状态来自本地 collector 与 48 小时 History store；不会展示原始事件正文。">
         {historyStatus && (
           <>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -553,9 +371,10 @@ export default function ScreenSenseSection({
           </>
         )}
         {!historyStatus && <p className="text-xs text-slate-400">正在读取 History 状态…</p>}
-      </Section>
+        </Section>
+      )}
 
-      <HistoryDataSection flash={flash} />
+      {settings.historyV2Enabled && <HistoryDataSection flash={flash} />}
 
       <Section title="权限状态">
         {perms && (

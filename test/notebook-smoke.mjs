@@ -10,6 +10,9 @@ import {
   descendantIds,
   excerptOf,
   filterNotes,
+  clampFontScale,
+  FONT_SCALE_MAX,
+  FONT_SCALE_MIN,
   normalizePrefs,
   normalizeTags,
   noteTimeOf,
@@ -17,7 +20,13 @@ import {
   titleFromContent,
   visibleToAssistant
 } from '../src/shared/notebook.ts'
-import { colorToken, renderNoteHTML } from '../src/renderer/src/plugins/notebook/markdown.ts'
+import { currentBlock } from '../src/renderer/src/plugins/notebook/commands.ts'
+import {
+  collectHeadings,
+  colorToken,
+  markdownBlockRule,
+  renderNoteHTML
+} from '../src/renderer/src/plugins/notebook/markdown.ts'
 
 let failed = 0
 function check(name, ok, detail) {
@@ -169,6 +178,15 @@ check('默认显示最后修改', normalizePrefs(null).timeField === 'updated')
 check('认得创建时间', normalizePrefs({ timeField: 'created' }).timeField === 'created')
 check('非法口径落回默认', normalizePrefs({ timeField: '乱填' }).timeField === 'updated')
 check('排除列表只收字符串', eq(normalizePrefs({ hiddenNotes: ['a', 3, null] }).hiddenNotes, ['a']))
+check('字号默认 1 倍', normalizePrefs(null).fontScale === 1)
+check('字号夹到上限', normalizePrefs({ fontScale: 99 }).fontScale === FONT_SCALE_MAX)
+check('字号夹到下限', normalizePrefs({ fontScale: 0.1 }).fontScale === FONT_SCALE_MIN)
+check('字号 NaN 落回 1', normalizePrefs({ fontScale: NaN }).fontScale === 1)
+check('字号字符串落回 1', normalizePrefs({ fontScale: '大' }).fontScale === 1)
+check('字号对齐到步进', clampFontScale(1.23) === 1.2)
+check('沉浸模式默认关', normalizePrefs(null).immersive === false)
+check('沉浸模式只认 true', normalizePrefs({ immersive: 'yes' }).immersive === false)
+check('沉浸模式认 true', normalizePrefs({ immersive: true }).immersive === true)
 check('缺字段补空数组', eq(normalizePrefs({}).hiddenFolders, []))
 
 const VIS_FOLDERS = [folder('f1', '公开'), folder('f2', '私密'), folder('f3', '私密子', 'f2')]
@@ -206,10 +224,126 @@ check('路径穿越不成图', !html('![x](asset:../../etc/passwd)').includes('<
 check('外部图片地址不成图', !html('![x](https://evil.com/a.png)').includes('<img'))
 check('哈希长度不对不成图', !html('![x](asset:abc.png)').includes('<img'))
 check('扩展名不在白名单不成图', !html(`![x](asset:${SHA}.svg)`).includes('<img'))
+// ---- 公式（KaTeX）----
+check('行内公式渲染成原子节点', html('质能 $E=mc^2$ 方程').includes('note-math-inline'))
+check('块级公式独占一块', html('$$x^2$$').includes('class="note-math"'))
+check('KaTeX 真的渲染了', html('$E=mc^2$').includes('katex'))
+check('源码留在 data-tex 上供还原', /data-tex="E=mc\^2"/.test(html('$E=mc^2$')))
+check('公式内容不被转义规则啃掉', /data-tex="a_1 \+ b_2"/.test(html('$a_1 + b_2$')))
+check(
+  '公式外的强调照常生效',
+  html('$x$ 和 **粗体**').includes('note-math-inline') && html('$x$ 和 **粗体**').includes('<strong>')
+)
+check('单个 $ 不触发公式', !html('价格是 $5 元').includes('note-math'))
+check(
+  '公式里的反斜杠命令保留',
+  /data-tex="\\frac{a}{b}"/.test(html('$$\\frac{a}{b}$$'))
+)
+check('语法错误不炸整篇', html('$\\bogus{}$').length > 0)
+
 check(
   '图片排在链接之前解析',
   html(`![图](asset:${SHA}.png)`).includes('<img') && !html(`![图](asset:${SHA}.png)`).includes('<a ')
 )
+
+// ---- Markdown 输入规则（块首打前缀 + 空格就地变块）----
+check('# → 一级标题', markdownBlockRule('#') === 'h1')
+check('## → 二级标题', markdownBlockRule('##') === 'h2')
+check('### → 三级标题', markdownBlockRule('###') === 'h3')
+check('#### 不是规则（只到三级）', markdownBlockRule('####') === null)
+check('> → 引用', markdownBlockRule('>') === 'quote')
+check('- → 项目列表', markdownBlockRule('-') === 'ul')
+check('* → 项目列表', markdownBlockRule('*') === 'ul')
+check('1. → 编号列表', markdownBlockRule('1.') === 'ol')
+check('中文顿号编号也认', markdownBlockRule('12、') === 'ol')
+check('[] → 待办', markdownBlockRule('[]') === 'todo')
+check('[x] → 待办', markdownBlockRule('[x]') === 'todo')
+check('``` → 代码块', markdownBlockRule('```') === 'code')
+check('--- → 分隔线', markdownBlockRule('---') === 'divider')
+check('普通文字不触发', markdownBlockRule('标题') === null)
+check('空串不触发', markdownBlockRule('') === null)
+check('前缀前有空格 → 不触发（不在块首）', markdownBlockRule(' #') === null)
+check('前缀后已有文字 → 不触发', markdownBlockRule('# 标题') === null)
+check('正文中间的 # 不触发', markdownBlockRule('见 #') === null)
+
+// ---- 右侧目录：从渲染后的 DOM 抽标题 ----
+// collectHeadings 要真实 DOM，用一个最小的假实现顶上（只需要 querySelectorAll + textContent + tagName）
+function fakeEditor(items) {
+  return {
+    querySelectorAll: (sel) => {
+      if (!/h1/.test(sel)) return []
+      const arr = items.map((it) => ({ tagName: `H${it.level}`, textContent: it.text }))
+      arr.forEach = Array.prototype.forEach.bind(arr)
+      return arr
+    }
+  }
+}
+const toc = collectHeadings(fakeEditor([
+  { level: 1, text: '第一章' },
+  { level: 2, text: '小节 A' },
+  { level: 3, text: '细节' },
+  { level: 1, text: '第二章' }
+]))
+check('抽出全部标题', toc.length === 4)
+check('层级解析正确', toc.map((h) => h.level).join(',') === '1,2,3,1')
+check('文字保留', toc[1].text === '小节 A')
+check('下标按文档顺序', toc.map((h) => h.index).join(',') === '0,1,2,3')
+check('没有标题时目录为空', collectHeadings(fakeEditor([])).length === 0)
+const withEmpty = collectHeadings(fakeEditor([
+  { level: 1, text: '有内容' },
+  { level: 2, text: '   ' },
+  { level: 2, text: '后一条' }
+]))
+check('空标题不进目录', withEmpty.length === 2)
+check(
+  '空标题仍占下标（否则点击会跳错行）',
+  withEmpty[1].index === 2
+)
+
+// ---- currentBlock：光标所在的块 ----
+// 这条曾经真的挂过：BLOCK_TAGS 漏了 DIV，而 contentEditable 里新起的行常常是 <div>
+//（Chromium 的 defaultParagraphSeparator 就是 div）。结果新打的那一行 currentBlock
+// 返回 null，slash 菜单、Markdown 输入规则、公式块级渲染一起静默失效。
+// 用极简 DOM 桩测，避免给仓库加 jsdom 依赖。
+globalThis.Node = { ELEMENT_NODE: 1, TEXT_NODE: 3 }
+function el(tag, parent) {
+  const node = { nodeType: 1, tagName: tag, parentNode: parent ?? null }
+  node.contains = (other) => {
+    let p = other
+    while (p) {
+      if (p === node) return true
+      p = p.parentNode
+    }
+    return false
+  }
+  return node
+}
+function textIn(parent) {
+  return { nodeType: 3, parentNode: parent, contains: () => false }
+}
+function blockOf(build) {
+  const editor = el('DIV', null)
+  const caret = build(editor)
+  globalThis.window = {
+    getSelection: () => ({ rangeCount: 1, getRangeAt: () => ({ startContainer: caret }) })
+  }
+  return currentBlock(editor)
+}
+
+check('段落', blockOf((ed) => textIn(el('P', ed)))?.tagName === 'P')
+check(
+  'div 也算块（contentEditable 新起的行就是 div）',
+  blockOf((ed) => textIn(el('DIV', ed)))?.tagName === 'DIV'
+)
+check('标题', blockOf((ed) => textIn(el('H2', ed)))?.tagName === 'H2')
+check('列表项', blockOf((ed) => textIn(el('LI', el('UL', ed))))?.tagName === 'LI')
+check('引用', blockOf((ed) => textIn(el('BLOCKQUOTE', ed)))?.tagName === 'BLOCKQUOTE')
+check('代码块', blockOf((ed) => textIn(el('CODE', el('PRE', ed))))?.tagName === 'PRE')
+check(
+  '白名单外的顶层元素也兜得住（浏览器造什么标签不由我们定）',
+  blockOf((ed) => textIn(el('SECTION', ed)))?.tagName === 'SECTION'
+)
+check('光标不在编辑器里 → null', currentBlock(el('DIV', null)) === null)
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)
