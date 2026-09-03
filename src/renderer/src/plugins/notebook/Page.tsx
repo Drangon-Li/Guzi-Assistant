@@ -570,6 +570,7 @@ export default function NotebookPage(): React.JSX.Element {
             folderLabel={folderName(active.folderId)}
             folders={folders}
             fontScale={prefs.fontScale}
+            immersive={prefs.immersive}
             onChange={onEdit}
             onMove={(target) => void moveNote(active.id, target === 'none' ? null : target)}
           />

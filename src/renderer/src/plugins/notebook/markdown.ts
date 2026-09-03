@@ -216,6 +216,26 @@ export function editorMarkdown(editor: HTMLElement): string {
     .trim()
 }
 
+/** 目录里的一条。index 是该标题在编辑器里 h1,h2,h3 的第几个——
+ *  存下标而不是 DOM 节点：正文随时在变，存节点很容易拿到已经被替换掉的旧引用。 */
+export interface NoteHeading {
+  index: number
+  level: 1 | 2 | 3
+  text: string
+}
+
+/** 从编辑器 DOM 抽目录。空标题跳过但仍要占掉下标，否则点击会跳错行。 */
+export function collectHeadings(editor: HTMLElement): NoteHeading[] {
+  const out: NoteHeading[] = []
+  const nodes = editor.querySelectorAll('h1, h2, h3')
+  nodes.forEach((el, index) => {
+    const text = (el.textContent ?? '').trim()
+    if (!text) return
+    out.push({ index, level: Number(el.tagName[1]) as 1 | 2 | 3, text })
+  })
+  return out
+}
+
 /** 行内/块级公式的源码形态。每次调用都新建实例——带 /g 的正则有可变的 lastIndex，
  *  共享同一个会让两处调用互相串位。第一个捕获组是块级，第二个是行内。 */
 export const mathSourceRe = (): RegExp => /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/g

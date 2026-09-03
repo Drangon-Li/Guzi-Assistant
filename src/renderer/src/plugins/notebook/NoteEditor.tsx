@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { NoteFolder, NoteRecord } from '@shared/notebook'
 import { api } from '../../api'
+import ContextMenu, { type MenuEntry } from '../../components/ContextMenu'
 import {
   applyInlineFormat,
   clearColorWrapper,
@@ -20,12 +21,14 @@ import {
   COLOR_LABELS,
   NOTE_COLORS,
   editorMarkdown,
+  collectHeadings,
   markdownBlockRule,
   mathSourceRe,
   renderMath,
   renderNoteHTML,
   type BlockKind,
-  type NoteColor
+  type NoteColor,
+  type NoteHeading
 } from './markdown'
 
 interface Props {
@@ -34,6 +37,8 @@ interface Props {
   folders: NoteFolder[]
   /** 正文字号倍率（⌘+/⌘- 调）。CSS 里标题、代码的字号都是 em，跟着根字号一起缩放 */
   fontScale: number
+  /** 沉浸模式下连目录一起收起——那个模式的意思就是「只留正文」 */
+  immersive: boolean
   onChange: (patch: { title?: string; content?: string; tags?: string[] }) => void
   onMove: (folderId: string) => void
 }
@@ -117,6 +122,7 @@ export default function NoteEditor({
   folderLabel,
   folders,
   fontScale,
+  immersive,
   onChange,
   onMove
 }: Props): React.JSX.Element {
@@ -136,6 +142,11 @@ export default function NoteEditor({
   const [slashIndex, setSlashIndex] = useState(0)
   const [tagInput, setTagInput] = useState('')
   const [empty, setEmpty] = useState(false)
+  const [headings, setHeadings] = useState<NoteHeading[]>([])
+  /** 目录里高亮哪一条（= 视口顶部往下最近的那个标题的下标） */
+  const [activeHeading, setActiveHeading] = useState(-1)
+  const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   // 载入这一篇。renderNoteHTML 的输出是白名单产物——整段先转义，只有颜色标签被解回来，
   // 所以这里的 innerHTML 不构成注入面。
@@ -146,6 +157,7 @@ export default function NoteEditor({
     hydrateImages()
     resetHistory(history.current, editor)
     setEmpty(!note.content.trim())
+    setHeadings(collectHeadings(editor))
     // 只在切换笔记时重灌；正文后续变化由 DOM 自己持有
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.id])
@@ -174,6 +186,7 @@ export default function NoteEditor({
     if (!editor) return
     // 有图片时不算空，否则只放了一张图的笔记会一直显示占位提示
     setEmpty(!editor.textContent?.trim() && !editor.querySelector('img[data-asset]'))
+    setHeadings(collectHeadings(editor))
     onChange({ content: editorMarkdown(editor) })
   }, [onChange])
 
@@ -212,6 +225,32 @@ export default function NoteEditor({
     document.addEventListener('selectionchange', onSelect)
     return () => document.removeEventListener('selectionchange', onSelect)
   }, [syncBar, renderMathInBlock])
+
+  /** 点目录跳到对应标题。按下标现查而不是存 DOM 引用——正文一直在变，存引用容易拿到旧节点。 */
+  const scrollToHeading = (index: number): void => {
+    const el = editorRef.current?.querySelectorAll('h1, h2, h3')[index]
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // 滚动时高亮当前小节：取「已经滚过视口顶部」的最后一个标题。
+  // 用滚动事件而不是 IntersectionObserver——正文随时增删标题，观察器要跟着反复重挂，
+  // 这里一次遍历几十个标题的开销远小于那套维护成本。
+  useEffect(() => {
+    const scroller = scrollRef.current
+    const editor = editorRef.current
+    if (!scroller || !editor) return
+    const onScroll = (): void => {
+      const top = scroller.getBoundingClientRect().top + 8
+      let current = -1
+      editor.querySelectorAll('h1, h2, h3').forEach((el, i) => {
+        if (el.getBoundingClientRect().top <= top) current = i
+      })
+      setActiveHeading(current)
+    }
+    onScroll()
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    return () => scroller.removeEventListener('scroll', onScroll)
+  }, [headings])
 
   /** 正文里的图片只存了文件名，挂载后逐个把 data URL 填进 src。 */
   const hydrateImages = useCallback((): void => {
@@ -354,11 +393,13 @@ export default function NoteEditor({
       if (li) fill(li, body)
     }
     block.replaceWith(node)
-    // 代码块和分隔线后面要留一个空段落，否则光标无处可去
+    // 代码块和分隔线后面都要留一个空段落，否则块落在文末时光标出不来。
+    // 但落点不同：分隔线（hr）存不住光标，只能落到后面那段；代码块要落在**里面**，
+    // 否则打完 ``` 光标在代码块下方，代码根本敲不进去。
     if (id === 'code' || id === 'divider') {
       const tail = make('<p><br></p>')
       node.after(tail)
-      placeCaret(tail)
+      placeCaret(id === 'code' ? (node.querySelector('code') ?? node) : tail)
     } else {
       const target = node.querySelector('li') ?? node
       // 只有 <br> 占位的空块要落在块首：落到「内容末尾」等于落到 <br> 之后，又跑到下一行去了
@@ -582,6 +623,75 @@ export default function NoteEditor({
     commitHistory(history.current, editorRef.current, true)
   }
 
+  /** 在光标处插入行内公式骨架 $|$，光标落在两个 $ 中间，直接打 TeX 即可。 */
+  const insertInlineMath = (): void => {
+    const editor = editorRef.current
+    const selection = window.getSelection()
+    if (!editor || !selection?.rangeCount) return
+    const range = selection.getRangeAt(0)
+    if (!editor.contains(range.commonAncestorContainer)) return
+    range.deleteContents()
+    const text = document.createTextNode('$$')
+    range.insertNode(text)
+    const next = document.createRange()
+    next.setStart(text, 1)
+    next.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(next)
+    editor.focus()
+    pushChange()
+    commitHistory(history.current, editor, true)
+  }
+
+  /** 右键菜单：把 / 菜单里那些块型摆到手边，再加上行内公式和选中文字的行内格式。 */
+  const openContextMenu = (e: React.MouseEvent): void => {
+    const editor = editorRef.current
+    if (!editor) return
+    const block = currentBlock(editor)
+    const selection = window.getSelection()
+    const hasSelection = !!selection && !selection.isCollapsed && !!selection.toString().trim()
+    // 右键在已渲染的公式上 → 直接给「编辑这条公式」，比让用户猜要点一下强
+    const mathTarget = (e.target as HTMLElement).closest<HTMLElement>('[data-tex]')
+    const asBlock = (id: SlashId) => () => {
+      if (block) convertBlock(id, block, (block.textContent ?? '').trim())
+    }
+    const entries: MenuEntry[] = []
+    if (mathTarget) {
+      entries.push(
+        { label: '编辑这条公式', onClick: () => openMathSource(mathTarget) },
+        { type: 'separator' }
+      )
+    }
+    if (hasSelection) {
+      entries.push(
+        { type: 'header', label: '选中文字' },
+        { label: '加粗', onClick: () => runFormat('bold') },
+        { label: '斜体', onClick: () => runFormat('italic') },
+        { label: '行内代码', onClick: () => runFormat('code') },
+        { label: '删除线', onClick: () => runFormat('strike') },
+        { type: 'separator' }
+      )
+    }
+    entries.push(
+      { type: 'header', label: '插入' },
+      { label: '行内公式  $…$', onClick: insertInlineMath },
+      { label: '行间公式  $$…$$', onClick: asBlock('math') },
+      { label: '代码块', onClick: asBlock('code') },
+      { label: '分隔线', onClick: asBlock('divider') },
+      { type: 'separator' },
+      { type: 'header', label: '当前段落' },
+      { label: '一级标题', onClick: asBlock('h1') },
+      { label: '二级标题', onClick: asBlock('h2') },
+      { label: '三级标题', onClick: asBlock('h3') },
+      { label: '项目列表', onClick: asBlock('ul') },
+      { label: '编号列表', onClick: asBlock('ol') },
+      { label: '待办事项', onClick: asBlock('todo') },
+      { label: '引用', onClick: asBlock('quote') }
+    )
+    e.preventDefault()
+    setMenu({ x: e.clientX, y: e.clientY, entries })
+  }
+
   const addTag = (): void => {
     const t = tagInput.trim()
     setTagInput('')
@@ -641,8 +751,10 @@ export default function NoteEditor({
         </div>
       </header>
 
+      <div className="flex min-h-0 flex-1">
       {/* 正文比标题窄一列，但点空白处也该落到光标上，所以外层整片都可点 */}
       <div
+        ref={scrollRef}
         className="relative min-h-0 flex-1 overflow-y-auto"
         onClick={(e) => {
           if (e.target === e.currentTarget) editorRef.current?.focus()
@@ -679,6 +791,7 @@ export default function NoteEditor({
           onClick={(e) => {
             if (openMathSource(e.target as HTMLElement)) e.preventDefault()
           }}
+          onContextMenu={openContextMenu}
           onBlur={(e) => {
             // 点浮动工具栏也会让编辑区失焦，那时候不能重排——会把用户的选区弄丢
             if ((e.relatedTarget as HTMLElement | null)?.closest('[data-note-bar]')) return
@@ -688,6 +801,34 @@ export default function NoteEditor({
           }}
         />
       </div>
+
+      {/* 右侧目录：标题够两条才出现，一条标题的目录没有存在意义 */}
+      {!immersive && headings.length > 1 && (
+        <nav className="hidden w-44 shrink-0 overflow-y-auto py-6 pr-4 lg:block">
+          <div className="mb-2 pl-2 text-[11px] tracking-wide text-slate-400">目录</div>
+          <ul className="flex flex-col gap-0.5">
+            {headings.map((h) => (
+              <li key={`${h.index}-${h.text}`}>
+                <button
+                  className={`w-full truncate rounded px-2 py-1 text-left text-xs transition-colors hover:bg-slate-100 hover:text-slate-700 ${
+                    activeHeading === h.index ? 'bg-slate-100 font-medium text-slate-700' : 'text-slate-400'
+                  }`}
+                  style={{ paddingLeft: `${0.5 + (h.level - 1) * 0.75}rem` }}
+                  title={h.text}
+                  onClick={() => scrollToHeading(h.index)}
+                >
+                  {h.text}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+      </div>
+
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} entries={menu.entries} onClose={() => setMenu(null)} />
+      )}
 
       {/* 气泡工具栏常驻但不可见，这样随时能量到宽高来定位 */}
       <div

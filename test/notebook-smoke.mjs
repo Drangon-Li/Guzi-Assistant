@@ -21,6 +21,7 @@ import {
   visibleToAssistant
 } from '../src/shared/notebook.ts'
 import {
+  collectHeadings,
   colorToken,
   markdownBlockRule,
   renderNoteHTML
@@ -263,6 +264,40 @@ check('空串不触发', markdownBlockRule('') === null)
 check('前缀前有空格 → 不触发（不在块首）', markdownBlockRule(' #') === null)
 check('前缀后已有文字 → 不触发', markdownBlockRule('# 标题') === null)
 check('正文中间的 # 不触发', markdownBlockRule('见 #') === null)
+
+// ---- 右侧目录：从渲染后的 DOM 抽标题 ----
+// collectHeadings 要真实 DOM，用一个最小的假实现顶上（只需要 querySelectorAll + textContent + tagName）
+function fakeEditor(items) {
+  return {
+    querySelectorAll: (sel) => {
+      if (!/h1/.test(sel)) return []
+      const arr = items.map((it) => ({ tagName: `H${it.level}`, textContent: it.text }))
+      arr.forEach = Array.prototype.forEach.bind(arr)
+      return arr
+    }
+  }
+}
+const toc = collectHeadings(fakeEditor([
+  { level: 1, text: '第一章' },
+  { level: 2, text: '小节 A' },
+  { level: 3, text: '细节' },
+  { level: 1, text: '第二章' }
+]))
+check('抽出全部标题', toc.length === 4)
+check('层级解析正确', toc.map((h) => h.level).join(',') === '1,2,3,1')
+check('文字保留', toc[1].text === '小节 A')
+check('下标按文档顺序', toc.map((h) => h.index).join(',') === '0,1,2,3')
+check('没有标题时目录为空', collectHeadings(fakeEditor([])).length === 0)
+const withEmpty = collectHeadings(fakeEditor([
+  { level: 1, text: '有内容' },
+  { level: 2, text: '   ' },
+  { level: 2, text: '后一条' }
+]))
+check('空标题不进目录', withEmpty.length === 2)
+check(
+  '空标题仍占下标（否则点击会跳错行）',
+  withEmpty[1].index === 2
+)
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)
