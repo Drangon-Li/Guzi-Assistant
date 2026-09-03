@@ -46,8 +46,9 @@ const checks = [
     (historyService.match(/broadcast\('guzi-assistant:history-updated'\)/g) ?? []).length >= 4 &&
       /api\.on\('guzi-assistant:history-updated'/.test(activity) &&
       /api\.on\('guzi-assistant:history-updated'/.test(settings)],
-  ['两个 History 开关默认关闭且可独立回滚',
-    /historyV2Enabled: map\.historyV2Enabled === 'true'/.test(db) &&
+  // History v2 改为默认开启（设置页已不暴露开关）；派生工作记录仍默认关，两者可独立回滚。
+  ['History v2 默认开启、派生工作记录默认关闭且可独立回滚',
+    /historyV2Enabled: map\.historyV2Enabled !== 'false'/.test(db) &&
       /historyDerivedWorkEnabled: map\.historyDerivedWorkEnabled === 'true'/.test(db) &&
       /historyV2Enabled && settings\.historyDerivedWorkEnabled/.test(historyService)]
 ]

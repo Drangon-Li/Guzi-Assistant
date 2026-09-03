@@ -99,7 +99,8 @@ export function getSettings(): AppSettings {
       map.todoScanIntervalSec != null
         ? Math.min(600, Math.max(60, Number(map.todoScanIntervalSec) || 180))
         : 180,
-    historyV2Enabled: map.historyV2Enabled === 'true',
+    // 默认开启：屏幕感知设置页不再暴露这个开关，留 false 的话没开过的用户永远开不了
+    historyV2Enabled: map.historyV2Enabled !== 'false',
     historyDerivedWorkEnabled: map.historyDerivedWorkEnabled === 'true',
     historyCaptureText: map.historyCaptureText === 'true',
     voiceNotesEnabled: map.voiceNotesEnabled === 'true',
