@@ -1,4 +1,5 @@
 // profile / settings：用户档案与应用设置（key-value 表，读出来规整成 AppSettings）。
+import { normalizeApiFormat } from '@shared/api-formats'
 import { getDb } from './connection.ts'
 import { loadEnv } from '../env'
 import { firstNonBlank } from '@shared/env-value'
@@ -42,6 +43,7 @@ export function getSettings(): AppSettings {
     petVoiceHotkey: map.petVoiceHotkey || 'Alt+V',
     quickAskHotkey: map.quickAskHotkey || 'Alt+Space',
     // ?? 而不是 ||：用户显式清空后不能从 .env 静默复活
+    apiFormat: normalizeApiFormat(map.apiFormat ?? env.GUZI_ASSISTANT_API_FORMAT),
     apiBase: directModel.apiBase,
     apiKey: directModel.apiKey,
     model: directModel.model,

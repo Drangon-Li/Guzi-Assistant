@@ -188,8 +188,8 @@ export function registerIpc(): void {
   // 系统外观变化（设置为「跟随系统」时）：广播给所有渲染窗口切 .dark（桌宠由 pet-window 自己的 nativeTheme 监听重渲染）
   nativeTheme.on('updated', () => broadcastTheme())
   // 设置页「检测连接」：用表单里的现值探测，不必先保存
-  ipcMain.handle('model:probe', (_e, apiBase: string, apiKey: string) =>
-    probeModelEndpoint(String(apiBase ?? ''), String(apiKey ?? ''))
+  ipcMain.handle('model:probe', (_e, apiBase: string, apiKey: string, apiFormat?: string) =>
+    probeModelEndpoint(String(apiBase ?? ''), String(apiKey ?? ''), apiFormat)
   )
   // ---------- 语音纪要 ----------
   ipcMain.handle('voice:probe', () => probeTranscription())

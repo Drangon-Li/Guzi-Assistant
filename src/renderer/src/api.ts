@@ -59,8 +59,8 @@ export const api = {
 
   getSettings: () => inv<AppSettings>('settings:get'),
   /** 返回 false 表示快捷键注册失败（被其他应用占用） */
-  probeModel: (apiBase: string, apiKey: string) =>
-    inv<ModelProbeResult>('model:probe', apiBase, apiKey),
+  probeModel: (apiBase: string, apiKey: string, apiFormat?: string) =>
+    inv<ModelProbeResult>('model:probe', apiBase, apiKey, apiFormat),
   saveSettings: (patch: Partial<AppSettings>) => inv<boolean>('settings:save', patch),
 
   listTasks: () => inv<TaskRecord[]>('tasks:list'),

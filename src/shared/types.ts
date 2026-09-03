@@ -1,3 +1,5 @@
+import type { ApiFormat } from './api-formats'
+
 export type SourceType =
   | 'clipboard_text'
   | 'clipboard_image'
@@ -195,6 +197,8 @@ export interface AppSettings {
   apiBase: string
   apiKey: string
   model: string
+  /** 直连时用哪套接口协议。默认 openai-responses（保持老行为） */
+  apiFormat: ApiFormat
   feishuAppId: string
   feishuAppSecret: string
   /** 屏幕感知：核心被动采集总开关。默认 false（opt-in，检测走云端解析、消耗 credits） */
