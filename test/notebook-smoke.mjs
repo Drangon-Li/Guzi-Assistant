@@ -20,6 +20,7 @@ import {
   titleFromContent,
   visibleToAssistant
 } from '../src/shared/notebook.ts'
+import { currentBlock } from '../src/renderer/src/plugins/notebook/commands.ts'
 import {
   collectHeadings,
   colorToken,
@@ -298,6 +299,51 @@ check(
   '空标题仍占下标（否则点击会跳错行）',
   withEmpty[1].index === 2
 )
+
+// ---- currentBlock：光标所在的块 ----
+// 这条曾经真的挂过：BLOCK_TAGS 漏了 DIV，而 contentEditable 里新起的行常常是 <div>
+//（Chromium 的 defaultParagraphSeparator 就是 div）。结果新打的那一行 currentBlock
+// 返回 null，slash 菜单、Markdown 输入规则、公式块级渲染一起静默失效。
+// 用极简 DOM 桩测，避免给仓库加 jsdom 依赖。
+globalThis.Node = { ELEMENT_NODE: 1, TEXT_NODE: 3 }
+function el(tag, parent) {
+  const node = { nodeType: 1, tagName: tag, parentNode: parent ?? null }
+  node.contains = (other) => {
+    let p = other
+    while (p) {
+      if (p === node) return true
+      p = p.parentNode
+    }
+    return false
+  }
+  return node
+}
+function textIn(parent) {
+  return { nodeType: 3, parentNode: parent, contains: () => false }
+}
+function blockOf(build) {
+  const editor = el('DIV', null)
+  const caret = build(editor)
+  globalThis.window = {
+    getSelection: () => ({ rangeCount: 1, getRangeAt: () => ({ startContainer: caret }) })
+  }
+  return currentBlock(editor)
+}
+
+check('段落', blockOf((ed) => textIn(el('P', ed)))?.tagName === 'P')
+check(
+  'div 也算块（contentEditable 新起的行就是 div）',
+  blockOf((ed) => textIn(el('DIV', ed)))?.tagName === 'DIV'
+)
+check('标题', blockOf((ed) => textIn(el('H2', ed)))?.tagName === 'H2')
+check('列表项', blockOf((ed) => textIn(el('LI', el('UL', ed))))?.tagName === 'LI')
+check('引用', blockOf((ed) => textIn(el('BLOCKQUOTE', ed)))?.tagName === 'BLOCKQUOTE')
+check('代码块', blockOf((ed) => textIn(el('CODE', el('PRE', ed))))?.tagName === 'PRE')
+check(
+  '白名单外的顶层元素也兜得住（浏览器造什么标签不由我们定）',
+  blockOf((ed) => textIn(el('SECTION', ed)))?.tagName === 'SECTION'
+)
+check('光标不在编辑器里 → null', currentBlock(el('DIV', null)) === null)
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

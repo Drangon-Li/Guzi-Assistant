@@ -3,7 +3,7 @@
 // 跨段落的选区不能直接 surroundContents——那会产出 <mark><p>…</p></mark> 这种非法嵌套，
 // 或者直接抛异常。做法是把选区触及的每一段文本单独包一次，块结构原样不动。
 // 这段算法照搬谷子学术阅读笔记，是整套编辑器里最难自己写对的部分。
-import { colorToken, type NoteColor } from './markdown'
+import { colorToken, type NoteColor } from './markdown.ts'
 
 interface Slice {
   node: Text
@@ -204,20 +204,31 @@ export function floatingBarPosition(
   return { top: Math.max(8, top), left }
 }
 
-const BLOCK_TAGS = ['H1', 'H2', 'H3', 'P', 'BLOCKQUOTE', 'PRE', 'LI']
+// DIV 必须在列表里：contentEditable 里新起的行常常是 <div> 而不是 <p>
+// （Chromium 的 defaultParagraphSeparator 就是 div，光标不在已有块里时尤其如此）。
+// 漏了它，新打的那一行 currentBlock 会返回 null，slash 菜单、Markdown 输入规则、
+// 公式的块级渲染会一起静默失效——都以为「找不到块」而直接返回。
+const BLOCK_TAGS = ['H1', 'H2', 'H3', 'P', 'DIV', 'BLOCKQUOTE', 'PRE', 'LI']
 
-/** 光标所在的块元素，slash 菜单要靠它替换整块。 */
+/** 光标所在的块元素，slash 菜单和输入规则要靠它替换整块。
+ *  白名单之外还兜一层：编辑器的任何顶层子元素都能当块用——浏览器会造出什么标签
+ *  不由我们决定，白名单漏一个就整条功能失效，代价太大。 */
 export function currentBlock(editor: HTMLElement | null): HTMLElement | null {
   const selection = window.getSelection()
   if (!editor || !selection?.rangeCount) return null
-  let node: Node | null = selection.getRangeAt(0).startContainer
+  const start = selection.getRangeAt(0).startContainer
+  if (!editor.contains(start)) return null
+  let node: Node | null = start
+  let topLevel: HTMLElement | null = null
   while (node && node !== editor) {
-    if (node.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.includes((node as Element).tagName)) {
-      return node as HTMLElement
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement
+      if (BLOCK_TAGS.includes(el.tagName)) return el
+      if (el.parentNode === editor) topLevel = el
     }
     node = node.parentNode
   }
-  return null
+  return topLevel
 }
 
 export function placeCaret(node: Node, atEnd = true): void {
