@@ -21,6 +21,8 @@ import {
   NOTE_COLORS,
   editorMarkdown,
   markdownBlockRule,
+  mathSourceRe,
+  renderMath,
   renderNoteHTML,
   type BlockKind,
   type NoteColor
@@ -70,6 +72,46 @@ const SLASH_ITEMS: { id: SlashId; icon: string; label: string; keys: string }[] 
   { id: 'math', icon: '∑', label: '数学公式', keys: 'math 公式 latex tex formula' }
 ]
 
+/**
+ * 把一个元素里还没渲染的 $…$ 就地换成公式节点。
+ *
+ * 只动文本节点，不重建整块——早先那版是「失焦时整篇 renderNoteHTML 重来一遍」，
+ * 笔记一长就明显卡，而且非得失焦才出结果。现在按块渲染，离开当前块就出。
+ * 放在组件外：纯 DOM 操作，不依赖任何 render 作用域里的东西。
+ */
+function renderMathIn(root: HTMLElement): boolean {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const targets: Text[] = []
+  let cursor: Node | null
+  while ((cursor = walker.nextNode())) {
+    const text = cursor as Text
+    const parent = text.parentElement
+    // 已经渲染成公式的内部、以及代码块里的 $，都不是待渲染的源码
+    if (parent?.closest('[data-tex]') || parent?.closest('pre')) continue
+    if (mathSourceRe().test(text.nodeValue ?? '')) targets.push(text)
+  }
+  if (!targets.length) return false
+  for (const text of targets) {
+    const src = text.nodeValue ?? ''
+    const frag = document.createDocumentFragment()
+    const re = mathSourceRe()
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(src))) {
+      if (m.index > last) frag.append(src.slice(last, m.index))
+      const display = m[1] !== undefined
+      const holder = document.createElement('div')
+      holder.innerHTML = renderMath(display ? m[1] : m[2], display)
+      const node = holder.firstElementChild
+      if (node) frag.append(node)
+      last = m.index + m[0].length
+    }
+    if (last < src.length) frag.append(src.slice(last))
+    text.replaceWith(frag)
+  }
+  return true
+}
+
 export default function NoteEditor({
   note,
   folderLabel,
@@ -81,6 +123,10 @@ export default function NoteEditor({
   const editorRef = useRef<HTMLDivElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
   const history = useRef(createHistory())
+  /** 光标上一次所在的块：换块时把旧块里的公式渲染出来 */
+  const lastBlock = useRef<HTMLElement | null>(null)
+  /** 渲染公式会改 DOM，可能再次触发 selectionchange，防重入 */
+  const renderingMath = useRef(false)
   const [bar, setBar] = useState<{ top: number; left: number } | null>(null)
   const [palette, setPalette] = useState<'mark' | 'color' | null>(null)
   const [linkDraft, setLinkDraft] = useState<string | null>(null)
@@ -123,16 +169,6 @@ export default function NoteEditor({
     )
   }, [])
 
-  // 选区没有专门的事件，只能盯 selectionchange；在工具栏里操作时不要跟着重算
-  useEffect(() => {
-    const onSelect = (): void => {
-      if (document.activeElement?.closest('[data-note-bar]')) return
-      syncBar()
-    }
-    document.addEventListener('selectionchange', onSelect)
-    return () => document.removeEventListener('selectionchange', onSelect)
-  }, [syncBar])
-
   const pushChange = useCallback((): void => {
     const editor = editorRef.current
     if (!editor) return
@@ -140,6 +176,42 @@ export default function NoteEditor({
     setEmpty(!editor.textContent?.trim() && !editor.querySelector('img[data-asset]'))
     onChange({ content: editorMarkdown(editor) })
   }, [onChange])
+
+  const renderMathInBlock = useCallback(
+    (block: HTMLElement | null): void => {
+      const editor = editorRef.current
+      if (!block || !editor || !editor.contains(block)) return
+      if (!renderMathIn(block)) return
+      pushChange()
+      commitHistory(history.current, editor, true)
+    },
+    [pushChange]
+  )
+
+  // 选区没有专门的事件，只能盯 selectionchange；在工具栏里操作时不要跟着重算
+  useEffect(() => {
+    const onSelect = (): void => {
+      if (document.activeElement?.closest('[data-note-bar]')) return
+      if (!renderingMath.current) {
+        const block = currentBlock(editorRef.current)
+        const prev = lastBlock.current
+        // 光标离开某一块 → 那块里新打的 $…$ 就地渲染。Notion/Obsidian 的手感：
+        // 敲完回车立刻成型，而不是等整个编辑区失焦
+        if (prev && prev !== block) {
+          renderingMath.current = true
+          try {
+            renderMathInBlock(prev)
+          } finally {
+            renderingMath.current = false
+          }
+        }
+        lastBlock.current = block
+      }
+      syncBar()
+    }
+    document.addEventListener('selectionchange', onSelect)
+    return () => document.removeEventListener('selectionchange', onSelect)
+  }, [syncBar, renderMathInBlock])
 
   /** 正文里的图片只存了文件名，挂载后逐个把 data URL 填进 src。 */
   const hydrateImages = useCallback((): void => {
@@ -233,19 +305,25 @@ export default function NoteEditor({
     const editor = editorRef.current
     if (!editor) return
     let node: HTMLElement
+    // 空块必须留一个 <br>：contentEditable 里没有内容的块元素不是合法的落点，
+    // 浏览器会把光标弹到上一行（打「# 」变标题时光标跳走就是这个原因）。
+    const fill = (el: HTMLElement, text: string): void => {
+      if (text) el.textContent = text
+      else el.append(document.createElement('br'))
+    }
     if (id === 'h1' || id === 'h2' || id === 'h3') {
       node = make(`<${id}></${id}>`)
-      node.textContent = body
+      fill(node, body)
     } else if (id === 'quote') {
       node = make('<blockquote></blockquote>')
-      node.textContent = body
+      fill(node, body)
     } else if (id === 'code') {
       node = make('<pre><code></code></pre>')
       ;(node.firstElementChild as HTMLElement).textContent = body
     } else if (id === 'divider') {
       node = make('<hr>')
     } else if (id === 'math') {
-      // 公式先以源码形态插入，用户打完 TeX 失焦时才渲染（见 renderPendingMath）
+      // 公式先以源码形态插入，光标离开这一块时才渲染（见 renderMathInBlock）
       node = make('<p></p>')
       node.textContent = `$$${body}$$`
       block.replaceWith(node)
@@ -264,12 +342,16 @@ export default function NoteEditor({
       return
     } else if (id === 'todo') {
       node = make('<ul class="note-todo"><li data-checked="false"><input type="checkbox" contenteditable="false"></li></ul>')
-      node.querySelector('li')?.append(body)
+      const todoLi = node.querySelector('li')
+      if (todoLi) {
+        if (body) todoLi.append(body)
+        else todoLi.append(document.createElement('br'))
+      }
     } else {
       const tag = id === 'ol' ? 'ol' : 'ul'
       node = make(`<${tag}><li></li></${tag}>`)
       const li = node.querySelector('li')
-      if (li) li.textContent = body
+      if (li) fill(li, body)
     }
     block.replaceWith(node)
     // 代码块和分隔线后面要留一个空段落，否则光标无处可去
@@ -278,7 +360,9 @@ export default function NoteEditor({
       node.after(tail)
       placeCaret(tail)
     } else {
-      placeCaret(node.querySelector('li') ?? node)
+      const target = node.querySelector('li') ?? node
+      // 只有 <br> 占位的空块要落在块首：落到「内容末尾」等于落到 <br> 之后，又跑到下一行去了
+      placeCaret(target, !(target.childNodes.length === 1 && target.firstChild?.nodeName === 'BR'))
     }
     editor.focus()
     pushChange()
@@ -318,19 +402,7 @@ export default function NoteEditor({
     return true
   }
 
-  // 已渲染的公式在 textContent 里不含 $（KaTeX 只留 TeX 注解），
-  // 所以这条只在有「新打的、还没渲染的」源码时命中，不会每次失焦都重排。
-  const RAW_MATH = /\$\$?[^$\n]+\$\$?/
-
-  /** 失焦时把新打的 $…$ 变成公式。整篇重渲染——内容本来就一直在 Markdown 上往返。 */
-  const renderPendingMath = (): void => {
-    const editor = editorRef.current
-    if (!editor || !RAW_MATH.test(editor.textContent ?? '')) return
-    editor.innerHTML = renderNoteHTML(editorMarkdown(editor))
-    hydrateImages()
-    pushChange()
-    commitHistory(history.current, editor, true)
-  }
+  /** 渲染指定块里的公式并落一次历史。块为空或没有待渲染公式时什么都不做。 */
 
   /** 点已渲染的公式 → 换回 $…$ 源码就地改；改完失焦再渲染回去。 */
   const openMathSource = (target: HTMLElement): boolean => {
@@ -610,7 +682,9 @@ export default function NoteEditor({
           onBlur={(e) => {
             // 点浮动工具栏也会让编辑区失焦，那时候不能重排——会把用户的选区弄丢
             if ((e.relatedTarget as HTMLElement | null)?.closest('[data-note-bar]')) return
-            renderPendingMath()
+            // 整个编辑区失焦时，最后停留的那一块不会再触发「块变化」，这里兜一次
+            renderMathInBlock(lastBlock.current)
+            lastBlock.current = null
           }}
         />
       </div>

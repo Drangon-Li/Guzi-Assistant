@@ -216,6 +216,10 @@ export function editorMarkdown(editor: HTMLElement): string {
     .trim()
 }
 
+/** 行内/块级公式的源码形态。每次调用都新建实例——带 /g 的正则有可变的 lastIndex，
+ *  共享同一个会让两处调用互相串位。第一个捕获组是块级，第二个是行内。 */
+export const mathSourceRe = (): RegExp => /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/g
+
 // ---------- Markdown → HTML ----------
 
 /**
@@ -223,7 +227,7 @@ export function editorMarkdown(editor: HTMLElement): string {
  * 从里面反推不回源码。contenteditable=false 让公式在编辑器里是一个不可分的原子，
  * 点它才换回源码编辑（见 NoteEditor 的 openMathSource）。
  */
-function renderMath(tex: string, display: boolean): string {
+export function renderMath(tex: string, display: boolean): string {
   const source = escapeHTML(tex)
   const wrap = (body: string): string =>
     display
