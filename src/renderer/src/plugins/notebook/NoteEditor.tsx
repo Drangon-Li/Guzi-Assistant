@@ -147,6 +147,8 @@ export default function NoteEditor({
   const [activeHeading, setActiveHeading] = useState(-1)
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  /** 始终指向最新的输入规则函数：beforeinput 的 effect 只订阅一次，不能捕获旧闭包 */
+  const markdownRuleRef = useRef<() => boolean>(() => false)
 
   // 载入这一篇。renderNoteHTML 的输出是白名单产物——整段先转义，只有颜色标签被解回来，
   // 所以这里的 innerHTML 不构成注入面。
@@ -442,8 +444,7 @@ export default function NoteEditor({
     convertBlock(kind, block, rest.trim())
     return true
   }
-
-  /** 渲染指定块里的公式并落一次历史。块为空或没有待渲染公式时什么都不做。 */
+  markdownRuleRef.current = applyMarkdownRule
 
   /** 点已渲染的公式 → 换回 $…$ 源码就地改；改完失焦再渲染回去。 */
   const openMathSource = (target: HTMLElement): boolean => {
@@ -536,11 +537,6 @@ export default function NoteEditor({
       setPalette(null)
       return
     }
-    // Markdown 输入规则：块首「# 」「- 」「1. 」…敲空格就变块，空格本身吃掉
-    if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && applyMarkdownRule()) {
-      e.preventDefault()
-      return
-    }
     if (!(e.metaKey || e.ctrlKey)) return
     const key = e.key.toLowerCase()
     if (key === 'z') {
@@ -564,7 +560,16 @@ export default function NoteEditor({
     const editor = editorRef.current
     if (!editor) return
     const onBefore = (e: Event): void => {
-      const type = (e as InputEvent).inputType
+      const evt = e as InputEvent
+      const type = evt.inputType
+      // Markdown 输入规则挂在 beforeinput 而不是 keydown：中文输入法激活时，
+      // keydown 上报的 key 未必是 ' '（常见是 Process / keyCode 229），
+      // 结果就是打「## 」只留下字面量。beforeinput 的 inputType+data 不受输入法影响。
+      // 组合输入期间是 insertCompositionText，这里天然不会命中。
+      if (type === 'insertText' && evt.data === ' ') {
+        if (markdownRuleRef.current()) e.preventDefault()
+        return
+      }
       if (type !== 'historyUndo' && type !== 'historyRedo') return
       e.preventDefault()
       if (stepHistory(history.current, editor, type === 'historyUndo' ? -1 : 1)) pushChange()
@@ -647,9 +652,21 @@ export default function NoteEditor({
   const openContextMenu = (e: React.MouseEvent): void => {
     const editor = editorRef.current
     if (!editor) return
-    const block = currentBlock(editor)
     const selection = window.getSelection()
     const hasSelection = !!selection && !selection.isCollapsed && !!selection.toString().trim()
+    // 右键不保证移动光标（macOS 上通常不动），所以没有选区时先把光标落到点击处——
+    // 否则 currentBlock 拿到的是上一次的位置，甚至是 null，菜单点了像没反应。
+    if (!hasSelection && selection) {
+      const at = document.caretRangeFromPoint?.(e.clientX, e.clientY)
+      if (at && editor.contains(at.commonAncestorContainer)) {
+        selection.removeAllRanges()
+        selection.addRange(at)
+      }
+    }
+    const block = currentBlock(editor)
+    // 右键菜单一出来，选区上方那条浮动工具栏就该让位，两层浮层叠在一起很乱
+    setBar(null)
+    setPalette(null)
     // 右键在已渲染的公式上 → 直接给「编辑这条公式」，比让用户猜要点一下强
     const mathTarget = (e.target as HTMLElement).closest<HTMLElement>('[data-tex]')
     const asBlock = (id: SlashId) => () => {
@@ -751,7 +768,7 @@ export default function NoteEditor({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
       {/* 正文比标题窄一列，但点空白处也该落到光标上，所以外层整片都可点 */}
       <div
         ref={scrollRef}
@@ -802,27 +819,39 @@ export default function NoteEditor({
         />
       </div>
 
-      {/* 右侧目录：标题够两条才出现，一条标题的目录没有存在意义 */}
+      {/* 右侧目录：Notion 那种「右边距几条短横线，悬停展开」的做法。
+          做成绝对定位的浮层而不是一列，是因为这一栏本来就窄——三栏侧边栏都展开时
+          正文只剩三百多像素，再切一条目录列，正文就没法读了。
+          标题够两条才出现：一条标题的目录没有存在意义。 */}
       {!immersive && headings.length > 1 && (
-        <nav className="hidden w-44 shrink-0 overflow-y-auto py-6 pr-4 lg:block">
-          <div className="mb-2 pl-2 text-[11px] tracking-wide text-slate-400">目录</div>
-          <ul className="flex flex-col gap-0.5">
+        <div className="group/toc absolute top-3 right-2 z-10">
+          <div className="flex flex-col items-end gap-1.5 py-2 transition-opacity group-hover/toc:opacity-0">
             {headings.map((h) => (
-              <li key={`${h.index}-${h.text}`}>
-                <button
-                  className={`w-full truncate rounded px-2 py-1 text-left text-xs transition-colors hover:bg-slate-100 hover:text-slate-700 ${
-                    activeHeading === h.index ? 'bg-slate-100 font-medium text-slate-700' : 'text-slate-400'
-                  }`}
-                  style={{ paddingLeft: `${0.5 + (h.level - 1) * 0.75}rem` }}
-                  title={h.text}
-                  onClick={() => scrollToHeading(h.index)}
-                >
-                  {h.text}
-                </button>
-              </li>
+              <span
+                key={`dash-${h.index}`}
+                className={`block h-0.5 rounded-full transition-colors ${
+                  activeHeading === h.index ? 'bg-slate-500' : 'bg-slate-300'
+                }`}
+                style={{ width: `${18 - (h.level - 1) * 4}px` }}
+              />
             ))}
-          </ul>
-        </nav>
+          </div>
+          <nav className="pointer-events-none absolute top-0 right-0 max-h-[70vh] w-48 overflow-y-auto rounded-lg border border-line bg-surface p-1.5 opacity-0 shadow-lg transition-opacity group-hover/toc:pointer-events-auto group-hover/toc:opacity-100">
+            {headings.map((h) => (
+              <button
+                key={`row-${h.index}`}
+                className={`block w-full truncate rounded px-2 py-1 text-left text-xs transition-colors hover:bg-slate-100 hover:text-slate-700 ${
+                  activeHeading === h.index ? 'bg-slate-100 font-medium text-slate-700' : 'text-slate-400'
+                }`}
+                style={{ paddingLeft: `${0.5 + (h.level - 1) * 0.75}rem` }}
+                title={h.text}
+                onClick={() => scrollToHeading(h.index)}
+              >
+                {h.text}
+              </button>
+            ))}
+          </nav>
+        </div>
       )}
       </div>
 
