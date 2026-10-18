@@ -9,6 +9,7 @@ static pid_t activePid = 0;
 static BOOL activeAccessibilityAvailable = NO;
 static NSMutableDictionary<NSString *, NSNumber *> *bundleBackoffUntil = nil;
 static BOOL inputMonitoringObserved = NO;
+static long long lastInputEventAtMs = 0;
 static NSUInteger inputBurstLength = 0;
 static BOOL inputBurstSecure = NO;
 static NSString *inputBurstAppName = @"";
@@ -73,9 +74,19 @@ static NSArray<NSString *> *modifierNames(NSEventModifierFlags flags) {
   return result;
 }
 
-static NSString *inputMonitoringStatus(id monitor) {
-  if (!monitor || !CGPreflightListenEventAccess()) return @"unavailable";
+static NSString *inputMonitoringStatus(id monitor, BOOL permitted) {
+  if (!monitor || !permitted) return @"unavailable";
   return inputMonitoringObserved ? @"available" : @"unknown";
+}
+
+static NSDictionary *inputMonitoringHealth(id monitor) {
+  BOOL permitted = CGPreflightListenEventAccess();
+  return @{
+    @"inputMonitoring": inputMonitoringStatus(monitor, permitted),
+    @"inputMonitoringPermission": permitted ? @"available" : @"unavailable",
+    @"inputMonitoringListener": monitor ? @"active" : @"inactive",
+    @"lastInputEventAtMs": lastInputEventAtMs > 0 ? @(lastInputEventAtMs) : NSNull.null
+  };
 }
 
 static NSString *attributeString(AXUIElementRef element, CFStringRef attribute, AXError *errorOut) {
@@ -429,7 +440,7 @@ static void emitWindowChangeIfNeeded(NSRunningApplication *application) {
   extra[@"targetSubrole"] = activeFocusedSubrole();
   NSString *urlHost = activeFocusedURLHost(front);
   if (urlHost.length) extra[@"urlHost"] = urlHost;
-  extra[@"inputMonitoring"] = inputMonitoringStatus(self.globalMonitor);
+  [extra addEntriesFromDictionary:inputMonitoringHealth(self.globalMonitor)];
   emitActivity(type, front, extra);
 }
 
@@ -459,6 +470,7 @@ static void emitWindowChangeIfNeeded(NSRunningApplication *application) {
 
 - (void)handleGlobalEvent:(NSEvent *)event {
   inputMonitoringObserved = YES;
+  lastInputEventAtMs = nowMs();
   if (event.type == NSEventTypeKeyDown) {
     NSEventModifierFlags flags = event.modifierFlags;
     BOOL shortcut = (flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagFunction)) != 0;
@@ -516,9 +528,9 @@ static void emitWindowChangeIfNeeded(NSRunningApplication *application) {
     @"inputLength": secure ? @0 : @(MIN(inputBurstLength, (NSUInteger)100000)),
     @"secureInput": @(secure),
     @"targetRole": secure ? @"" : (inputBurstTargetRole ?: @""),
-    @"targetSubrole": secure ? @"" : (inputBurstTargetSubrole ?: @""),
-    @"inputMonitoring": inputMonitoringStatus(self.globalMonitor)
+    @"targetSubrole": secure ? @"" : (inputBurstTargetSubrole ?: @"")
   } mutableCopy];
+  [payload addEntriesFromDictionary:inputMonitoringHealth(self.globalMonitor)];
   if (!secure && inputBurstWindowId > 0) payload[@"windowId"] = @(inputBurstWindowId);
   if (!secure && inputBurstURLHost.length) payload[@"urlHost"] = inputBurstURLHost;
   emit(payload);
@@ -533,7 +545,7 @@ static void emitWindowChangeIfNeeded(NSRunningApplication *application) {
   NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
   [self flushInputBurst];
   emitWindowChangeIfNeeded(front);
-  NSMutableDictionary *extra = [@{ @"inputMonitoring": inputMonitoringStatus(self.globalMonitor) } mutableCopy];
+  NSMutableDictionary *extra = [inputMonitoringHealth(self.globalMonitor) mutableCopy];
   extra[@"accessibility"] = activeAccessibilityAvailable ? @"available" : @"unavailable";
   NSString *urlHost = activeFocusedURLHost(front);
   if (urlHost.length) extra[@"urlHost"] = urlHost;
@@ -544,6 +556,9 @@ static void emitWindowChangeIfNeeded(NSRunningApplication *application) {
 int main(void) {
   @autoreleasepool {
     setbuf(stdout, NULL);
+    // NSEvent monitors need AppKit's event dispatch, not just a timer run loop.
+    [NSApplication sharedApplication];
+    [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
     bundleBackoffUntil = [NSMutableDictionary dictionary];
     Collector *collector = [[Collector alloc] init];
     [NSWorkspace.sharedWorkspace.notificationCenter addObserver:collector
@@ -559,7 +574,10 @@ int main(void) {
     }];
     collector.inputTimer = [NSTimer scheduledTimerWithTimeInterval:0.75 target:collector selector:@selector(flushInputBurst) userInfo:nil repeats:YES];
     [NSTimer scheduledTimerWithTimeInterval:2.0 target:collector selector:@selector(heartbeat:) userInfo:nil repeats:YES];
-    [[NSRunLoop currentRunLoop] run];
+    [NSApp run];
+    if (collector.globalMonitor) [NSEvent removeMonitor:collector.globalMonitor];
+    [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:collector];
+    clearAccessibilityObserver();
   }
   return 0;
 }

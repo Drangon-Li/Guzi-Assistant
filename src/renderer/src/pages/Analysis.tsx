@@ -87,7 +87,7 @@ export default function Analysis(): React.JSX.Element {
 
   // ---- 当日指标 ----
   // 专注段用前台应用切换口径（不依赖模型归类）；碎片化指标仍用当日切换子集
-  const daySwitches = useMemo(() => switches.filter((s) => s.ts.startsWith(day)), [switches, day])
+  const daySwitches = useMemo(() => switches.filter((s) => s.ts.startsWith(day) && s.toApp && s.fromApp && s.toApp !== s.fromApp), [switches, day])
   const runs = useMemo(
     () => productiveRunsFromSwitches(switches, cat).filter((r) => r.start.startsWith(day)),
     [switches, cat, day]

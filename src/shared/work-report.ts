@@ -9,6 +9,7 @@ export function dayKey(d: Date): string {
 
 /** 秒 → 「N 小时 M 分钟」人话（<60s 显示秒） */
 export function formatDuration(seconds: number): string {
+  seconds = Math.max(0, Math.round(seconds))
   if (seconds < 60) return `${seconds} 秒`
   const h = Math.floor(seconds / 3600)
   const m = Math.round((seconds % 3600) / 60)
@@ -34,6 +35,7 @@ export interface WorkRecordInterval {
   end: string
   startMs: number
   endMs: number
+  activeMs: number
 }
 
 export function workRecordInterval(record: WorkRecord): WorkRecordInterval {
@@ -41,12 +43,25 @@ export function workRecordInterval(record: WorkRecord): WorkRecordInterval {
   const rawEnd = workRecordEnd(record)
   const startMs = Number.isFinite(Date.parse(start)) ? Date.parse(start) : 0
   let endMs = Number.isFinite(Date.parse(rawEnd)) ? Date.parse(rawEnd) : startMs
-  const explicitHistoryInterval = record.derivedBy === 'history'
+  const explicitHistoryInterval = record.derivedBy === 'history' || record.derivedBy === 'timeline' || record.activeMs != null
   // Legacy records have no real end; preserve the established one-minute
   // report fallback while History-derived records use the exact interval.
   if (!explicitHistoryInterval && endMs <= startMs) endMs = startMs + 60_000
   if (endMs < startMs) endMs = startMs
-  return { start, end: rawEnd, startMs, endMs }
+  const activeMs = record.activeMs == null ? endMs - startMs : Math.min(endMs - startMs, Math.max(0, record.activeMs))
+  return { start, end: rawEnd, startMs, endMs, activeMs }
+}
+
+/** Union confirmed intervals; grouping nearby observations never credits the unobserved gaps. */
+export function workIntervalsActiveMs(intervals: WorkRecordInterval[]): number {
+  let endMs = -Infinity
+  let totalMs = 0
+  for (const interval of [...intervals].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)) {
+    const uncoveredMs = Math.max(0, interval.endMs - Math.max(endMs, interval.startMs))
+    totalMs += Math.min(interval.activeMs, uncoveredMs)
+    endMs = Math.max(endMs, interval.endMs)
+  }
+  return totalMs
 }
 
 /** HH:mm（从 "YYYY-MM-DDTHH:mm" 取） */
@@ -99,14 +114,7 @@ export function groupWorkPeriods(records: WorkRecord[], gapMinutes = 10): WorkPe
     periods.push({
       start: cur[0].interval.start,
       end: cur.reduce((latest, item) => item.interval.endMs > latest.interval.endMs ? item : latest).interval.end,
-      durationSeconds: Math.max(
-        0,
-        Math.round(
-          (cur.reduce((latest, item) => Math.max(latest, item.interval.endMs), cur[0].interval.startMs) -
-            cur[0].interval.startMs) /
-            1000
-        )
-      ),
+      durationSeconds: Math.round(workIntervalsActiveMs(cur.map((item) => item.interval)) / 1_000),
       app: cur[0].record.app,
       summary,
       count: cur.length,
@@ -393,13 +401,14 @@ export function focusDurations(
   gapMinutes = 15
 ): FocusDuration[] {
   const sorted = records
-    .filter((r) => !!r.task && normalizeTaskKey(r.task).length > 0 && !isGenericFocusTask(r.task))
     .map((record) => ({ record, interval: workRecordInterval(record) }))
     .sort((a, b) => a.interval.startMs - b.interval.startMs || a.record.id.localeCompare(b.record.id))
-  const canonicalKey = mergeTaskKeys([...new Set(sorted.map(({ record: r }) => normalizeTaskKey(r.task!)))])
+  const hasTask = (r: WorkRecord): boolean => !!r.task && normalizeTaskKey(r.task).length > 0 && !isGenericFocusTask(r.task)
+  const labeled = sorted.filter(({ record }) => hasTask(record))
+  const canonicalKey = mergeTaskKeys([...new Set(labeled.map(({ record: r }) => normalizeTaskKey(r.task!)))])
   const keyOf = (name: string): string => canonicalKey.get(normalizeTaskKey(name)) ?? normalizeTaskKey(name)
   const variants = new Map<string, Map<string, number>>()
-  for (const { record: r } of sorted) {
+  for (const { record: r } of labeled) {
     const key = keyOf(r.task!)
     const m = variants.get(key) ?? new Map<string, number>()
     m.set(r.task!, (m.get(r.task!) ?? 0) + 1)
@@ -410,7 +419,7 @@ export function focusDurations(
 
   const total = new Map<string, number>()
   const ranges = new Map<string, { startAt: string | null; endAt: string | null; startMs: number; endMs: number }>()
-  for (const { record: r, interval } of sorted) {
+  for (const { record: r, interval } of labeled) {
     const key = keyOf(r.task!)
     const startMs = Date.parse(interval.start)
     const endMs = Date.parse(interval.end)
@@ -426,28 +435,29 @@ export function focusDurations(
     ranges.set(key, current)
   }
   let runKey: string | null = null
-  let runStartMs = 0
   let runEndMs = 0
+  let runIntervals: WorkRecordInterval[] = []
   const flush = (): void => {
     if (!runKey) return
-    const span = Math.max(0, (runEndMs - runStartMs) / 1000)
+    const span = workIntervalsActiveMs(runIntervals) / 1_000
     total.set(runKey, (total.get(runKey) ?? 0) + span)
     runKey = null
+    runIntervals = []
   }
   for (const { record: r, interval } of sorted) {
+    if (!hasTask(r)) { flush(); continue }
     const key = keyOf(r.task!)
     if (
       runKey === key &&
       interval.startMs - runEndMs <= gapMinutes * 60_000
     ) {
-      if (interval.endMs > runEndMs) {
-        runEndMs = interval.endMs
-      }
+      runIntervals.push(interval)
+      runEndMs = Math.max(runEndMs, interval.endMs)
       continue
     }
     flush()
     runKey = key
-    runStartMs = interval.startMs
+    runIntervals = [interval]
     runEndMs = interval.endMs
   }
   flush()

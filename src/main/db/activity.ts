@@ -8,8 +8,8 @@ export function addOcrEvidence(evidence: OcrEvidenceRecord): void {
   getDb().prepare(
     `INSERT INTO ocr_evidence (
       id, event_id, segment_id, occurred_at, app_name, bundle_id, window_title,
-      semantic_score, trigger_reason, redaction_hits, redacted_text, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      semantic_score, trigger_reason, redaction_hits, redacted_text, created_at, window_id, url_host
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     evidence.id,
     evidence.eventId,
@@ -22,14 +22,16 @@ export function addOcrEvidence(evidence: OcrEvidenceRecord): void {
     evidence.triggerReason,
     JSON.stringify(evidence.redactionHits),
     evidence.redactedText.slice(0, 20_000),
-    evidence.createdAt
+    evidence.createdAt,
+    evidence.windowId ?? null,
+    evidence.urlHost ?? null
   )
 }
 
-export function listOcrEvidence(limit = 40): OcrEvidenceRecord[] {
+export function listOcrEvidence(limit = 40, range?: { fromMs: number; toMs: number }): OcrEvidenceRecord[] {
   const rows = getDb()
-    .prepare('SELECT * FROM ocr_evidence ORDER BY occurred_at DESC LIMIT ?')
-    .all(limit) as Array<Record<string, unknown>>
+    .prepare(`SELECT * FROM ocr_evidence ${range ? 'WHERE occurred_at >= ? AND occurred_at < ?' : ''} ORDER BY occurred_at DESC LIMIT ?`)
+    .all(...(range ? [new Date(range.fromMs).toISOString(), new Date(range.toMs).toISOString(), limit] : [limit])) as Array<Record<string, unknown>>
   return rows.map((row) => ({
     id: String(row.id),
     eventId: row.event_id == null ? null : String(row.event_id),
@@ -38,6 +40,8 @@ export function listOcrEvidence(limit = 40): OcrEvidenceRecord[] {
     appName: row.app_name == null ? null : String(row.app_name),
     bundleId: row.bundle_id == null ? null : String(row.bundle_id),
     windowTitle: row.window_title == null ? null : String(row.window_title),
+    windowId: row.window_id == null ? null : Number(row.window_id),
+    urlHost: row.url_host == null ? null : String(row.url_host),
     semanticScore: Number(row.semantic_score),
     triggerReason: String(row.trigger_reason),
     redactionHits: JSON.parse(String(row.redaction_hits || '[]')) as string[],

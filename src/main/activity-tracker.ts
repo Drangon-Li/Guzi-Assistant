@@ -43,6 +43,7 @@ export interface ActivityScanDecision {
 }
 
 export interface AccessibilityWorkContext extends SemanticWorkEvidence {
+  urlHost?: string | null
   eventId: string
   occurredAtMs: number
   eventKind: string
@@ -131,6 +132,7 @@ class ActivityTracker {
   private assessments = new Map<string, SemanticAssessment>()
   private startedAtMs = Date.now()
   private lastContext: FrontmostContext | null = null
+  private lastCollectorContext: { context: FrontmostContext; at: number; privacy: { suppressed: boolean; privacyState: PrivacyState } } | null = null
   private pendingContextChange = false
   private observer: ScreenActivityStatus['observer'] = 'waiting'
   private observerDetail: string | null = null
@@ -139,6 +141,9 @@ class ActivityTracker {
   private collectorRestartCount = 0
   private collectorAccessibility: ScreenActivityStatus['accessibility'] = 'unknown'
   private collectorInputMonitoring: ScreenActivityStatus['inputMonitoring'] = 'unknown'
+  private collectorInputMonitoringPermission: ScreenActivityStatus['inputMonitoringPermission'] = 'unknown'
+  private collectorInputMonitoringListener: ScreenActivityStatus['inputMonitoringListener'] = 'unknown'
+  private collectorLastInputEventAtMs: number | null = null
   private collectorLastHeartbeatAtMs: number | null = null
   private readonly collectorPolicy = new CollectorPolicy()
   private collectorPolicyMetrics: CollectorPolicyMetrics = this.collectorPolicy.snapshot()
@@ -323,6 +328,7 @@ class ActivityTracker {
         occurredAtMs: nowMs,
         appName: safe.name,
         bundleId: safe.bundleId,
+        urlHost: safe.urlHost,
         windowTitle: safe.windowTitle,
         focusedRole: safe.focusedRole ?? '',
         safeLabel: safe.safeLabel ?? '',
@@ -361,7 +367,10 @@ class ActivityTracker {
         lastHeartbeatAtMs: event.occurredAtMs,
         accessibility: event.accessibility,
         detail: null,
-        inputMonitoring: event.inputMonitoring ?? this.collectorInputMonitoring
+        inputMonitoring: event.inputMonitoring,
+        inputMonitoringPermission: event.inputMonitoringPermission,
+        inputMonitoringListener: event.inputMonitoringListener,
+        lastInputEventAtMs: event.lastInputEventAtMs
       })
       return null
     }
@@ -388,6 +397,9 @@ class ActivityTracker {
       event.privacyState && event.privacyState !== 'normal'
         ? { suppressed: true, privacyState: event.privacyState as PrivacyState }
         : privacyForContext(context)
+    if (event.secureInput === true || privacy.suppressed ||
+      (event.secureInput === false && event.accessibility === 'available' && !!context.focusedRole))
+      this.lastCollectorContext = { context, at: event.occurredAtMs, privacy }
     const gateDecision = privacy.suppressed
       ? { accepted: true, reason: 'accepted' as const }
       : this.collectorPolicy.accept({
@@ -429,6 +441,19 @@ class ActivityTracker {
     return recorded
   }
 
+  collectorCaptureSafety(context: { bundleId: string; windowId?: number | null }, nowMs = Date.now()): {
+    blocked: boolean; reason: string | null; urlHost: string | null
+  } {
+    const last = this.lastCollectorContext
+    if (!last || nowMs < last.at || nowMs - last.at > 10_000 || last.context.bundleId !== context.bundleId ||
+      (last.context.windowId != null && context.windowId != null && last.context.windowId !== context.windowId))
+      return { blocked: false, reason: null, urlHost: null }
+    const secure = last.context.secureInput || /secure|password|secret/i.test(
+      `${last.context.focusedRole ?? ''} ${last.context.focusedSubrole ?? ''} ${last.context.targetSubrole ?? ''}`)
+    const blocked = !!secure || last.privacy.suppressed
+    return { blocked, reason: secure ? 'secure_input' : blocked ? last.privacy.privacyState : null, urlHost: last.context.urlHost ?? null }
+  }
+
   private isCurrentCollectorGeneration(generation: number): boolean {
     return generation === this.collectorGeneration && this.collectorState !== 'stopped'
   }
@@ -441,6 +466,9 @@ class ActivityTracker {
     this.collectorRestartCount = 0
     this.collectorAccessibility = 'unknown'
     this.collectorInputMonitoring = 'unknown'
+    this.collectorInputMonitoringPermission = 'unknown'
+    this.collectorInputMonitoringListener = 'unknown'
+    this.collectorLastInputEventAtMs = null
     this.collectorLastHeartbeatAtMs = null
     this.collectorPolicy.reset()
     this.collectorPolicyMetrics = this.collectorPolicy.snapshot()
@@ -479,17 +507,25 @@ class ActivityTracker {
     this.collectorHandle = null
     this.collectorState = 'stopped'
     this.collectorDetail = null
+    this.collectorInputMonitoring = 'unknown'
+    this.collectorInputMonitoringListener = 'inactive'
     this.collectorLastHeartbeatAtMs = null
     handle?.stop()
   }
 
   private markCollectorHealth(health: CollectorHealth): void {
-    this.collectorState = health.state === 'healthy' && health.accessibility === 'unavailable' ? 'degraded' : health.state
-    this.collectorDetail = health.detail
     this.collectorRestartCount = health.restartCount
     this.collectorAccessibility = health.accessibility
     this.collectorInputMonitoring = health.inputMonitoring ?? this.collectorInputMonitoring
+    this.collectorInputMonitoringPermission = health.inputMonitoringPermission ?? this.collectorInputMonitoringPermission
+    this.collectorInputMonitoringListener = health.inputMonitoringListener ?? this.collectorInputMonitoringListener
+    if (health.lastInputEventAtMs !== undefined) this.collectorLastInputEventAtMs = health.lastInputEventAtMs
     this.collectorLastHeartbeatAtMs = health.lastHeartbeatAtMs
+    const unavailableDetail = health.accessibility === 'unavailable' ? 'Accessibility unavailable'
+      : this.collectorInputMonitoringPermission === 'unavailable' ? 'Input Monitoring permission unavailable'
+        : this.collectorInputMonitoringListener === 'inactive' ? 'Input listener unavailable' : null
+    this.collectorState = health.state === 'healthy' && unavailableDetail ? 'degraded' : health.state
+    this.collectorDetail = health.detail ?? (health.state === 'healthy' ? unavailableDetail : null)
   }
 
   markObserverFailure(detail: string): void {
@@ -573,6 +609,8 @@ class ActivityTracker {
       occurredAtMs: input.occurredAtMs,
       appName: input.appName,
       bundleId: input.bundleId,
+      windowId: input.windowId,
+      urlHost: input.urlHost,
       windowTitle:
         input.windowTitle == null
           ? null
@@ -592,6 +630,8 @@ class ActivityTracker {
       occurredAt: new Date(evidence.occurredAtMs).toISOString(),
       appName: evidence.appName,
       bundleId: evidence.bundleId,
+      windowId: evidence.windowId,
+      urlHost: evidence.urlHost,
       windowTitle: evidence.windowTitle,
       semanticScore: evidence.semanticScore,
       triggerReason: evidence.triggerReason,
@@ -604,6 +644,19 @@ class ActivityTracker {
 
   canUseObserverFailureOcr(): boolean {
     return !this.observerFailureOcrUsed
+  }
+
+  clearHistoryEvidence(fromMs = -Infinity, toMs = Infinity): void {
+    const outside = (at: number): boolean => at < fromMs || at >= toMs
+    this.events = this.events.filter((event) => outside(event.occurredAtMs))
+    const ids = new Set(this.events.map((event) => event.id))
+    for (const id of this.assessments.keys()) if (!ids.has(id)) this.assessments.delete(id)
+    this.ocrEvidence = this.ocrEvidence.filter((evidence) => outside(evidence.occurredAtMs))
+    if (this.lastCollectorContext && !outside(this.lastCollectorContext.at)) {
+      this.lastCollectorContext.context = { ...this.lastCollectorContext.context, windowTitle: '', safeLabel: '', urlHost: undefined }
+    }
+    this.lastEventAtMs = this.events.at(-1)?.occurredAtMs ?? null
+    this.resetGate()
   }
 
   resetGate(nowMs = Date.now()): void {
@@ -670,6 +723,9 @@ class ActivityTracker {
       collectorBackoffBundleCount: this.collectorPolicyMetrics.backoffBundleCount,
       accessibility: this.collectorAccessibility,
       inputMonitoring: this.collectorInputMonitoring,
+      inputMonitoringPermission: this.collectorInputMonitoringPermission,
+      inputMonitoringListener: this.collectorInputMonitoringListener,
+      lastInputEventAt: isoOrNull(this.collectorLastInputEventAtMs),
       lastHeartbeatAt: isoOrNull(this.collectorLastHeartbeatAtMs),
       semanticCoverage,
       ocrFallbackCount: this.ocrFallbackCount,
@@ -766,6 +822,14 @@ export function markActivityScan(reason: ActivityScanReason, nowMs = Date.now())
 
 export function getHybridSemanticState(): ReturnType<ActivityTracker['hybridSemanticState']> {
   return activityTracker.hybridSemanticState()
+}
+
+export function getCollectorCaptureSafety(context: { bundleId: string; windowId?: number | null }, nowMs = Date.now()) {
+  return activityTracker.collectorCaptureSafety(context, nowMs)
+}
+
+export function clearActivityHistoryEvidence(fromMs?: number, toMs?: number): void {
+  activityTracker.clearHistoryEvidence(fromMs, toMs)
 }
 
 export function markOcrFallback(reason: OcrTriggerReason, nowMs?: number, context?: string): void {

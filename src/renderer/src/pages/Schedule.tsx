@@ -1078,6 +1078,7 @@ function PendingDetections(): React.JSX.Element | null {
                 <div className="mt-0.5 text-[11px] text-slate-400">
                   {d.timeIso ? fmtTime(d.timeIso) : '未识别到时间'} · 检测于{' '}
                   {d.createdAt.slice(5, 16).replace('T', ' ')}
+                  {!d.item && !d.sourceText && <span className="ml-2">详情已过期，仅保留摘要</span>}
                 </div>
               </div>
               {!multi && (

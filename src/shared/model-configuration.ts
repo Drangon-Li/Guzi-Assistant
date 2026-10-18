@@ -1,3 +1,5 @@
+import { apiEndpoint, type ConcreteApiFormat } from './api-formats.ts'
+
 export interface DirectModelEnvironment {
   GUZI_ASSISTANT_API_BASE?: string
   GUZI_ASSISTANT_API_KEY?: string
@@ -43,17 +45,12 @@ export function resolveDirectModelSettings(
 }
 
 export function responsesEndpoint(apiBase: string): string {
-  return `${normalizedV1(apiBase)}/responses`
+  return apiEndpoint(apiBase, 'responses')
 }
 
 /** OpenAI 兼容服务的模型列表端点（GET）。用于设置页探测连通性并拉取可选模型。 */
 export function modelsEndpoint(apiBase: string): string {
-  return `${normalizedV1(apiBase)}/models`
-}
-
-function normalizedV1(apiBase: string): string {
-  const base = apiBase.trim().replace(/\/+$/, '')
-  return /\/v1$/i.test(base) ? base : `${base}/v1`
+  return apiEndpoint(apiBase, 'models')
 }
 
 export interface ModelProbeResult {
@@ -62,8 +59,8 @@ export interface ModelProbeResult {
   models: string[]
   /** 失败原因（面向用户的中文说明）；成功时为 null */
   error: string | null
-  /** 解析实际要用的 /v1/responses 是否存在。false=确定没有（404/405），null=没测出来 */
-  responsesAvailable: boolean | null
+  /** 已通过测试请求验证的实际协议；未检测成功时为 null */
+  detectedFormat: ConcreteApiFormat | null
 }
 
 /** 解析 /v1/models 的返回。各家兼容程度不一，只认 id 字段，拿不到就当空列表。 */

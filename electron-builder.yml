@@ -1,9 +1,10 @@
-# 打包配置（macOS）。v1 目标：本地可分发的未签名 dmg/zip。
+# 打包配置（macOS）：ad-hoc 签名的 dmg/zip，尚未进行 Apple 公证。
 # 外部品牌统一使用中文；afterPack 会把 Electron helper 的内部路径恢复为 GuziAssistant。
 # appId 暂保留旧值，维持 macOS 权限与升级身份连续性。
 appId: cn.shilong.gooz
 productName: 谷子助手
-artifactName: '谷子助手-${version}-${arch}.${ext}'
+# GitHub 会截掉安装包文件名里的中文；应用内仍显示中文品牌。
+artifactName: 'GuziAssistant-${version}-${arch}.${ext}'
 afterPack: scripts/after-pack.cjs
 directories:
   buildResources: build
@@ -29,7 +30,7 @@ mac:
       arch: [arm64]
   category: public.app-category.productivity
   icon: build/icon.png
-  # 暂无开发者证书：明确跳过签名（用户首次打开需右键 → 打开）
+  # 暂无 Developer ID 证书；afterPack 在修改 bundle 后补全 ad-hoc 签名。
   identity: null
   extendInfo:
     # 主进程内部 Bundle/可执行文件保持 GuziAssistant，桌面和菜单显示中文品牌。

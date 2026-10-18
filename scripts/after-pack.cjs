@@ -45,4 +45,8 @@ module.exports = async function afterPack(context) {
     const helperInfo = path.join(newAppPath, 'Contents', 'Info.plist')
     if (fs.existsSync(helperInfo)) setPlistString(helperInfo, 'CFBundleExecutable', newExecutable)
   }
+
+  // identity: null skips signing, so seal the bundle after renames and plist edits.
+  execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', appPath], { stdio: 'inherit' })
+  execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath], { stdio: 'inherit' })
 }

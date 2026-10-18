@@ -13,7 +13,7 @@ import type {
   AppUsageEntry,
   WorkRecord
 } from './types'
-import { normalizeTaskKey, workRecordInterval } from './work-report.ts'
+import { normalizeTaskKey, workRecordInterval, workIntervalsActiveMs } from './work-report.ts'
 
 /** 大众平均屏幕注意力持续时长基准（秒），Mark et al. CHI 2016。 */
 export const ATTENTION_BASELINE_SEC = 47
@@ -154,43 +154,46 @@ export interface FocusRun {
 
 /**
  * 专注段（前台应用切换口径）：toApp 的连续前台区间中，专注类应用、相邻间隙 ≤ gapMinutes 归并为一段
- * （短暂切去回消息不中断深度工作）。最后一个区间以 nowMs 收尾；锁屏会切到 loginwindow（中性）天然断段。
- * 比工作记录口径稳：不依赖模型归类是否成功——阅读、看资料这类低交互活动也常没有工作记录。
- * 已知取舍：离开电脑但未锁屏时，前台区间会继续计时（app_usage 有空闲检测，切换事件没有）。
+ * （短暂切去回消息可归组，但不计入专注时长）。有限终点优先取 heartbeat 投影 endTs；
+ * 旧切换记录仅使用已发生的下一事件收尾，缺少终点的末条不延伸到现在。
  */
 export function productiveRunsFromSwitches(
   switches: AppSwitchRecord[],
   cat: (app: string) => AppCategory,
   gapMinutes = 10,
-  nowMs = Date.now()
+  _nowMs = Date.now()
 ): FocusRun[] {
   const sorted = [...switches].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
   const runs: FocusRun[] = []
   let start = ''
   let end = ''
-  let startMs = 0
+  let activeMs = 0
   let endMs = 0
   const flush = (): void => {
     if (!start) return
-    runs.push({ start, end, seconds: Math.max(0, Math.round((endMs - startMs) / 1000)) })
+    runs.push({ start, end, seconds: Math.max(0, Math.round(activeMs / 1000)) })
     start = ''
   }
   for (let i = 0; i < sorted.length; i++) {
     const intervalStartMs = Date.parse(sorted[i].ts)
-    const intervalEndMs = i + 1 < sorted.length ? Date.parse(sorted[i + 1].ts) : nowMs
+    const intervalEndMs = sorted[i].endTs ? Date.parse(sorted[i].endTs!) : i + 1 < sorted.length ? Date.parse(sorted[i + 1].ts) : intervalStartMs
+    if (!sorted[i].toApp) { flush(); continue }
     if (!Number.isFinite(intervalStartMs) || !Number.isFinite(intervalEndMs) || intervalEndMs <= intervalStartMs) continue
     if (cat(sorted[i].toApp) !== 'productive') continue
+    if (sorted[i].fromApp == null) flush()
     if (start && intervalStartMs - endMs <= gapMinutes * 60_000) {
       if (intervalEndMs > endMs) {
-        end = i + 1 < sorted.length ? sorted[i + 1].ts : new Date(nowMs).toISOString()
+        activeMs += Math.min(sorted[i].activeMs ?? intervalEndMs - intervalStartMs,
+          Math.max(0, intervalEndMs - Math.max(endMs, intervalStartMs)))
+        end = sorted[i].endTs ?? sorted[i + 1]?.ts ?? sorted[i].ts
         endMs = intervalEndMs
       }
       continue
     }
     flush()
     start = sorted[i].ts
-    end = i + 1 < sorted.length ? sorted[i + 1].ts : new Date(nowMs).toISOString()
-    startMs = intervalStartMs
+    end = sorted[i].endTs ?? sorted[i + 1]?.ts ?? sorted[i].ts
+    activeMs = Math.min(sorted[i].activeMs ?? intervalEndMs - intervalStartMs, intervalEndMs - intervalStartMs)
     endMs = intervalEndMs
   }
   flush()
@@ -214,19 +217,20 @@ export function productiveRuns(
   const runs: FocusRun[] = []
   let start = ''
   let end = ''
-  let startMs = 0
+  let intervals: ReturnType<typeof workRecordInterval>[] = []
   let endMs = 0
   const flush = (): void => {
     if (!start) return
     runs.push({
       start,
       end,
-      seconds: Math.max(0, Math.round((endMs - startMs) / 1000))
+      seconds: Math.round(workIntervalsActiveMs(intervals) / 1000)
     })
     start = ''
   }
   for (const { interval } of sorted) {
     if (start && interval.startMs - endMs <= gapMinutes * 60_000) {
+      intervals.push(interval)
       if (interval.endMs > endMs) {
         end = interval.end
         endMs = interval.endMs
@@ -236,7 +240,7 @@ export function productiveRuns(
     flush()
     start = interval.start
     end = interval.end
-    startMs = interval.startMs
+    intervals = [interval]
     endMs = interval.endMs
   }
   flush()
@@ -276,6 +280,7 @@ export function taskSwitchCount(records: WorkRecord[]): number {
 export function hourlySwitches(switches: AppSwitchRecord[]): number[] {
   const byHour = Array<number>(24).fill(0)
   for (const s of switches) {
+    if (!s.toApp || !s.fromApp || s.toApp === s.fromApp) continue
     const h = Number(s.ts.slice(11, 13))
     if (h >= 0 && h < 24) byHour[h]++
   }
@@ -287,6 +292,7 @@ export function hourlySwitches(switches: AppSwitchRecord[]): number[] {
  * 自定义口径（attention fragmentation 概念来自 Gloria Mark，算法为本项目定义）。切换 <2 次 → null。
  */
 export function shortDwellShare(switches: AppSwitchRecord[], shortMinutes = 2): number | null {
+  switches = switches.filter((s) => s.toApp && s.fromApp && s.toApp !== s.fromApp)
   if (switches.length < 2) return null
   let short = 0
   for (let i = 1; i < switches.length; i++) {

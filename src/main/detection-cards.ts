@@ -1,6 +1,7 @@
 // 检测卡与接受流：屏幕感知与剪贴板自动捕获共用的「候选 → 记忆历史 → 弹卡 → 入库」内核。
 import {
   addDetection,
+  cleanupStaleDetections,
   createSource,
   deleteSourceRow,
   findDuplicateTitle,
@@ -72,6 +73,7 @@ export function buildDetectionCards(input: {
       timeIso: extraction.isoTime,
       deadline: extraction.deadline,
       sourceText: input.sourceText,
+      item,
       hits: extraction.hits,
       app: input.app,
       status: decision === 'archive' ? 'archived' : 'new'
@@ -130,7 +132,7 @@ export function acceptSuggestion(payload: { item: ParsedItem; sourceText: string
     deleteSourceRow(source.id) // 没有任务引用的来源不留库
     return { candidate: 0, title: item.title, time, duplicate: true, item }
   }
-  const task = createTaskFromItem(source.id, item, scheduledStatus(item))
+  const task = createTaskFromItem(source.id, item, scheduledStatus(item), true)
   finalizeShot(textHash(sourceText), source.id) // 把捕获时存的临时加密缩略图落实到本来源（无则 no-op）
   broadcast('guzi-assistant:tasks-updated')
   return { candidate: 0, title: item.title, time, duplicate: false, taskId: task.id }
@@ -187,10 +189,11 @@ export function acceptLocalBatch(payload: {
 
 /** 从「记忆」历史里同意一条检测 → 入库并标记 accepted。 */
 export function acceptDetection(id: string): AddedInfo | null {
+  cleanupStaleDetections()
   const d = getDetection(id)
   if (!d) return null
   const info = acceptSuggestion({
-    item: buildLocalItem({
+    item: d.item ?? buildLocalItem({
       title: d.title,
       isoTime: d.timeIso,
       deadline: d.deadline,

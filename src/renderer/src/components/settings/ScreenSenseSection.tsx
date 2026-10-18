@@ -300,6 +300,50 @@ export default function ScreenSenseSection({
         )}
       </Section>
 
+      <Section title="活动计时" desc="应用时长、工作记录和日报使用相同的有效活动区间。闲置满 60 秒、锁屏或休眠时停止计时。">
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <span>计时方式</span>
+          <select
+            aria-label="活动计时方式"
+            className="rounded-lg border border-slate-200 bg-surface px-3 py-2"
+            value={settings.activityTimelineMode}
+            onChange={async (event) => {
+              const mode = event.target.value as AppSettings['activityTimelineMode']
+              await api.saveSettings({ activityTimelineMode: mode })
+              setSettings(await api.getSettings())
+              flash(mode === 'unified' ? '已安排从明天开始使用统一计时' : mode === 'shadow' ? '已开启后台对照，页面继续使用原计时' : '已恢复原计时，已有记录保留')
+            }}
+          >
+            <option value="shadow">后台对照</option>
+            <option value="unified">统一计时</option>
+            <option value="legacy">原计时（回退）</option>
+          </select>
+        </label>
+        <p className="mt-2 text-xs leading-5 text-slate-400">
+          {settings.activityTimelineMode === 'unified' && settings.activityTimelineCutoverAt
+            ? `统一计时起点：${new Date(settings.activityTimelineCutoverAt).toLocaleString()}。此前的数据保留原估算。`
+            : settings.activityTimelineMode === 'shadow'
+              ? '在本地对比两种计时，不额外调用模型，也不改变现有统计。'
+              : '继续使用原采样方式；已经生成的统一活动记录仍可查看。'}
+          应用与时间区间保留 90 天；原始历史事件和 OCR 证据保留 48 小时。
+        </p>
+        {activityStatus?.screenshotPauseReason && (
+          <p role="status" className="mt-2 text-xs text-amber-700">自动截图已暂停：{activityStatus.screenshotPauseReason}</p>
+        )}
+        {settings.activityTimelineMode === 'shadow' && activityStatus?.activityTimelineComparison && (
+          <p className="mt-2 text-xs text-slate-400">
+            {activityStatus.activityTimelineComparison.comparable && activityStatus.activityTimelineComparison.comparisonFromMs !== null
+              ? <>
+                  自 {new Date(activityStatus.activityTimelineComparison.comparisonFromMs).toLocaleTimeString()} 起：
+                  原计时 {Math.round(activityStatus.activityTimelineComparison.legacySeconds / 60)} 分钟，
+                  统一计时 {Math.round(activityStatus.activityTimelineComparison.timelineSeconds / 60)} 分钟。
+                  差异包括闲置、采样断档及活动边界。
+                </>
+              : '尚无共同计时起点，暂不能比较；开始采样后会自动建立对照。'}
+          </p>
+        )}
+      </Section>
+
       {/* History v2 的开关已从设置页移除（技术性太强）。它没开时这两段只会显示
           「未开启」和一个点不动的按钮，索性一并收起，页面才不会剩下够不着的东西。 */}
       {settings.historyV2Enabled && (
@@ -339,11 +383,32 @@ export default function ScreenSenseSection({
                     : '未知'}
               </span>
               <span>
-                Input Monitoring：{activityStatus?.inputMonitoring === 'available'
-                  ? '可用'
+                Input Monitoring 授权：{activityStatus?.inputMonitoringPermission === 'available'
+                  ? '已授权'
+                  : activityStatus?.inputMonitoringPermission === 'unavailable'
+                    ? '未授权'
+                    : activityStatus?.collector === 'starting' ? '检查中' : '采集器未报告'}
+              </span>
+              <span>
+                输入监听：{activityStatus?.inputMonitoringListener === 'active'
+                  ? '已建立'
+                  : activityStatus?.inputMonitoringListener === 'inactive'
+                    ? (activityStatus.collector === 'stopped' ? '未运行' : '未建立')
+                    : '采集器未报告'}
+              </span>
+              <span>
+                输入事件流：{activityStatus?.inputMonitoring === 'available'
+                  ? '已收到事件，已验证'
                   : activityStatus?.inputMonitoring === 'unavailable'
                     ? '不可用'
-                    : '未知'}
+                    : activityStatus?.inputMonitoringListener === 'active'
+                      ? '等待首个事件'
+                      : '尚未验证'}
+              </span>
+              <span>
+                最近输入事件：{activityStatus?.lastInputEventAt
+                  ? new Date(activityStatus.lastInputEventAt).toLocaleTimeString()
+                  : activityStatus?.inputMonitoring === 'available' ? '旧版采集器未报告时间' : '暂无'}
               </span>
               <span>Collector 重启：{activityStatus?.collectorRestartCount ?? 0} 次</span>
               <span>丢弃事件：{(activityStatus?.collectorDroppedEventCount ?? 0) + historyStatus.health.droppedCount}</span>

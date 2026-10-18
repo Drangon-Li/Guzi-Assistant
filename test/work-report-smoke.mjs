@@ -151,11 +151,11 @@ const fr = (t, task) => ({ id: t, content: 'x', app: 'Code', task, createdAt: `2
 const fd = focusDurations([
   fr('09:00', '开发纸壳助手'),
   fr('09:05', '开发纸壳助手'),
-  fr('09:10', '开发纸壳助手'), // 连续段 10min + 1min = 660s
+  fr('09:10', '开发纸壳助手'), // 三条观察只各保留旧版一分钟估算，不补观察间隔
   fr('10:00', '写论文'), // 单条 = 60s
-  fr('11:00', '开发纸壳助手') // 间隔 >15min → 新段 60s，累计 720s
+  fr('11:00', '开发纸壳助手') // 新段60s，累计240s
 ])
-check('专注按任务累计且降序', fd[0].task === '开发纸壳助手' && fd[0].seconds === 720)
+check('专注按任务累计且降序', fd[0].task === '开发纸壳助手' && fd[0].seconds === 240)
 check('单条记录算 1 分钟', fd[1].task === '写论文' && fd[1].seconds === 60)
 check('无 task 的记录不参与', focusDurations([{ ...fr('09:00', null) }]).length === 0)
 
@@ -170,10 +170,10 @@ check('持久化任务标签统一全角与空白', normalizeTaskLabel('  评审
 // ---- focusDurations：仅空格差异的变体合并、桥接成一段、展示取更长写法 ----
 const fdMerge = focusDurations([
   fr('09:00', '评审EMNLP论文'), // 无空格
-  fr('09:05', '评审 EMNLP 论文') // 带空格，间隔 ≤15min → 合并成一段 5min+1min=360s
+  fr('09:05', '评审 EMNLP 论文') // 展示归组，但两条各计60s
 ])
 check('空格变体合并为一个任务', fdMerge.length === 1)
-check('合并后按跨度桥接而非各算 1 分钟', fdMerge[0].seconds === 360)
+check('合并后只累计实际观察回退时长，不把间隔计入', fdMerge[0].seconds === 120)
 check('展示取更易读的空格写法', fdMerge[0].task === '评审 EMNLP 论文')
 
 // ---- focusDurations：措辞漂移二级归并（包含关系 / 仅数字编号不同）----

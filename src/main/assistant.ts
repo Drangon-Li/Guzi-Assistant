@@ -1,6 +1,5 @@
 import {
   createSource,
-  deleteSourceRow,
   findDuplicateTitle,
   getProfile,
   getTask,
@@ -17,6 +16,7 @@ import {
   buildAssistantInstructions,
   parseAssistantOutput,
   resolveAddPicks,
+  type AddPick,
   type AddedInfo,
   type AssistantTurnResult,
   type CandidateContext,
@@ -33,27 +33,24 @@ function excerptOf(text: string): string {
 
 /** 聊天里确认过的事项直接进日程：确认动作已经在对话中发生，不再过待确认 */
 function addCandidates(
-  sourceText: string,
-  picks: { item: ParsedItem; candidate: number; force: boolean }[]
+  sourceTexts: { previous: string; current: string },
+  picks: AddPick[]
 ): AddedInfo[] {
-  const source = createSource({
-    type: 'text_input',
-    excerpt: excerptOf(sourceText),
-    content: sourceText,
-    filePath: null
-  })
-  let created = 0
-  const added = picks.map(({ item, candidate, force }) => {
+  const added = picks.map(({ item, candidate, force, source: candidateSource }) => {
+    const sourceText = sourceTexts[candidateSource]
     const time = item.due_time ?? item.start_time
-    // 疑似同一事件默认拦下，回传事项本体供用户选择「仍要加入」(force 跳过)
     if (!force && findDuplicateTitle(item.title, item.start_time, item.due_time)) {
-      return { candidate, title: item.title, time, duplicate: true, item }
+      return { source: candidateSource, sourceText, candidate, title: item.title, time, duplicate: true, item }
     }
-    createTaskFromItem(source.id, item, scheduledStatus(item))
-    created++
-    return { candidate, title: item.title, time, duplicate: false }
+    const source = createSource({
+      type: 'text_input',
+      excerpt: excerptOf(sourceText),
+      content: sourceText,
+      filePath: null
+    })
+    const task = createTaskFromItem(source.id, item, scheduledStatus(item), true)
+    return { source: candidateSource, sourceText, candidate, title: item.title, time, duplicate: false, taskId: task.id }
   })
-  if (!created) deleteSourceRow(source.id)
   broadcast('guzi-assistant:tasks-updated')
   return added
 }
@@ -64,8 +61,8 @@ export function assistantAdd(payload: {
   item: ParsedItem
   force?: boolean
 }): AddedInfo {
-  return addCandidates(payload.sourceText, [
-    { item: payload.item, candidate: 0, force: !!payload.force }
+  return addCandidates({ previous: '', current: payload.sourceText }, [
+    { source: 'current', item: payload.item, candidate: 0, force: !!payload.force }
   ])[0]
 }
 
@@ -76,8 +73,7 @@ export function assistantAdd(payload: {
  */
 export function notifyQuickChatResult(
   res: AssistantTurnResult,
-  lastUserText: string,
-  hadPriorCandidates: boolean
+  lastUserText: string
 ): void {
   if (res.error) {
     applyExternalPetSay(`刚才那条没处理成功：${res.error.slice(0, 60)}`, 'waiting', { durationMs: 12_000 })
@@ -97,9 +93,8 @@ export function notifyQuickChatResult(
   // 否则用户以为定上了其实没有
   for (const a of res.actions) parts.push(a.message)
 
-  // 本轮新给出、且没有当轮直接入库的候选：added 的序号只在「无上一轮候选上下文」时指向本轮候选
-  const addedIdx = new Set(res.added.map((a) => a.candidate))
-  const leftovers = (res.candidates ?? []).filter((_, i) => hadPriorCandidates || !addedIdx.has(i + 1))
+  const addedIdx = new Set(res.added.filter((a) => a.source === 'current').map((a) => a.candidate))
+  const leftovers = (res.candidates ?? []).filter((_, i) => !addedIdx.has(i + 1))
   if (leftovers.length) {
     const cards = buildDetectionCards({
       hits: leftovers.map((item) => ({ extraction: parsedToExtraction(item), item })),
@@ -162,17 +157,15 @@ export async function assistantChat(payload: {
     )
     const env = parseAssistantOutput(output)
 
-    // add 的序号先指上一轮展示的候选，越界时回落到本轮新生成的候选——
-    // 「明天提醒我干 XX」这类明确的创建请求没有上一轮候选，靠回落实现当轮直接入库
+    // 来源与序号一起定位候选，缺少来源的歧义信封不执行添加。
     let added: AddedInfo[] = []
     if (env.add.length) {
       const picks = resolveAddPicks(env.add, payload.candidates?.items ?? null, env.candidates)
       if (picks.length) {
-        const sourceText =
-          payload.candidates?.sourceText ??
-          [...payload.history].reverse().find((m) => m.role === 'user')?.content ??
-          ''
-        added = addCandidates(sourceText, picks)
+        added = addCandidates({
+          previous: payload.candidates?.sourceText ?? '',
+          current: [...payload.history].reverse().find((m) => m.role === 'user')?.content ?? ''
+        }, picks)
       }
     }
 
@@ -204,8 +197,9 @@ export async function assistantChat(payload: {
       broadcast('guzi-assistant:plugins-updated') // 插件页跟着刷新
     }
 
+    const unresolvedAdds = env.add.length > added.length
     return {
-      reply: env.reply,
+      reply: unresolvedAdds ? '候选来源或序号不明确，有歧义的事项尚未添加。请明确选择上一轮或本轮候选。' : env.reply,
       candidates: env.candidates.length ? env.candidates : null,
       added,
       ops,

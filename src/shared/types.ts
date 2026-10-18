@@ -1,4 +1,5 @@
 import type { ApiFormat } from './api-formats'
+import type { ParsedItem } from './parsing'
 
 export type SourceType =
   | 'clipboard_text'
@@ -68,6 +69,7 @@ export interface DetectionRecord {
   timeIso: string | null
   deadline: boolean
   sourceText: string
+  item: ParsedItem | null
   hits: string[]
   app: string | null
   status: 'new' | 'accepted' | 'dismissed' | 'archived'
@@ -269,6 +271,8 @@ export interface AppSettings {
   historyV2Enabled: boolean
   /** Computer History 2.0 从 10 分钟摘要派生工作记录；需与 historyV2Enabled 同时开启。 */
   historyDerivedWorkEnabled: boolean
+  activityTimelineMode: 'legacy' | 'shadow' | 'unified'
+  activityTimelineCutoverAt: string | null
   /** 未来可选的文本捕获；默认关闭，第一阶段 schema 永不保存原始文本。 */
   historyCaptureText: boolean
   /** 语音纪要总开关。默认 false（opt-in：要占麦克风、音频要出设备去转录） */
@@ -295,6 +299,14 @@ export interface ScanResult {
 }
 
 export interface ScreenActivityStatus {
+  screenshotPauseReason?: string | null
+  activityTimelineComparison?: {
+    legacySeconds: number
+    timelineSeconds: number
+    deltaSeconds: number
+    comparable: boolean
+    comparisonFromMs: number | null
+  }
   eventDriven: boolean
   running: boolean
   paused: boolean
@@ -310,6 +322,9 @@ export interface ScreenActivityStatus {
   collectorBackoffBundleCount: number
   accessibility: 'available' | 'unavailable' | 'unknown'
   inputMonitoring: 'available' | 'unavailable' | 'unknown'
+  inputMonitoringPermission?: 'available' | 'unavailable' | 'unknown'
+  inputMonitoringListener?: 'active' | 'inactive' | 'unknown'
+  lastInputEventAt?: string | null
   /** 最近一次 native collector heartbeat；与普通活动事件时间分开，便于诊断无前台 App。 */
   lastHeartbeatAt: string | null
   semanticCoverage: number
@@ -374,6 +389,8 @@ export interface ActivityHistorySegmentRecord {
 }
 
 export interface OcrEvidenceRecord {
+  windowId?: number | null
+  urlHost?: string | null
   id: string
   eventId: string | null
   segmentId: string | null
@@ -389,7 +406,7 @@ export interface OcrEvidenceRecord {
 }
 
 export type WorkRecordSource = 'accessibility' | 'ocr'
-export type WorkRecordDerivedBy = 'history' | 'legacy'
+export type WorkRecordDerivedBy = 'history' | 'legacy' | 'timeline'
 
 /** 工作记录：屏幕识别顺带的「在做什么」一句话时间线（供日报生成）。 */
 export interface WorkRecord {
@@ -405,6 +422,8 @@ export interface WorkRecord {
   derivedBy: WorkRecordDerivedBy
   /** 关联的 10 分钟 History segment；旧记录为空。 */
   segmentId: string | null
+  intervalId?: string | null
+  activeMs?: number | null
   /** 工作活动的真实起止时间；旧记录回退到 createdAt。 */
   startAt: string
   endAt: string
@@ -428,6 +447,8 @@ export interface HistoryDerivedWorkRecordInput {
   confidence: number
   evidenceCount: number
   summaryHash: string
+  intervalId?: string | null
+  activeMs?: number | null
 }
 
 /** 某天某应用的前台使用时长（秒） */
@@ -441,6 +462,8 @@ export interface AppSwitchRecord {
   ts: string
   fromApp: string | null
   toApp: string
+  endTs?: string
+  activeMs?: number
 }
 
 /** 应用生产力分类：专注 / 中性 / 分心 */

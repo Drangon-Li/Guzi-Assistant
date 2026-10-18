@@ -69,10 +69,6 @@ async function pullHistory(): Promise<ChatMsg[]> {
 
 const SUGGESTIONS = ['今天有什么日程？', '哪些日程比较紧急？', '我现在应该干什么？']
 
-function joinStatus(t: { startTime?: string | null; dueTime?: string | null }): 'scheduled' | 'not_started' {
-  return t.dueTime || t.startTime ? 'scheduled' : 'not_started'
-}
-
 function Avatar({ role, initial }: { role: 'user' | 'assistant'; initial: string }): React.JSX.Element {
   if (role === 'assistant') {
     return <img src={agentAvatar} alt="谷子助手" className="size-8 shrink-0 rounded-[9px]" />
@@ -198,10 +194,18 @@ export default function AssistantChat({
       update([...store.msgs, { id: store.nextId++, role: 'assistant', text: `出错了：${res.error}`, error: true }])
       return
     }
-    // 对话指令加入的候选 → 标记对应卡片
-    const dupMsgs: ChatMsg[] = []
-    if (res.added.length && ctx) {
-      const ctxMsg = store.msgs.find((m) => m.candidates?.ctx === ctx)
+    const reply: ChatMsg = { id: store.nextId++, role: 'assistant', text: res.reply }
+    if (res.candidates?.length) {
+      reply.candidates = {
+        ctx: { sourceText: value, items: res.candidates },
+        added: Object.fromEntries(
+          res.added.filter((a) => a.source === 'current').map((a) => [a.candidate, a.duplicate ? 'duplicate' : 'added'])
+        )
+      }
+    }
+    const ctxMsg = ctx ? store.msgs.find((m) => m.candidates?.ctx === ctx) : undefined
+    const previousAdded = res.added.filter((a) => a.source === 'previous')
+    if (previousAdded.length && ctx) {
       store.msgs = store.msgs.map((m) =>
         m.candidates?.ctx === ctx
           ? {
@@ -210,26 +214,27 @@ export default function AssistantChat({
                 ...m.candidates,
                 added: {
                   ...m.candidates.added,
-                  ...Object.fromEntries(res.added.map((a) => [a.candidate, a.duplicate ? 'duplicate' : 'added']))
+                  ...Object.fromEntries(previousAdded.map((a) => [a.candidate, a.duplicate ? 'duplicate' : 'added']))
                 }
               }
             }
           : m
       )
-      for (const a of res.added) {
-        if (a.duplicate && a.item) {
-          dupMsgs.push({
-            id: store.nextId++,
-            role: 'assistant',
-            text: `「${a.title}」和已有任务完全相同，我先没有加。确定要重复添加的话点下面的按钮，或者回复"仍要添加"。`,
-            forceAdd: { msgId: ctxMsg?.id ?? 0, idx1: a.candidate, sourceText: ctx.sourceText, item: a.item }
-          })
-        }
-      }
     }
-    const reply: ChatMsg = { id: store.nextId++, role: 'assistant', text: res.reply }
-    if (res.candidates?.length) {
-      reply.candidates = { ctx: { sourceText: value, items: res.candidates }, added: {} }
+    const dupMsgs: ChatMsg[] = []
+    for (const a of res.added) {
+      if (!a.duplicate || !a.item) continue
+      dupMsgs.push({
+        id: store.nextId++,
+        role: 'assistant',
+        text: `「${a.title}」和已有任务完全相同，我先没有加。确定要重复添加的话点下面的按钮，或者回复"仍要添加"。`,
+        forceAdd: {
+          msgId: a.source === 'previous' ? ctxMsg?.id ?? 0 : reply.id,
+          idx1: a.candidate,
+          sourceText: a.sourceText ?? (a.source === 'previous' ? ctx?.sourceText ?? '' : value),
+          item: a.item
+        }
+      })
     }
     // 插件动作的结果单独一条：模型的 reply 可能只是「好的」，真正做没做成以这条为准
     const actionMsgs: ChatMsg[] = res.actions.map((a) => ({
@@ -320,10 +325,7 @@ export default function AssistantChat({
   }
 
   const joinAllPending = async (): Promise<void> => {
-    const withTime = pending.filter((t) => t.dueTime || t.startTime).map((t) => t.id)
-    const withoutTime = pending.filter((t) => !t.dueTime && !t.startTime).map((t) => t.id)
-    if (withTime.length) await api.bulkTasks(withTime, 'scheduled')
-    if (withoutTime.length) await api.bulkTasks(withoutTime, 'not_started')
+    await api.confirmTasks(pending.map((t) => t.id))
     showToast(`已加入 ${pending.length} 个任务`)
   }
 
@@ -480,7 +482,7 @@ export default function AssistantChat({
                         className={`rounded-lg px-3 py-1 text-xs text-white ${
                           t.duplicateOf ? 'bg-amber-500 hover:bg-amber-600' : 'bg-brand hover:bg-brand-dark'
                         }`}
-                        onClick={() => void api.updateTask(t.id, { status: joinStatus(t) })}
+                        onClick={() => void api.confirmTasks([t.id])}
                       >
                         {t.duplicateOf ? '仍要加入' : '加入'}
                       </button>

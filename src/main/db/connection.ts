@@ -7,7 +7,7 @@ import { cleanupStaleDetections } from './detections.ts'
 // 与 ../plugins/index.ts 互相引用（那边要 getDb，这边要建插件表）。和 detections 一样，
 // 两边都只在函数体里用对方，模块图求值时互不依赖，ESM 下安全。
 import { initEnabledPluginTables } from '../plugins/index.ts'
-import { migrateTaskExtras, migrateTaskReminders, migrateWorkRecords, scrubInvalidTaskNames } from '../db-migrations.ts'
+import { migrateActivityTimeline, migrateDetectionItems, migrateOcrEvidenceContext, migrateTaskExtras, migrateTaskReminders, migrateWorkRecords, scrubInvalidTaskNames } from '../db-migrations.ts'
 import { createSqliteHistorySegmentIndex } from '../history/segment-index.ts'
 import type { HistorySegmentIndex } from '../history/segment-index.ts'
 import { createSqliteHistorySummaryIndex } from '../history/summary-index.ts'
@@ -21,6 +21,7 @@ let db: Database.Database
 let ftsReady = false // #52 FTS5 是否可用；不可用则记忆检索退化为 LIKE
 let historySegmentIndex: HistorySegmentIndex | null = null
 let historySummaryIndex: HistorySummaryIndex | null = null
+let evidenceCleanupTimer: ReturnType<typeof setInterval> | null = null
 
 /**
  * chat_messages 最早只存一份隐含的会话，没有 scope 列。现在桌宠对话和快捷提问各存各的，
@@ -78,6 +79,7 @@ export function initDb(): void {
       time_iso TEXT,
       deadline INTEGER NOT NULL DEFAULT 0,
       source_text TEXT NOT NULL,
+      item_json TEXT,
       hits TEXT NOT NULL DEFAULT '[]',
       app TEXT,
       status TEXT NOT NULL DEFAULT 'new',
@@ -96,6 +98,8 @@ export function initDb(): void {
       evidence_count INTEGER NOT NULL DEFAULT 1,
       summary_hash TEXT,
       derived_by TEXT NOT NULL DEFAULT 'legacy',
+      interval_id TEXT,
+      active_ms INTEGER,
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS app_usage (
@@ -194,6 +198,8 @@ export function initDb(): void {
       app_name TEXT,
       bundle_id TEXT,
       window_title TEXT,
+      window_id INTEGER,
+      url_host TEXT,
       semantic_score INTEGER NOT NULL,
       trigger_reason TEXT NOT NULL,
       redaction_hits TEXT NOT NULL DEFAULT '[]',
@@ -206,6 +212,9 @@ export function initDb(): void {
   historySummaryIndex = createSqliteHistorySummaryIndex(db)
   // 老库迁移：work_records 只增不删，保留旧 OCR 记录并标记为 legacy。
   migrateWorkRecords(db)
+  migrateDetectionItems(db)
+  migrateActivityTimeline(db)
+  migrateOcrEvidenceContext(db)
   // 老库迁移：tasks 加提醒三列（纯加列，旧客户端 SELECT * 忽略即可）
   migrateTaskReminders(db)
   migrateTaskExtras(db)
@@ -225,6 +234,13 @@ export function initDb(): void {
     new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
   )
   cleanupStaleDetections()
+  if (evidenceCleanupTimer) clearInterval(evidenceCleanupTimer)
+  evidenceCleanupTimer = setInterval(() => {
+    if (!db.open) return
+    db.prepare('DELETE FROM ocr_evidence WHERE occurred_at < ?').run(new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+    cleanupStaleDetections()
+  }, 60_000)
+  evidenceCleanupTimer.unref()
 
   // 老库迁移：早期版本没有 notes 列
   const taskCols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(

@@ -94,7 +94,7 @@ const intervalRecords = [
 ]
 const period = groupWorkPeriods(intervalRecords)[0]
 check('工作时段按真实 startAt/endAt 合并',
-  period?.start.endsWith('10:00:00') && period.end.endsWith('10:20:00') && period.durationSeconds === 1200)
+  period?.start.endsWith('10:00:00') && period.end.endsWith('10:20:00') && period.durationSeconds === 1080)
 check('同一 App 内不同任务分开',
   groupWorkPeriods([
     historyRecord('task-a', '2026-08-22T11:00:00', '2026-08-22T11:05:00', '任务 A'),
@@ -102,9 +102,9 @@ check('同一 App 内不同任务分开',
   ]).length === 2)
 check('任务专注时长不再给 History 单条固定加 1 分钟',
   focusDurations([historyRecord('single', '2026-08-22T10:00:00', '2026-08-22T10:00:00')])[0]?.seconds === 0)
-check('任务专注时长使用真实区间', focusDurations(intervalRecords)[0]?.seconds === 1200)
+check('任务专注时长使用真实区间', focusDurations(intervalRecords)[0]?.seconds === 1080)
 check('生产力专注段使用真实区间',
-  productiveRuns(intervalRecords, () => 'productive')[0]?.seconds === 1200)
+  productiveRuns(intervalRecords, () => 'productive')[0]?.seconds === 1080)
 
 const snapshot = {
   metadata: {
@@ -177,8 +177,8 @@ const db = readdirSync(new URL('../src/main/db/', import.meta.url))
   .filter((f) => f.endsWith('.ts'))
   .map((f) => readFileSync(new URL(`../src/main/db/${f}`, import.meta.url), 'utf8'))
   .join('\n')
-check('两个派生开关按 AND 关系独立回滚',
-  /historyV2Enabled && settings\.historyDerivedWorkEnabled/.test(historyService) && /historyDerivedWorkEnabled !== undefined/.test(readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')))
+check('History 总开关保留，统一模式可接管派生',
+  /historyV2Enabled && \(settings\.historyDerivedWorkEnabled \|\| usesTimelineForDay/.test(historyService) && /historyDerivedWorkEnabled !== undefined/.test(readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')))
 check('旧 OCR 路径明确标记 legacy', /derivedBy: 'legacy'/.test(workRecords) && /DEFAULT 'legacy'/.test(db))
 check('语义不足的 hard fallback 保留旧 OCR 记录', /hard_fallback_incomplete/.test(workRecords))
 check('work_records 迁移包含 History 追溯字段',

@@ -1,14 +1,20 @@
 // 解析/对话模型的接口格式适配。
 //
 // 内部一律用 OpenAI Responses 的形状描述请求（历史原因：这套先落地），
-// 出网前按用户选的格式翻译一次。加这层的直接原因有两个：
+// 出网前按识别到或手动指定的格式翻译一次。加这层的直接原因有两个：
 //  1. 多数号称「OpenAI 兼容」的第三方网关只实现了 /v1/chat/completions，
 //     没有 /v1/responses——填了地址却一直 404，是最难自查的一类问题；
 //  2. Anthropic 走的是另一套（x-api-key 头、system 独立字段、图片要拆 base64）。
 
-export type ApiFormat = 'openai-responses' | 'openai-chat' | 'anthropic'
+export type ConcreteApiFormat = 'openai-responses' | 'openai-chat' | 'anthropic'
+export type ApiFormat = 'auto' | ConcreteApiFormat
 
 export const API_FORMATS: { value: ApiFormat; label: string; hint: string }[] = [
+  {
+    value: 'auto',
+    label: '自动识别（推荐）',
+    hint: '根据 API 地址和实际响应自动识别，无需手动选择'
+  },
   {
     value: 'openai-responses',
     label: 'OpenAI Responses',
@@ -27,7 +33,7 @@ export const API_FORMATS: { value: ApiFormat; label: string; hint: string }[] = 
 ]
 
 export function normalizeApiFormat(v: unknown): ApiFormat {
-  return v === 'openai-chat' || v === 'anthropic' ? v : 'openai-responses'
+  return v === 'openai-responses' || v === 'openai-chat' || v === 'anthropic' ? v : 'auto'
 }
 
 /** Anthropic 的接口版本头。写死一个已知可用的版本，别跟着日期漂。 */
@@ -35,22 +41,44 @@ export const ANTHROPIC_VERSION = '2023-06-01'
 /** Anthropic 必须显式给 max_tokens，OpenAI 那两套不给就是模型上限。 */
 export const ANTHROPIC_MAX_TOKENS = 8192
 
-const trimBase = (apiBase: string): string => apiBase.trim().replace(/\/+$/, '')
+const operationSuffix = /\/(?:chat\/completions|responses|messages|models)$/i
 
-/** base 已经带 /v1（或 /v2…）就不再补一层，否则拼出 /v1/v1。 */
-function withVersion(apiBase: string): string {
-  const base = trimBase(apiBase)
-  return /\/v\d+$/.test(base) ? base : `${base}/v1`
+/** 完整端点保留其原有前缀；基础地址已有版本号时不再补 /v1。 */
+export function apiEndpoint(apiBase: string, operation: string): string {
+  const url = new URL(apiBase.trim())
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+    throw new Error('API 地址需为不含用户名和密码的 http:// 或 https:// 地址')
+  let path = url.pathname.replace(/\/+$/, '')
+  if (operationSuffix.test(path)) path = path.replace(operationSuffix, '')
+  else if (!/\/v\d+(?:beta\d*|alpha\d*)?$/i.test(path)) path += '/v1'
+  url.pathname = `${path}/${operation}`
+  url.hash = ''
+  return url.toString()
 }
 
-export function chatEndpoint(apiBase: string, format: ApiFormat): string {
-  const base = withVersion(apiBase)
-  if (format === 'anthropic') return `${base}/messages`
-  if (format === 'openai-chat') return `${base}/chat/completions`
-  return `${base}/responses`
+export function apiFormatCandidates(apiBase: string): ConcreteApiFormat[] {
+  const url = new URL(apiBase.trim())
+  const path = url.pathname.replace(/\/+$/, '').toLowerCase()
+  let first: ConcreteApiFormat = 'openai-chat'
+  if (/\/responses$/.test(path)) first = 'openai-responses'
+  else if (/\/chat\/completions$/.test(path)) first = 'openai-chat'
+  else if (/\/(?:messages|anthropic)(?:\/v\d+)?$/.test(path)) first = 'anthropic'
+  else if (url.hostname === 'api.anthropic.com') first = 'anthropic'
+  else if (
+    url.hostname === 'api.openai.com' ||
+    (url.hostname === 'ark.cn-beijing.volces.com' && path === '/api/coding/v3')
+  ) first = 'openai-responses'
+  else if (url.hostname === 'ark.cn-beijing.volces.com' && path === '/api/coding')
+    first = 'anthropic'
+  const all: ConcreteApiFormat[] = ['openai-chat', 'openai-responses', 'anthropic']
+  return [first, ...all.filter((format) => format !== first)]
 }
 
-export function chatHeaders(apiKey: string, format: ApiFormat): Record<string, string> {
+export function chatEndpoint(apiBase: string, format: ConcreteApiFormat): string {
+  return apiEndpoint(apiBase, format === 'anthropic' ? 'messages' : format === 'openai-chat' ? 'chat/completions' : 'responses')
+}
+
+export function chatHeaders(apiKey: string, format: ConcreteApiFormat): Record<string, string> {
   const key = apiKey.trim()
   if (format === 'anthropic') {
     return {
@@ -138,19 +166,24 @@ export interface ChatBodyInput {
   input: CanonicalMessage[]
   /** 仅 openai-responses 用得上；另两套忽略 */
   effort?: 'none' | 'low'
+  maxOutputTokens?: number
 }
 
-export function chatBody(req: ChatBodyInput, format: ApiFormat): Record<string, unknown> {
+export function chatBody(req: ChatBodyInput, format: ConcreteApiFormat): Record<string, unknown> {
   if (format === 'anthropic') {
     return {
       model: req.model,
-      max_tokens: ANTHROPIC_MAX_TOKENS,
+      max_tokens: req.maxOutputTokens ?? ANTHROPIC_MAX_TOKENS,
       system: req.instructions,
       messages: toAnthropicMessages(req.input)
     }
   }
   if (format === 'openai-chat') {
-    return { model: req.model, messages: toChatMessages(req.instructions, req.input) }
+    return {
+      model: req.model,
+      messages: toChatMessages(req.instructions, req.input),
+      ...(req.maxOutputTokens === undefined ? {} : { max_tokens: req.maxOutputTokens })
+    }
   }
   const body: Record<string, unknown> = {
     model: req.model,
@@ -158,6 +191,7 @@ export function chatBody(req: ChatBodyInput, format: ApiFormat): Record<string, 
     input: req.input
   }
   if (req.effort) body.reasoning = { effort: req.effort }
+  if (req.maxOutputTokens !== undefined) body.max_output_tokens = req.maxOutputTokens
   return body
 }
 
@@ -175,7 +209,7 @@ interface ResponsesShape {
 }
 
 /** 从各家响应里取出纯文本。取不到返回空串，调用方按「模型没给内容」处理。 */
-export function chatText(data: unknown, format: ApiFormat): string {
+export function chatText(data: unknown, format: ConcreteApiFormat): string {
   if (!data || typeof data !== 'object') return ''
   if (format === 'anthropic') {
     const parts = (data as AnthropicShape).content ?? []

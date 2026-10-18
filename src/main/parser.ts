@@ -10,22 +10,15 @@ import {
 import { belongingPriorFromProfile } from '@shared/belonging-hints'
 import {
   modelForAction,
-  modelsEndpoint,
-  parseModelList,
   type ModelAction,
   type ModelProbeResult
 } from '@shared/model-configuration'
 import {
-  chatBody,
-  chatEndpoint,
-  chatError,
-  chatHeaders,
-  chatText,
   normalizeApiFormat,
-  type ApiFormat,
   type CanonicalMessage
 } from '@shared/api-formats'
 import { getSession } from './session'
+import { modelClient } from './model-client'
 
 export type { ParsedItem }
 
@@ -71,8 +64,7 @@ async function viaGateway(
   return payload.data ?? ({} as ResponsesOutput)
 }
 
-/** 直连模型（开发/自托管兜底，兼容 GUZI_ASSISTANT_API_*、OPENAI_* 和旧 ESHELL_API_*）。
- *  按设置里选的接口格式翻译请求：Responses / Chat Completions / Anthropic Messages。 */
+/** 直连模型：默认自动识别协议，也保留设置中的手动覆盖。 */
 async function viaDirect(
   instructions: string,
   rawInput: unknown[],
@@ -81,47 +73,28 @@ async function viaDirect(
 ): Promise<string> {
   const settings = getSettings()
   const { apiBase, apiKey, useCustomModel } = settings
-  const format = normalizeApiFormat(settings.apiFormat)
   const model = modelForAction(action, settings)
   if (!apiBase || !apiKey)
     throw new Error(
       useCustomModel ? '自定义模型未配置完整，请在设置 → 助手里填写 API 地址与 Key' : '请先登录以使用解析服务'
     )
 
-  const send = async (body: Record<string, unknown>): Promise<Response> => {
-    try {
-      return await fetch(chatEndpoint(apiBase, format), {
-        method: 'POST',
-        headers: chatHeaders(apiKey, format),
-        body: JSON.stringify(body),
-        signal
-      })
-    } catch (e) {
-      if (signal.aborted) throw new Error('解析超时（120 秒），请重试')
-      throw new Error(`解析服务无法访问：${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
   const input = rawInput as CanonicalMessage[]
   // 抽取只要一段结构化 JSON，推理纯属浪费：同一请求实测 effort=none 比默认快 6 倍
   // （8.5s → 1.4s，925 输出 token 里 803 是推理），解析结果一致。
   // 对话保留 low —— 那里的思考对回答质量有实际帮助。effort 只有 Responses 那套吃。
   const effort = action === 'chat' ? 'low' : 'none'
-  const plain = { model, instructions, input }
-  let res = await send(chatBody({ ...plain, effort }, format))
-  if (res.status === 400 && format === 'openai-responses') {
-    // BYOK 可以指向任意服务，非推理模型会因为不认识 reasoning 参数直接 400。
-    // 只在报错确实指向这个参数时退一步重试，不做无差别兜底。
-    const detail = await res.text()
-    if (!/reasoning|effort/i.test(detail))
-      throw new Error(`解析服务返回 400：${detail.slice(0, 300)}`)
-    res = await send(chatBody(plain, format))
+  try {
+    const result = await modelClient.request(
+      { apiBase, apiKey, model, apiFormat: settings.apiFormat },
+      { instructions, input, effort },
+      signal
+    )
+    return result.text
+  } catch (error) {
+    if (signal.aborted) throw new Error('解析超时（120 秒），请重试')
+    throw error
   }
-  if (!res.ok) throw new Error(`解析服务返回 ${res.status}：${(await res.text()).slice(0, 300)}`)
-  const json: unknown = await res.json()
-  const err = chatError(json)
-  if (err) throw new Error(`解析服务错误：${err}`)
-  return chatText(json, format)
 }
 
 /** 调用解析模型并返回输出文本；优先走托管网关(登录态)，否则 env 直连兜底；120s 超时。 */
@@ -157,74 +130,20 @@ export async function callModel(
   }
 }
 
-/** 设置页「检测连接」：GET /v1/models 校验地址与 Key 并取回可选模型。
- *  注意它只验证凭据与连通性——真正推理走 /responses，两者未必同时可用，UI 文案需说明。 */
+/** 用表单中的模型验证实际推理，并按可用性补充模型列表。 */
 export async function probeModelEndpoint(
   apiBase: string,
   apiKey: string,
-  apiFormat?: string
+  apiFormat?: string,
+  model?: string
 ): Promise<ModelProbeResult> {
-  const base = apiBase.trim()
-  const key = apiKey.trim()
-  const format = normalizeApiFormat(apiFormat ?? getSettings().apiFormat)
-  const fail = (error: string): ModelProbeResult => ({
-    ok: false,
-    models: [],
-    error,
-    responsesAvailable: null
+  const settings = getSettings()
+  return modelClient.probe({
+    apiBase,
+    apiKey,
+    apiFormat: normalizeApiFormat(apiFormat ?? settings.apiFormat),
+    model: model ?? settings.model
   })
-  if (!base) return fail('请先填写 API 地址')
-  if (!/^https?:\/\//i.test(base)) return fail('API 地址需以 http:// 或 https:// 开头')
-  if (!key) return fail('请先填写 API Key')
-
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 15_000)
-  try {
-    // 模型列表端点：Anthropic 也有 /v1/models，但要 x-api-key 头
-    const res = await fetch(modelsEndpoint(base), {
-      headers: chatHeaders(key, format),
-      signal: controller.signal
-    })
-    if (res.status === 401 || res.status === 403)
-      return fail(`Key 被拒绝（${res.status}），请检查 API Key`)
-    if (!res.ok)
-      return fail(`接口返回 ${res.status}：${(await res.text().catch(() => '')).slice(0, 200)}`)
-    return {
-      ok: true,
-      models: parseModelList(await res.json().catch(() => null)),
-      error: null,
-      responsesAvailable: await probeChatEndpoint(base, key, format, controller.signal)
-    }
-  } catch (e) {
-    if (controller.signal.aborted) return fail('连接超时（15 秒）')
-    return fail(`无法访问：${e instanceof Error ? e.message : String(e)}`)
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-/** 所选格式的推理端点到底在不在。很多「OpenAI 兼容」服务只实现了 /v1/chat/completions，
- *  拿不到 /v1/responses；反过来填错格式打 Anthropic 也是一样的症状。
- *  故意发一个不合法的空 body：404/405 说明端点不存在，其他状态码说明存在、只是拒绝了这个请求。
- *  不带 model/messages，所以不会真的推理、不消耗 token。 */
-async function probeChatEndpoint(
-  base: string,
-  key: string,
-  format: ApiFormat,
-  signal: AbortSignal
-): Promise<boolean | null> {
-  try {
-    const res = await fetch(chatEndpoint(base, format), {
-      method: 'POST',
-      headers: chatHeaders(key, format),
-      body: '{}',
-      signal
-    })
-    if (res.status === 404 || res.status === 405) return false
-    return true
-  } catch {
-    return null // 网络层失败：说不清端点在不在，别给用户假结论
-  }
 }
 
 /** 同 parseToItems，但额外返回模型原始输出（供屏幕感知从同一次调用里再解析 work_summary）。 */

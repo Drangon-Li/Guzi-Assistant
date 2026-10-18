@@ -12,15 +12,21 @@ import {
   removeHistoryWorkRecords,
   upsertHistoryWorkRecord
 } from '../db'
+import { getDb, listActivityIntervals, usesTimelineForDay, removeTimelineWorkRecords, upsertTimelineWorkRecord, addOcrEvidence, listOcrEvidence } from '../db'
 import { getSession } from '../session'
 import { broadcast, debugEvent } from '../windows'
-import { configureHistoryHealthProvider } from '../activity-tracker'
+import { configureHistoryHealthProvider, clearActivityHistoryEvidence } from '../activity-tracker'
+import { privacyForContext } from '../privacy.ts'
+import type { HistoryEvent } from './event-schema.ts'
 import { HistorySegmentStore } from './event-store.ts'
 import { HistorySummarizer, runHistorySummaryAfterStoreStart, type SummaryRunResult } from './summarizer.ts'
-import { deriveHistoryWorkRecord } from './work-derivation.ts'
+import { deriveHistoryWorkRecord, deriveTimelineWorkRecords } from './work-derivation.ts'
+import { dayKey } from '../../shared/work-report.ts'
+import { configureActivityHistoryAllowed, resetUsageTimelineBoundary } from '../usage-sampler.ts'
+import { deleteActivityHistoryRange } from '../db/activity-retention.ts'
 import { HistoryQueryService } from './query-service.ts'
 import type { ActivityEvent } from '@shared/activity-events'
-import type { HistoryStoreHealth } from '@shared/types'
+import type { HistoryStoreHealth, OcrEvidenceRecord } from '@shared/types'
 import {
   emptyHistoryStoreHealth,
   type HistoryDeleteResult,
@@ -32,7 +38,7 @@ import {
 /** 两个 History 开关独立回滚：派生路径只有在事件流和派生开关都开启时生效。 */
 export function historyDerivedWorkActive(): boolean {
   const settings = getSettings()
-  return settings.historyV2Enabled && settings.historyDerivedWorkEnabled
+  return settings.historyV2Enabled && (settings.historyDerivedWorkEnabled || usesTimelineForDay(dayKey(new Date())))
 }
 
 let historyStore: HistorySegmentStore | null = null
@@ -46,12 +52,68 @@ let historyMutationEpoch = 0
 let historyPaused = false
 let historyQueryService: HistoryQueryService | null = null
 
+configureActivityHistoryAllowed(() => !historyPaused && getSettings().historyV2Enabled)
+
 /** collector 的 History 事件落盘回调：暂停时丢弃，否则写入当前 store 单例。 */
 export function appendHistoryEventIfRunning(event: ActivityEvent): void {
-  if (historyPaused) return
+  if (historyPaused || historyMutationPending > 0 || !getSettings().historyV2Enabled) return
   // Resolve the current singleton at callback time. A pause/resume can
   // replace the store while the collector itself remains running.
-  historyStore?.append(event)
+  const decision = privacyForContext({
+    name: event.appName ?? '', bundleId: event.bundleId ?? '', windowTitle: event.windowTitle ?? '',
+    urlHost: event.urlHost, focusedRole: event.focusedRole ?? undefined,
+    focusedSubrole: event.focusedSubrole ?? undefined, targetRole: event.targetRole ?? undefined,
+    targetSubrole: event.targetSubrole ?? undefined, secureInput: event.secureInput
+  }, true)
+  historyStore?.append(decision.suppressed ? { ...event, ...decision } : event)
+}
+
+function historyEventAllowed(event: HistoryEvent): boolean {
+  return !event.suppressed && event.privacy_state === 'normal' && !privacyForContext({
+    name: event.app_name ?? '', bundleId: event.bundle_id ?? '', windowTitle: event.window_title ?? '',
+    urlHost: event.url_host, targetRole: event.target_role ?? undefined, secureInput: event.secure_input
+  }, true).suppressed
+}
+
+function historyPolicyKey(): string {
+  const s = getSettings()
+  return JSON.stringify([historyPaused, s.historyV2Enabled, s.screenSenseExcludedApps,
+    s.historyExcludedApps.map((item) => item.bundleId), s.historyIncludedHosts, s.historyExcludedHosts])
+}
+
+export function isHistoryPaused(): boolean { return historyPaused }
+
+export function getHistoryContentEpoch(): number { return historyMutationEpoch }
+
+export function historyContentAllowed(context: Parameters<typeof privacyForContext>[0], epoch = historyMutationEpoch): boolean {
+  return epoch === historyMutationEpoch && historyMutationPending === 0 && !historyPaused &&
+    getSettings().historyV2Enabled && !privacyForContext(context, true).suppressed
+}
+
+export function invalidateHistoryContent(): void {
+  historyMutationEpoch += 1
+  resetUsageTimelineBoundary('privacy_changed')
+  void historySummarizer?.invalidateAndWait()
+}
+
+export function appendOcrEvidenceIfAllowed(evidence: OcrEvidenceRecord): void {
+  if (!historyContentAllowed({ name: evidence.appName ?? '', bundleId: evidence.bundleId ?? '',
+    windowTitle: evidence.windowTitle ?? '', urlHost: evidence.urlHost })) return
+  addOcrEvidence(evidence)
+}
+
+function ocrEventsForRange(fromMs: number, toMs: number): HistoryEvent[] {
+  const intervals = listActivityIntervals(fromMs, toMs, { historyOnly: true })
+  return listOcrEvidence(24, { fromMs, toMs }).flatMap((evidence) => {
+    const at = Date.parse(evidence.occurredAt)
+    if (!intervals.some((interval) => interval.appName === evidence.appName &&
+      interval.startMs <= at && at < interval.endMs)) return []
+    return [{ id: `ocr-${evidence.id}`, occurred_at: evidence.occurredAt, kind: 'screen_changed' as const,
+      source: 'fallback' as const, app_name: evidence.appName, bundle_id: evidence.bundleId,
+      window_title: evidence.windowTitle, url_host: evidence.urlHost ?? null, target_role: null,
+      target_label: evidence.redactedText, command: null, modifiers: [], input_length: null,
+      secure_input: false, privacy_state: 'normal' as const, suppressed: false }]
+  })
 }
 
 function ensureHistoryStore(): HistorySegmentStore {
@@ -142,12 +204,29 @@ function ensureHistorySummarizer(store: HistorySegmentStore): HistorySummarizer 
       store,
       summaryIndex: getHistorySummaryIndex(),
       onlineEnabled: historySummaryOnlineEnabled,
+      eventAllowed: historyEventAllowed,
+      supplementalEvents: ocrEventsForRange,
+      policyKey: historyPolicyKey,
       focusTaskCandidates: listFocusTaskCandidates,
       onTenMinuteSummary: (document, sourceHash) => {
-        if (historyMutationPending > 0 || !historyDerivedWorkActive()) return
+        if (historyMutationPending > 0) return
+        const settings = getSettings()
+        if (!settings.screenSenseWorkLog) return
+        const timeline = usesTimelineForDay(dayKey(new Date(document.bucketStart)))
+        if (!timeline && !settings.historyDerivedWorkEnabled) return
         const derived = deriveHistoryWorkRecord(document, sourceHash, listKnownAppNames())
         const segmentId = document.sourceSegmentId ?? document.sourceSegmentIds[0] ?? document.id
         try {
+          if (timeline) {
+            const rows = deriveTimelineWorkRecords(document, sourceHash,
+              listActivityIntervals(Date.parse(document.bucketStart), Date.parse(document.bucketEnd), { historyOnly: true }),
+              listKnownAppNames())
+            getDb().transaction(() => {
+              removeTimelineWorkRecords(segmentId)
+              for (const row of rows) upsertTimelineWorkRecord(row)
+            })()
+            return
+          }
           if (derived) upsertHistoryWorkRecord(derived)
           else if (segmentId) removeHistoryWorkRecord(segmentId)
         } catch (error) {
@@ -229,6 +308,7 @@ async function createTemporaryHistoryStore(): Promise<{ store: HistorySegmentSto
 
 async function deleteHistoryRangeInternal(fromMs: number, toMs: number): Promise<HistoryDeleteResult> {
   return serializeHistoryMutation(async () => {
+    resetUsageTimelineBoundary('history_deleted')
     const summaryIndex = getHistorySummaryIndex()
     const summariesBefore = summaryIndex.list()
     const summaryIds = summariesBefore
@@ -263,17 +343,22 @@ async function deleteHistoryRangeInternal(fromMs: number, toMs: number): Promise
         ...segmentIdsFromSummaries.filter((segmentId) => segmentIdsInRange.has(segmentId))
       ])
     ])
+    const timelineWorkIds = deleteActivityHistoryRange(fromMs, toMs)
+    clearActivityHistoryEvidence(fromMs, toMs)
     return {
       range: { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() },
       deletedSegmentIds,
       deletedSummaryIds: summaryIds,
-      deletedWorkRecordIds: workRecordIds
+      deletedWorkRecordIds: [...new Set([...workRecordIds, ...timelineWorkIds])]
     }
   })
 }
 
 async function clearHistoryInternal(): Promise<HistoryDeleteResult> {
   return serializeHistoryMutation(async () => {
+    const toMs = Date.now() + 1
+    const fromMs = toMs - 1 - 48 * 60 * 60 * 1000
+    resetUsageTimelineBoundary('history_cleared')
     const summaryIndex = getHistorySummaryIndex()
     const summaries = summaryIndex.list()
     const summaryIds = summaries.map((record) => record.id)
@@ -291,11 +376,13 @@ async function clearHistoryInternal(): Promise<HistoryDeleteResult> {
     }
     for (const id of summaryIds) summaryIndex.remove(id)
     const workRecordIds = removeHistoryWorkRecords([...new Set([...deletedSegmentIds, ...indexedSegmentIds, ...summarySegmentIds])])
+    const timelineWorkIds = deleteActivityHistoryRange(fromMs, toMs)
+    clearActivityHistoryEvidence(fromMs, toMs)
     return {
       range: null,
       deletedSegmentIds: [...new Set([...deletedSegmentIds, ...indexedSegmentIds])].sort(),
       deletedSummaryIds: summaryIds,
-      deletedWorkRecordIds: workRecordIds
+      deletedWorkRecordIds: [...new Set([...workRecordIds, ...timelineWorkIds])]
     }
   })
 }
@@ -357,6 +444,7 @@ export async function historySummarize(options: HistoryQueryOptions = {}) {
 export async function pauseHistory(): Promise<HistoryStatus> {
   if (!getSettings().historyV2Enabled) return historyStatusSnapshot()
   historyPaused = true
+  resetUsageTimelineBoundary('history_pause')
   historyMutationEpoch += 1
   await stopHistoryPersistence()
   broadcast('guzi-assistant:history-updated')
@@ -365,6 +453,7 @@ export async function pauseHistory(): Promise<HistoryStatus> {
 
 export async function resumeHistory(): Promise<HistoryStatus> {
   historyPaused = false
+  resetUsageTimelineBoundary('history_resume')
   historyMutationEpoch += 1
   if (getSettings().historyV2Enabled) {
     const store = startHistoryPersistence()

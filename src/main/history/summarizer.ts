@@ -12,6 +12,7 @@ import {
   type HistorySegmentSummaryPatch
 } from './event-store.ts'
 import {
+  SUMMARY_PROMPT_VERSION,
   buildSixHourSummaryPrompt,
   buildSummaryInput,
   buildTenMinuteSummaryPrompt
@@ -83,6 +84,7 @@ export interface HistorySummaryDocument {
   focus?: string | null
   progress?: string | null
   outcome?: string | null
+  resultEvidence?: string[]
   observedData: SummaryObservedDatum[]
   suppressedEventCount: number
   modelSupplement?: {
@@ -115,6 +117,9 @@ export interface HistorySummarizerOptions {
   modelCall?: SummaryModelCall
   /** Return false when no authenticated/direct model endpoint is configured. */
   onlineEnabled?: () => boolean
+  eventAllowed?: (event: HistoryEvent) => boolean
+  supplementalEvents?: (fromMs: number, toMs: number) => HistoryEvent[]
+  policyKey?: () => string
   /** 已知任务名候选（10 分钟摘要的 focus_task 复用，避免同一任务被拆成多个近义名）。 */
   focusTaskCandidates?: () => string[]
   retryBaseMs?: number
@@ -168,7 +173,7 @@ const MAX_ACTIVITY_TYPES = 12
 const MAX_TASK_CLUES = 12
 const MAX_OBSERVED_DATA = 24
 const MAX_TEXT = 240
-const SUMMARY_ALGORITHM_VERSION = 'history-summary-v3-task-time'
+const SUMMARY_ALGORITHM_VERSION = SUMMARY_PROMPT_VERSION
 const DEFAULT_RETRY_BASE_MS = 60_000
 const DEFAULT_RETRY_MAX_MS = 6 * 60 * 60 * 1000
 
@@ -307,7 +312,7 @@ function dominantVerb(events: readonly HistoryEvent[], apps: readonly string[], 
 function progressFor(events: readonly HistoryEvent[]): { progress: string; outcome: string | null } {
   if (!events.some(isMeaningfulHistoryEvent)) return { progress: '暂无足够证据判断进展', outcome: null }
   if (events.some((event) => event.kind === 'submit' || /submit|send|done|完成|提交/i.test(event.command ?? ''))) {
-    return { progress: '出现提交或完成动作', outcome: '可能完成了一轮处理' }
+    return { progress: '出现提交或发送操作，结果待确认', outcome: null }
   }
   if (events.some((event) => ['input_activity', 'selection_changed', 'click', 'drag', 'shortcut'].includes(event.kind))) {
     return { progress: '持续进行中', outcome: null }
@@ -388,18 +393,43 @@ function windowThemes(events: readonly HistoryEvent[]): string[] {
 }
 
 function observedData(events: readonly HistoryEvent[]): SummaryObservedDatum[] {
-  return [...events]
+  const ordered = [...events]
     .filter((event) => isMeaningfulHistoryEvent(event) || event.kind === 'window_changed')
     .sort((a, b) => eventTimestamp(a) - eventTimestamp(b) || a.id.localeCompare(b.id))
-    .slice(0, MAX_OBSERVED_DATA)
+  // Include the end of a busy interval, where completion/submission evidence often appears.
+  const selected = ordered.length <= MAX_OBSERVED_DATA ? ordered
+    : Array.from({ length: MAX_OBSERVED_DATA }, (_, i) => ordered[Math.round(i * (ordered.length - 1) / (MAX_OBSERVED_DATA - 1))])
+  return selected
     .map((event) => ({
       occurredAt: event.occurred_at,
       kind: event.kind,
       app: cleanShort(event.app_name, 80),
       window: cleanShort(event.window_title, 120),
-      label: cleanShort(event.target_label, 120),
+      label: cleanShort(event.target_label, event.kind === 'screen_changed' && event.source === 'fallback' ? 1000 : 120),
       command: cleanShort(event.command, 80)
     }))
+}
+
+// Result assertions must be copied from a visible result, never inferred from
+// a command, a button label, a task name, or the act of editing/submitting.
+function hasResultClaim(text: string): boolean {
+  const affirmative = text.replace(/(?:尚未|未能|未|没有|无法|不能|不代表|不证明|不意味着|正在|待|计划|准备|尝试)(?:全部|完全)?(?:完成|成功|通过)|(?:尚无|暂无|没有|未有)(?:结果|结论)|\b(?:not|never)\s+(?:completed?|finished|succeeded|passed)\b/gi, '')
+  return /完成|完毕|结束|成功|(?:测试|检查|校验|验证|编译|构建|审核|验收)(?:已|已经|全部|均)*通过|通过(?:了)?(?:测试|检查|校验|验证|编译|构建|审核|验收)|顺利通过|通过(?=$|[，。；,;!！])|已(?:经)?(?:修复|解决|交付|提交|保存|实现|验证|合并|部署)|(?:修复|解决|实现|交付|提交|保存)了|(?:跑|执行|运行|编译|构建)完|\b(?:completed?|finished|succeeded|successful|passed|done|resolved|fixed|delivered)\b/i.test(affirmative)
+}
+
+function resultEvidenceFor(events: readonly HistoryEvent[]): string[] {
+  const evidence: string[] = []
+  for (const event of events) {
+    if (event.kind !== 'screen_changed' && event.kind !== 'ax_attribute_changed') continue
+    for (const clause of (event.target_label ?? '').split(/[\n。；;]/)) {
+      const text = cleanShort(clause, 120)
+      if (!text || !hasResultClaim(text)) continue
+      if (!/(?:测试|构建|编译|运行|保存|提交|发布)(?:结果|状态)|(?:测试|构建|编译)(?:已|全部|均)?(?:通过|成功|完成)|\b(?:tests?\s+(?:results?|passed)|build\s+(?:succeeded|successful)|\d+\s+(?:tests?\s+)?passed)\b/i.test(text)) continue
+      if (/(?:请|需要|计划|准备|预计|希望|如果|假设|尝试|正在|未|不通过|不成功|不代表|不意味着|尚无|暂无|没有|失败|待确认|通过后|完成后|成功后|console\.|assert\b|expect\b|["'`?？])|\b(?:not|pending|expected|if|[1-9]\d*\s+failed)\b/i.test(text)) continue
+      evidence.push(text)
+    }
+  }
+  return uniqueStrings(evidence, MAX_TASK_CLUES)
 }
 
 function confidenceFor(events: readonly HistoryEvent[], apps: readonly SummaryAppStat[], clues: readonly string[]): number {
@@ -452,6 +482,7 @@ export function summarizeTenMinuteSegment(snapshot: HistorySegmentSnapshot): {
     focus: narrative.focus,
     progress: narrative.progress,
     outcome: narrative.outcome,
+    resultEvidence: resultEvidenceFor(events),
     observedData: observedData(events),
     suppressedEventCount: metadata.suppressedEventCount
   }
@@ -534,6 +565,7 @@ export function summarizeSixHourSummaries(summaries: readonly HistorySummaryDocu
     focus,
     progress,
     outcome,
+    resultEvidence: uniqueStrings(ordered.flatMap((summary) => summary.resultEvidence ?? []), MAX_TASK_CLUES),
     observedData: ordered.slice(0, MAX_OBSERVED_DATA).map((summary) => ({
       occurredAt: summary.startAt,
       kind: '10m_summary',
@@ -577,7 +609,21 @@ export function parseModelSupplement(raw: string): SummaryModelSupplement {
   }
 }
 
-function mergeModelSupplement(document: HistorySummaryDocument, supplement: SummaryModelSupplement): HistorySummaryDocument {
+function mergeModelSupplement(document: HistorySummaryDocument, rawSupplement: SummaryModelSupplement): HistorySummaryDocument {
+  const evidence = new Set(document.resultEvidence ?? [])
+  const supported = (value: string | null): string | null =>
+    value && hasResultClaim(value) && !evidence.has(value) ? null : value
+  // Reject the whole unsupported claim instead of rewriting "completed" to
+  // "ongoing", which would retain an invented scope or outcome.
+  const supplement: SummaryModelSupplement = {
+    ...rawSupplement,
+    summary: supported(rawSupplement.summary),
+    focusTask: supported(rawSupplement.focusTask),
+    focus: supported(rawSupplement.focus),
+    progress: supported(rawSupplement.progress),
+    outcome: supported(rawSupplement.outcome),
+    taskClues: rawSupplement.taskClues.filter((clue) => supported(clue) !== null)
+  }
   const modelSummary = supplement.summary
   const modelConfidence = supplement.confidence == null ? document.confidence : supplement.confidence
   const confidence = Number(clamp((document.confidence + modelConfidence) / 2, document.confidence, 0.95).toFixed(3))
@@ -682,6 +728,10 @@ export class HistorySummarizer {
   private readonly now: () => number
   private readonly modelCall: SummaryModelCall
   private readonly onlineEnabled: () => boolean
+  private readonly eventAllowed: (event: HistoryEvent) => boolean
+  private readonly supplementalEvents: (fromMs: number, toMs: number) => HistoryEvent[]
+  private readonly policyKey: () => string
+  private runPolicyKey = ''
   private readonly focusTaskCandidates: () => string[]
   private readonly retryBaseMs: number
   private readonly retryMaxMs: number
@@ -697,6 +747,9 @@ export class HistorySummarizer {
     this.now = options.now ?? Date.now
     this.modelCall = options.modelCall ?? defaultModelCall
     this.onlineEnabled = options.onlineEnabled ?? (() => true)
+    this.eventAllowed = options.eventAllowed ?? (() => true)
+    this.supplementalEvents = options.supplementalEvents ?? (() => [])
+    this.policyKey = options.policyKey ?? (() => '')
     this.focusTaskCandidates = options.focusTaskCandidates ?? (() => [])
     this.retryBaseMs = Math.max(1_000, options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS)
     this.retryMaxMs = Math.max(this.retryBaseMs, options.retryMaxMs ?? DEFAULT_RETRY_MAX_MS)
@@ -706,6 +759,7 @@ export class HistorySummarizer {
     if (this.closed) return Promise.resolve(emptySummaryRun())
     if (this.active) return this.active
     const generation = this.generation
+    this.runPolicyKey = this.policyKey()
     this.active = this.run(nowMs, generation).finally(() => {
       this.active = null
       this.abortController = null
@@ -727,7 +781,7 @@ export class HistorySummarizer {
   }
 
   private isCurrent(generation: number): boolean {
-    return !this.closed && this.generation === generation
+    return !this.closed && this.generation === generation && this.runPolicyKey === this.policyKey()
   }
 
   private async run(nowMs: number, generation: number): Promise<SummaryRunResult> {
@@ -757,7 +811,9 @@ export class HistorySummarizer {
     generation: number
   ): Promise<{ document: HistorySummaryDocument; record: HistorySummaryRecord; changed: boolean } | null> {
     if (!this.isCurrent(generation)) return null
-    const { document: localDocument, sourceHash } = summarizeTenMinuteSegment(snapshot)
+    const extra = this.supplementalEvents(Date.parse(snapshot.metadata.bucketStart), Date.parse(snapshot.metadata.bucketEnd))
+    const allowedSnapshot = { ...snapshot, events: [...snapshot.events, ...extra].filter(this.eventAllowed) }
+    const { document: localDocument, sourceHash } = summarizeTenMinuteSegment(allowedSnapshot)
     const existing = this.summaryIndex.get(snapshot.metadata.id)
     let document = existing?.sourceHash === sourceHash ? parseDocument(existing.summaryJson) : null
     let changed = false
@@ -945,6 +1001,7 @@ export class HistorySummarizer {
       confidence: document.confidence,
       evidenceCount: document.evidenceCount,
       sourceSegments: document.sourceSegmentIds,
+      resultEvidence: document.resultEvidence ?? [],
       observedData: document.observedData
     }
     const raw = await this.modelCall(

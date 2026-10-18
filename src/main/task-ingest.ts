@@ -4,12 +4,17 @@ import { createTask } from './db'
 import type { ParsedItem } from '@shared/parsing'
 import type { TaskRecord, TaskStatus } from '@shared/types'
 
-export function createTaskFromItem(sourceId: string, item: ParsedItem, status: TaskStatus): TaskRecord {
+export function createTaskFromItem(
+  sourceId: string,
+  item: ParsedItem,
+  status: TaskStatus,
+  explicitlyAccepted = false
+): TaskRecord {
   return createTask({
     sourceId,
     title: item.title,
     itemType: item.item_type,
-    belongsToUser: item.belongs_to_user,
+    belongsToUser: explicitlyAccepted ? 'yes' : item.belongs_to_user,
     belongingReason: item.belonging_reason,
     userRole: item.user_role,
     startTime: item.start_time,

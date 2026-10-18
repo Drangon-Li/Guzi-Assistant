@@ -58,13 +58,14 @@ export const api = {
     inv<void>('auth:set-session', { functionsBase, token }),
 
   getSettings: () => inv<AppSettings>('settings:get'),
+  probeModel: (apiBase: string, apiKey: string, apiFormat?: string, model?: string) =>
+    inv<ModelProbeResult>('model:probe', apiBase, apiKey, apiFormat, model),
   /** 返回 false 表示快捷键注册失败（被其他应用占用） */
-  probeModel: (apiBase: string, apiKey: string, apiFormat?: string) =>
-    inv<ModelProbeResult>('model:probe', apiBase, apiKey, apiFormat),
   saveSettings: (patch: Partial<AppSettings>) => inv<boolean>('settings:save', patch),
 
   listTasks: () => inv<TaskRecord[]>('tasks:list'),
   updateTask: (id: string, patch: Partial<TaskRecord>) => inv<void>('tasks:update', id, patch),
+  confirmTasks: (ids: string[]) => inv<void>('tasks:confirm', ids),
   deleteTask: (id: string) => inv<void>('tasks:delete', id),
   bulkTasks: (ids: string[], status: TaskStatus) => inv<void>('tasks:bulk', ids, status),
   quickAddTask: (text: string) => inv<{ added: number; titles: string[] }>('tasks:quick-add', text),

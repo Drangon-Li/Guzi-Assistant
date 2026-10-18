@@ -111,7 +111,9 @@ export default function QuickBar(): React.JSX.Element {
     try {
       const history = nextMsgs.map((m) => ({ role: m.role, content: m.content }))
       // 最近一轮候选作为上下文传回：用户可以用嘴确认（「把第一个加上」）
-      const ctx = [...msgs].reverse().find((m) => m.candidates)?.candidates?.ctx ?? null
+      const priorCandidateMsg = [...msgs].reverse().find((m) => m.candidates)
+      const priorCandidates = priorCandidateMsg?.candidates
+      const ctx = priorCandidates?.ctx.items.some((_, idx) => !priorCandidates.added[idx]) ? priorCandidates.ctx : null
       // 专用后台通道：输入框收起后处理照常完成，结果由桌宠气泡播报（发完即可点别处关闭）
       const res = await api.assistantQuickChat({ history, candidates: ctx })
       const reply: Msg = {
@@ -126,18 +128,31 @@ export default function QuickBar(): React.JSX.Element {
           )
         if (res.ops.length) reply.ops = res.ops
         if (res.candidates?.length) {
-          // 同轮直接创建的（无上一轮候选上下文），add 序号指向本轮候选：卡片直接标已加入，避免重复点
           const preAdded: Record<number, 'added' | 'duplicate'> = {}
-          if (!ctx) {
-            for (const a of res.added) {
-              if (a.candidate >= 1 && a.candidate <= res.candidates.length)
-                preAdded[a.candidate - 1] = a.duplicate ? 'duplicate' : 'added'
-            }
+          for (const a of res.added) {
+            if (a.source === 'current' && a.candidate >= 1 && a.candidate <= res.candidates.length)
+              preAdded[a.candidate - 1] = a.duplicate ? 'duplicate' : 'added'
           }
           reply.candidates = { ctx: { sourceText: q, items: res.candidates }, added: preAdded }
         }
       }
-      setMsgs((m) => [...m, reply])
+      setMsgs((ms) => [
+        ...ms.map((m) => {
+          if (!ctx || m.id !== priorCandidateMsg?.id || !m.candidates) return m
+          return {
+            ...m,
+            candidates: {
+              ...m.candidates,
+              added: {
+                ...m.candidates.added,
+                ...Object.fromEntries(res.added.filter((a) => a.source === 'previous')
+                  .map((a) => [a.candidate - 1, a.duplicate ? 'duplicate' : 'added']))
+              }
+            }
+          }
+        }),
+        reply
+      ])
     } catch (e) {
       setMsgs((m) => [
         ...m,
