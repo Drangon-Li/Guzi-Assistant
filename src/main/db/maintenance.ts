@@ -27,7 +27,7 @@ export function exportRange(fromDay: string, toDay: string): Record<string, unkn
 
 export function wipeAll(): void {
   getDb().exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories; DELETE FROM detection_notes; DELETE FROM activity_segments; DELETE FROM ocr_evidence; DELETE FROM history_summaries;'
+    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories; DELETE FROM detection_notes; DELETE FROM activity_segments; DELETE FROM ocr_evidence; DELETE FROM history_summaries; DELETE FROM activity_intervals;'
   )
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
   getDb().pragma('wal_checkpoint(TRUNCATE)')

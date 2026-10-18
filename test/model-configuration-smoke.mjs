@@ -95,6 +95,12 @@ check('models 端点自动补 /v1', modelsEndpoint('https://api.openai.com') ===
 check('models 端点不重复补 /v1', modelsEndpoint('https://host.example/qwen/v1') === 'https://host.example/qwen/v1/models')
 check('models 端点规整尾随斜杠', modelsEndpoint('https://host.example/v1///') === 'https://host.example/v1/models')
 check('models 端点去首尾空格', modelsEndpoint('  https://a.b  ') === 'https://a.b/v1/models')
+check('responses 保留火山 coding /v3', responsesEndpoint('https://ark.cn-beijing.volces.com/api/coding/v3') === 'https://ark.cn-beijing.volces.com/api/coding/v3/responses')
+check('models 保留火山 coding /v3', modelsEndpoint('https://ark.cn-beijing.volces.com/api/coding/v3') === 'https://ark.cn-beijing.volces.com/api/coding/v3/models')
+check('完整 responses 端点不重复追加', responsesEndpoint('https://host.example/v2/responses') === 'https://host.example/v2/responses')
+check('从完整 chat 端点生成 models', modelsEndpoint('https://host.example/v2/chat/completions') === 'https://host.example/v2/models')
+check('从完整 messages 端点生成 models', modelsEndpoint('https://host.example/anthropic/v3/messages/') === 'https://host.example/anthropic/v3/models')
+check('完整 models 端点不重复追加', modelsEndpoint('https://host.example/v3/models') === 'https://host.example/v3/models')
 
 // ---- 模型列表解析（各家兼容程度不一，只认 id）----
 check(

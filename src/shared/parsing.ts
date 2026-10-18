@@ -141,7 +141,10 @@ export interface CandidateContext {
   items: ParsedItem[]
 }
 
+export type CandidateSource = 'previous' | 'current'
+
 export interface AddInstruction {
+  source?: CandidateSource | null
   candidate: number
   patch: Record<string, unknown> | null
   /** 用户明知重复仍要添加 */
@@ -170,6 +173,8 @@ export interface AssistantEnvelope {
 }
 
 export interface AddedInfo {
+  source?: CandidateSource
+  sourceText?: string
   candidate: number
   title: string
   time: string | null
@@ -276,10 +281,11 @@ ${EXTRACT_RULES}
 生成候选时，reply 简短说明发现了什么，并提醒用户可以点卡片加入，或直接用一句话告诉你选哪个、要改什么。
 
 ## add（用户确认候选时才填）
-当用户明确表示要加入某个候选（如"加第一个""第二个吧，时间改到周五下午"）时填写：[{"candidate":候选序号,"patch":{要修改的字段}或null,"force":布尔，可省略}]。
+当用户明确表示要加入某个候选（如"加第一个""第二个吧，时间改到周五下午"）时填写：[{"source":"previous 或 current","candidate":候选序号,"patch":{要修改的字段}或null,"force":布尔，可省略}]。
 用户消息本身就是明确的添加请求（"帮我记 XX""提醒我 XX""加个日程 XX"）且信息足够时，**同一轮**把该事项放进 candidates 并直接放进 add（不必等下一轮确认），reply 里确认已加入；信息不全（缺时间且看不出）再询问。
 - 用户明确表示明知重复仍要添加 → 该项带 "force": true
-- candidate 从 1 开始：确认已有候选时指下方「当前候选列表」的序号；同一轮直接加入新事项时，指你本轮 candidates 数组里该事项的序号
+- source 必填：确认上一轮候选用 "previous"；同一轮创建并添加本轮 candidates 用 "current"。即使两组都有第一个候选，也必须明确来源，绝不能只靠序号猜测。
+- candidate 从 1 开始，指 source 指定的候选数组序号。
 - patch 只包含要修改的字段，可用：title/start_time/due_time/location/priority/item_type/notes；时间字段格式 YYYY-MM-DDTHH:mm
 - 想加入的候选 duplicate_of 非空、且用户没有明确表示"仍要加/再加一条"时 → 不要放进 add，在 reply 里说明它与哪条已有任务重复并询问是否仍要添加
 - 用户明确表示明知重复仍要添加 → 该项带 "force": true
@@ -479,6 +485,7 @@ export function parseAssistantOutput(text: string): AssistantEnvelope {
     .filter((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
     .filter((a) => typeof a.candidate === 'number' && Number.isInteger(a.candidate) && a.candidate >= 1)
     .map((a) => ({
+      source: a.source === 'previous' || a.source === 'current' ? a.source as CandidateSource : null,
       candidate: a.candidate as number,
       patch: typeof a.patch === 'object' && a.patch !== null ? (a.patch as Record<string, unknown>) : null,
       force: a.force === true
@@ -526,16 +533,13 @@ export function applyCandidatePatch(item: ParsedItem, patch: Record<string, unkn
 }
 
 export interface AddPick {
+  source: CandidateSource
   item: ParsedItem
   candidate: number
   force: boolean
 }
 
-/**
- * 解析 add 指令的 candidate 序号：优先指上一轮展示给用户的候选列表（previous），
- * 序号越界时回落到模型本轮新生成的候选（current）——「提醒我明天干 XX」这类
- * 明确的创建请求没有上一轮候选，模型会把新事项放进本轮 candidates 并当轮直接 add。
- */
+/** 仅在唯一候选组存在时兼容旧信封；两组同时存在且缺少来源时不执行添加。 */
 export function resolveAddPicks(
   add: readonly AddInstruction[],
   previous: readonly ParsedItem[] | null,
@@ -543,11 +547,14 @@ export function resolveAddPicks(
 ): AddPick[] {
   const picks: AddPick[] = []
   for (const a of add) {
-    const fromPrevious = previous?.[a.candidate - 1]
-    const fromCurrent = current[a.candidate - 1]
-    const item = fromPrevious ?? fromCurrent
+    const source = a.source ?? (
+      previous?.length && !current.length ? 'previous'
+        : !previous?.length && current.length ? 'current' : null
+    )
+    if (!source) continue
+    const item = (source === 'previous' ? previous : current)?.[a.candidate - 1]
     if (!item) continue
-    picks.push({ item: a.patch ? applyCandidatePatch(item, a.patch) : item, candidate: a.candidate, force: a.force })
+    picks.push({ source, item: a.patch ? applyCandidatePatch(item, a.patch) : item, candidate: a.candidate, force: a.force })
   }
   return picks
 }

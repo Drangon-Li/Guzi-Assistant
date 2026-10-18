@@ -19,6 +19,8 @@ export function migrateWorkRecords(database: Database.Database): void {
   if (!columns.includes('evidence_count')) database.exec('ALTER TABLE work_records ADD COLUMN evidence_count INTEGER NOT NULL DEFAULT 1')
   if (!columns.includes('summary_hash')) database.exec('ALTER TABLE work_records ADD COLUMN summary_hash TEXT')
   if (!columns.includes('derived_by')) database.exec("ALTER TABLE work_records ADD COLUMN derived_by TEXT NOT NULL DEFAULT 'legacy'")
+  if (!columns.includes('interval_id')) database.exec('ALTER TABLE work_records ADD COLUMN interval_id TEXT')
+  if (!columns.includes('active_ms')) database.exec('ALTER TABLE work_records ADD COLUMN active_ms INTEGER')
   database.exec(`
     UPDATE work_records
     SET start_at = COALESCE(start_at, created_at),
@@ -32,6 +34,40 @@ export function migrateWorkRecords(database: Database.Database): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_work_records_history_segment
       ON work_records(segment_id)
       WHERE derived_by = 'history' AND segment_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_work_records_timeline_interval
+      ON work_records(interval_id, segment_id)
+      WHERE derived_by = 'timeline' AND interval_id IS NOT NULL;
+  `)
+}
+
+export function migrateDetectionItems(database: Database.Database): void {
+  const columns = database.prepare('PRAGMA table_info(detections)').all() as { name: string }[]
+  if (!columns.some((column) => column.name === 'item_json'))
+    database.exec('ALTER TABLE detections ADD COLUMN item_json TEXT')
+}
+
+export function migrateOcrEvidenceContext(database: Database.Database): void {
+  const columns = database.prepare('PRAGMA table_info(ocr_evidence)').all() as { name: string }[]
+  if (!columns.some((column) => column.name === 'window_id')) database.exec('ALTER TABLE ocr_evidence ADD COLUMN window_id INTEGER')
+  if (!columns.some((column) => column.name === 'url_host')) database.exec('ALTER TABLE ocr_evidence ADD COLUMN url_host TEXT')
+}
+
+export function migrateActivityTimeline(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS activity_intervals (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      start_ms INTEGER NOT NULL,
+      end_ms INTEGER NOT NULL,
+      state TEXT NOT NULL,
+      app_name TEXT,
+      bundle_id TEXT,
+      history_allowed INTEGER NOT NULL DEFAULT 0,
+      end_reason TEXT NOT NULL,
+      CHECK(end_ms >= start_ms)
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_intervals_time ON activity_intervals(start_ms, end_ms);
+    CREATE INDEX IF NOT EXISTS idx_activity_intervals_session ON activity_intervals(session_id, start_ms);
   `)
 }
 

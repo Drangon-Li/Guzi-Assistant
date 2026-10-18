@@ -4,6 +4,7 @@ import {
   addFocusTask,
   appUsageSummary,
   bulkUpdateStatus,
+  confirmTasks,
   clearChatMessages,
   listChatMessages,
   saveChatMessages,
@@ -59,7 +60,7 @@ import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/pars
 import { setHotkey, setNamedHotkey, setScreenshotHotkey } from './hotkey'
 import { installQuickAction, quickActionInstalled } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
-import { applyScreenSenseSettings, scanOnce, screenActivityStatus } from './screenwatch'
+import { applyScreenSenseSettings, resetScreenRecognitionRetry, scanOnce, screenActivityStatus } from './screenwatch'
 import {
   acceptDetection,
   acceptLocal,
@@ -69,6 +70,7 @@ import {
 } from './detection-cards'
 import {
   acquireHistoryMutationBarrier,
+  invalidateHistoryContent,
   clearHistory,
   deleteHistoryRange,
   historyRecent,
@@ -188,8 +190,8 @@ export function registerIpc(): void {
   // 系统外观变化（设置为「跟随系统」时）：广播给所有渲染窗口切 .dark（桌宠由 pet-window 自己的 nativeTheme 监听重渲染）
   nativeTheme.on('updated', () => broadcastTheme())
   // 设置页「检测连接」：用表单里的现值探测，不必先保存
-  ipcMain.handle('model:probe', (_e, apiBase: string, apiKey: string, apiFormat?: string) =>
-    probeModelEndpoint(String(apiBase ?? ''), String(apiKey ?? ''), apiFormat)
+  ipcMain.handle('model:probe', (_e, apiBase: string, apiKey: string, apiFormat?: string, model?: string) =>
+    probeModelEndpoint(String(apiBase ?? ''), String(apiKey ?? ''), apiFormat, model)
   )
   // ---------- 语音纪要 ----------
   ipcMain.handle('voice:probe', () => probeTranscription())
@@ -253,7 +255,12 @@ export function registerIpc(): void {
       ok = setNamedHotkey('quickAsk', patch.quickAskHotkey)
       if (!ok) delete patch.quickAskHotkey
     }
+    const activityPolicyChanged = ['historyV2Enabled', 'historyExcludedApps', 'historyExcludedHosts', 'historyIncludedHosts',
+      'screenSenseExcludedApps', 'activityTimelineMode'].some((key) => key in patch)
+    if (activityPolicyChanged) invalidateHistoryContent()
     saveSettings(patch)
+    if (['apiBase', 'apiKey', 'apiFormat', 'model', 'modelVision', 'useCustomModel'].some((key) => key in patch))
+      resetScreenRecognitionRetry()
     // 主题：设 themeSource（驱动桌宠/窗口 shouldUseDarkColors）+ 主动广播给所有渲染窗口切 .dark
     if (patch.theme !== undefined) {
       nativeTheme.themeSource = patch.theme
@@ -269,6 +276,7 @@ export function registerIpc(): void {
       patch.screenSenseEventDriven !== undefined ||
       patch.historyV2Enabled !== undefined ||
       patch.historyDerivedWorkEnabled !== undefined ||
+      activityPolicyChanged ||
       patch.dailyReportTime !== undefined
     )
       applyScreenSenseSettings()
@@ -344,6 +352,10 @@ export function registerIpc(): void {
   ipcMain.handle('tasks:bulk', (_e, ids: string[], status: TaskStatus) => {
     if (!STATUSES.includes(status)) return
     bulkUpdateStatus(ids, status)
+    broadcast('guzi-assistant:tasks-updated')
+  })
+  ipcMain.handle('tasks:confirm', (_e, ids: string[]) => {
+    confirmTasks(ids)
     broadcast('guzi-assistant:tasks-updated')
   })
   ipcMain.handle('tasks:delete', (_e, id: string) => {
@@ -576,7 +588,7 @@ export function registerIpc(): void {
       const res = await assistantChat(payload)
       if (!isQuickBarVisible()) {
         const lastUserText = [...payload.history].reverse().find((m) => m.role === 'user')?.content ?? ''
-        notifyQuickChatResult(res, lastUserText, payload.candidates != null)
+        notifyQuickChatResult(res, lastUserText)
       }
       return res
     }

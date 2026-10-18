@@ -31,7 +31,9 @@ const BROWSER_BUNDLES = new Set([
   'com.apple.safari',
   'com.google.chrome',
   'com.microsoft.edgemac',
-  'org.mozilla.firefox'
+  'org.mozilla.firefox',
+  'com.brave.browser',
+  'company.thebrowser.browser'
 ])
 const PRIVATE_TITLE =
   /private browsing|private window|incognito|inprivate|无痕|無痕|私密浏览|私密瀏覽|シークレット|プライベート|시크릿|프라이빗/i
@@ -98,9 +100,10 @@ export function decideHistoryPrivacy(input: HistoryPrivacyInput): HistoryPrivacy
 
   const rawHost = typeof input.urlHost === 'string' ? input.urlHost.trim() : ''
   const host = rawHost ? normalizeHistoryHost(rawHost) : null
-  // A non-empty invalid host is fail-closed. A missing host is allowed because
-  // ordinary non-browser App events do not have a website context to filter.
   if (rawHost && !host) return { state: 'excluded', persist: false, reason: 'invalid_url_host' }
+  if (!host && BROWSER_BUNDLES.has((input.bundleId ?? '').toLowerCase()) &&
+    ((input.excludedHosts?.length ?? 0) > 0 || (input.includedHosts?.length ?? 0) > 0))
+    return { state: 'excluded', persist: false, reason: 'unknown_browser_host' }
   if (host && matchesHostList(host, input.excludedHosts ?? []))
     return { state: 'excluded', persist: false, reason: 'excluded_host' }
   if (host && (input.includedHosts ?? []).length && !matchesHostList(host, input.includedHosts ?? []))

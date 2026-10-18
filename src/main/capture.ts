@@ -1,9 +1,13 @@
-import { app, clipboard, nativeImage, screen } from 'electron'
+import { app, clipboard, nativeImage } from 'electron'
 import type { NativeImage } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync, readFileSync, unlinkSync } from 'fs'
 import { basename, extname, join } from 'path'
 import { randomUUID } from 'crypto'
+import { getScreenSnapshot } from './frontapp'
+import { privacyForContext } from './privacy'
+import { getCollectorCaptureSafety } from './activity-tracker'
+import { captureVerifiedWindow, snapshotContext, type ScreenSnapshot } from './screen-snapshot.ts'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import { detectSensitive, redactSensitive } from '@shared/sensitive'
@@ -131,29 +135,27 @@ export async function takeScreenshot(): Promise<string | null> {
   }
 }
 
-/** 静默全屏截图（无交互、无快门声），返回临时 png 路径；失败返回 null。调用方 OCR 后须自行删除 */
-export async function captureScreenSilently(): Promise<string | null> {
-  const file = join(app.getPath('temp'), `guzi-assistant-screen-${Date.now()}.png`)
-  // 只截「活动屏」（光标所在显示器）：多显示器下 `screencapture -x <file>` 只会截主屏，
-  // 用 -R<x,y,w,h> 截活动屏的矩形区域，既覆盖外接屏，又省一半开销。
-  const args = ['-x']
-  try {
-    const { x, y, width, height } = screen.getDisplayNearestPoint(
-      screen.getCursorScreenPoint()
-    ).bounds
-    args.push('-R', `${x},${y},${width},${height}`)
-  } catch {
-    /* 拿不到显示器信息 → 退回整屏（主屏） */
-  }
-  args.push(file)
-  try {
-    await new Promise<void>((resolve, reject) => {
-      execFile('screencapture', args, (err) => (err ? reject(err) : resolve()))
-    })
-  } catch {
-    return null
-  }
-  return existsSync(file) ? file : null
+/** Capture the verified foreground window; the caller owns the returned temporary PNG. */
+export async function captureScreenSilently(snapshot: ScreenSnapshot | null, signal?: AbortSignal): Promise<string | null> {
+  return captureVerifiedWindow({
+    initial: snapshot, signal,
+    readSnapshot: () => getScreenSnapshot(signal),
+    privacyReason: (next) => getCollectorCaptureSafety(next).reason || (privacyForContext(snapshotContext(next)).suppressed ? '当前窗口处于隐私抑制状态，已暂停截图' : null),
+    capture: async (windowId, captureSignal) => {
+      const file = join(app.getPath('temp'), `guzi-assistant-screen-${randomUUID()}.png`)
+      try {
+        await new Promise<void>((resolve, reject) => {
+          execFile('/usr/sbin/screencapture', [`-l${windowId}`, '-o', '-x', file],
+            { timeout: 10_000, signal: captureSignal }, (err) => err ? reject(err) : resolve())
+        })
+        return existsSync(file) ? file : null
+      } catch (error) {
+        if (existsSync(file)) unlinkSync(file)
+        throw error
+      }
+    },
+    remove: async (file) => { if (existsSync(file)) unlinkSync(file) }
+  })
 }
 
 // ---------- 文件文本抽取 ----------

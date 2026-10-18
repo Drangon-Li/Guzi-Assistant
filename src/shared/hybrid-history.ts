@@ -39,6 +39,8 @@ export interface EventEvidence {
 }
 
 export interface OcrEvidence {
+  windowId?: number | null
+  urlHost?: string | null
   id: string
   eventId: string | null
   segmentId: string | null

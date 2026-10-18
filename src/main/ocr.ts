@@ -61,7 +61,7 @@ async function ensureOcrBinary(): Promise<string> {
   const src = join(binDir(), 'vision-ocr-v2.swift')
   writeFileSync(src, SWIFT_SRC)
   try {
-    await execFileAsync('swiftc', ['-O', '-o', bin, src])
+    await execFileAsync('swiftc', ['-O', '-o', bin, src], { timeout: 60_000 })
   } catch {
     throw new Error('本地 OCR 初始化失败：需要 Xcode 命令行工具（请运行 xcode-select --install）')
   }
@@ -69,7 +69,8 @@ async function ensureOcrBinary(): Promise<string> {
 }
 
 /** 对 png 做本地 Apple Vision OCR，返回每行文字 + 归一化 box 坐标。 */
-export async function ocrImageDetailed(pngPath: string): Promise<TextBox[]> {
+export async function ocrImageDetailed(pngPath: string, signal?: AbortSignal): Promise<TextBox[]> {
+  signal?.throwIfAborted()
   // 已缓存的二进制若被删除（升级覆盖 userData / 清理工具），重置缓存触发重新编译
   if (ensured && !existsSync(await ensured.catch(() => ''))) ensured = null
   // 编译失败时重置，下次重试；成功后缓存 Promise 避免重复编译
@@ -79,11 +80,13 @@ export async function ocrImageDetailed(pngPath: string): Promise<TextBox[]> {
       throw e
     })
   const bin = await ensured
-  const { stdout } = await execFileAsync(bin, [pngPath], { maxBuffer: 10 * 1024 * 1024 })
+  signal?.throwIfAborted()
+  const { stdout } = await execFileAsync(bin, [pngPath], { maxBuffer: 10 * 1024 * 1024, timeout: 20_000, signal })
   const raw = stdout.trim()
-  if (!raw) return []
+  if (!raw) throw new Error('本地 OCR 返回空响应')
   try {
     const arr = JSON.parse(raw) as Array<Partial<TextBox>>
+    if (!Array.isArray(arr)) throw new Error('本地 OCR 返回格式无效')
     return arr
       .filter((b) => b && typeof b.text === 'string')
       .map((b) => ({
@@ -94,7 +97,7 @@ export async function ocrImageDetailed(pngPath: string): Promise<TextBox[]> {
         h: Number(b.h) || 0
       }))
   } catch {
-    return []
+    throw new Error('本地 OCR 返回格式无效')
   }
 }
 

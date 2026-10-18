@@ -1,6 +1,6 @@
 // detections：屏幕感知的本地检测历史与用户备注（被动留存，供「记忆」页回看）。
 import { getDb } from './connection.ts'
-import { localNow } from '@shared/parsing'
+import { localNow, normalizeItem, type ParsedItem } from '@shared/parsing'
 import type { DetectionRecord } from '@shared/types'
 import { dayKey } from '@shared/work-report'
 import { randomUUID } from 'crypto'
@@ -13,6 +13,7 @@ interface DetectionRow {
   time_iso: string | null
   deadline: number
   source_text: string
+  item_json: string | null
   hits: string
   app: string | null
   status: string
@@ -20,12 +21,18 @@ interface DetectionRow {
 }
 
 function rowToDetection(r: DetectionRow): DetectionRecord {
+  let item: ParsedItem | null = null
+  try {
+    const raw: unknown = r.item_json ? JSON.parse(r.item_json) : null
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) item = normalizeItem(raw as Record<string, unknown>)
+  } catch { /* 旧记录或损坏证据仍可按摘要接受。 */ }
   return {
     id: r.id,
     title: r.title,
     timeIso: r.time_iso,
     deadline: !!r.deadline,
     sourceText: r.source_text,
+    item,
     hits: JSON.parse(r.hits || '[]'),
     app: r.app,
     status: r.status as DetectionRecord['status'],
@@ -42,6 +49,7 @@ export function addDetection(input: {
   timeIso: string | null
   deadline: boolean
   sourceText: string
+  item?: ParsedItem | null
   hits: string[]
   app: string | null
   /** 没过入队门槛的候选存成 archived：留痕参与去重，但不进用户的待确认队列（#128） */
@@ -58,19 +66,21 @@ export function addDetection(input: {
     timeIso: input.timeIso,
     deadline: input.deadline,
     sourceText: input.sourceText,
+    item: input.item ?? null,
     hits: input.hits,
     app: input.app,
     status: input.status ?? 'new',
     createdAt: localNow()
   }
   getDb().prepare(
-    'INSERT INTO detections (id, title, time_iso, deadline, source_text, hits, app, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO detections (id, title, time_iso, deadline, source_text, item_json, hits, app, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     rec.id,
     rec.title,
     rec.timeIso,
     rec.deadline ? 1 : 0,
     rec.sourceText,
+    rec.item ? JSON.stringify(rec.item) : null,
     JSON.stringify(rec.hits),
     rec.app,
     rec.status,
@@ -121,7 +131,7 @@ export function cleanupStaleDetections(): void {
     "UPDATE detections SET status='dismissed' WHERE status='new' AND ((time_iso IS NOT NULL AND deadline=0 AND time_iso < ?) OR created_at < ?)"
   ).run(at(Date.now() - 86_400_000), at(Date.now() - 7 * 86_400_000))
   // 屏幕 OCR 原文是高敏临时证据；48 小时后只保留标题、时间、应用和处理状态。
-  getDb().prepare("UPDATE detections SET source_text='' WHERE source_text != '' AND created_at < ?").run(
+  getDb().prepare("UPDATE detections SET source_text='', item_json=NULL WHERE (source_text != '' OR item_json IS NOT NULL) AND created_at < ?").run(
     at(Date.now() - 48 * 60 * 60 * 1000)
   )
 }

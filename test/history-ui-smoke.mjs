@@ -50,7 +50,7 @@ const checks = [
   ['History v2 默认开启、派生工作记录默认关闭且可独立回滚',
     /historyV2Enabled: map\.historyV2Enabled !== 'false'/.test(db) &&
       /historyDerivedWorkEnabled: map\.historyDerivedWorkEnabled === 'true'/.test(db) &&
-      /historyV2Enabled && settings\.historyDerivedWorkEnabled/.test(historyService)]
+      /historyV2Enabled && \(settings\.historyDerivedWorkEnabled \|\| usesTimelineForDay/.test(historyService)]
 ]
 
 for (const [name, ok] of checks) {

@@ -7,12 +7,14 @@
 //   node test/run.mjs history      只跑文件名含 history 的用例（可给多个关键词）
 //   node test/run.mjs --all        连需要 .env/API 的用例一起跑
 //   node test/run.mjs --verbose    打印每个用例的完整输出，而非只打印失败的
-import { spawn } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { readdirSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url))
+const require = createRequire(import.meta.url)
 
 // 需要真实 API 凭据（读 .env）的用例：默认跳过，CI 上没有密钥。
 const NEEDS_API = new Set(['parser-smoke.mjs', 'assistant-smoke.mjs'])
@@ -36,13 +38,36 @@ if (!selected.length) {
   process.exit(1)
 }
 
+const sqliteFiles = new Set(selected.filter((file) => readFileSync(join(TEST_DIR, file), 'utf8').includes('better-sqlite3')))
+const sqliteRuntime = sqliteFiles.size ? resolveSqliteRuntime() : null
+
+function resolveSqliteRuntime() {
+  // Local packaging builds for Electron; CI rebuilds the same addon for Node.
+  const probe = "const Database = require('better-sqlite3'); new Database(':memory:').close()"
+  const candidates = [
+    { executable: process.execPath, env: process.env },
+    { executable: require('electron'), env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }
+  ]
+  for (const candidate of candidates) {
+    const result = spawnSync(candidate.executable, ['-e', probe], {
+      cwd: dirname(TEST_DIR), env: candidate.env, encoding: 'utf8', timeout: 10_000
+    })
+    if (result.status === 0) return candidate
+  }
+  throw new Error('better-sqlite3 cannot load in Node or Electron; run npm ci to rebuild the native dependency')
+}
+
 function run(file) {
   return new Promise((resolve) => {
     const started = Date.now()
-    const child = spawn(process.execPath, [join(TEST_DIR, file)], { cwd: dirname(TEST_DIR) })
+    const runtime = sqliteFiles.has(file) ? sqliteRuntime : { executable: process.execPath, env: process.env }
+    const child = spawn(runtime.executable, [join(TEST_DIR, file)], {
+      cwd: dirname(TEST_DIR), env: runtime.env
+    })
     let out = ''
     child.stdout.on('data', (d) => (out += d))
     child.stderr.on('data', (d) => (out += d))
+    child.on('error', (error) => { out += error.message; resolve({ file, code: 1, out, ms: Date.now() - started }) })
     child.on('close', (code) => resolve({ file, code, out, ms: Date.now() - started }))
   })
 }

@@ -4,6 +4,7 @@ import { sanitizeWindowTitle } from '../../shared/activity-events.ts'
 import { isAppNameTask, isGenericFocusTask } from '../../shared/work-report.ts'
 import type { HistoryDerivedWorkRecordInput } from '../../shared/types.ts'
 import type { HistorySummaryDocument } from './summarizer.ts'
+import type { ActivityInterval } from '../../shared/activity-timeline.ts'
 
 const MAX_CONTENT_LENGTH = 200
 const MAX_TASK_LENGTH = 80
@@ -96,4 +97,25 @@ export function deriveHistoryWorkRecord(
     evidenceCount: Math.max(0, Math.trunc(Number(document.evidenceCount) || 0)),
     summaryHash: summaryHash(sourceHash, document)
   }
+}
+
+export function deriveTimelineWorkRecords(
+  document: HistorySummaryDocument,
+  sourceHash: string,
+  intervals: readonly ActivityInterval[],
+  knownApps: readonly string[] = []
+): (HistoryDerivedWorkRecordInput & { intervalId: string; activeMs: number })[] {
+  const summary = deriveHistoryWorkRecord(document, sourceHash, knownApps)
+  if (!summary) return []
+  const from = Date.parse(document.bucketStart)
+  const to = Date.parse(document.bucketEnd)
+  return intervals.flatMap((interval) => {
+    if (interval.state !== 'active' || !interval.historyAllowed || !interval.appName ||
+      !document.apps.includes(interval.appName)) return []
+    const start = Math.max(from, interval.startMs)
+    const end = Math.min(to, interval.endMs)
+    if (end <= start) return []
+    return [{ ...summary, app: interval.appName, intervalId: interval.id,
+      startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString(), activeMs: end - start }]
+  })
 }

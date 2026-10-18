@@ -18,8 +18,10 @@ import {
 import type { OcrTriggerReason } from '@shared/hybrid-history'
 import { cloudReady, parseToItemsRaw } from './parser'
 import { setWorkClassificationStatus, type AccessibilityWorkContext } from './activity-tracker'
-import { historyDerivedWorkActive } from './history/service.ts'
+import { getHistoryContentEpoch, historyContentAllowed, historyDerivedWorkActive } from './history/service.ts'
 import { debugEvent } from './windows'
+import { continuousActivityEvidence } from './db/activity-timeline.ts'
+import { extendLegacyWorkRecord } from './db/work-records.ts'
 
 export function legacyWorkSummaryHint(): string {
   return historyDerivedWorkActive() ? '' : lastWorkRecord.content
@@ -47,7 +49,7 @@ export function workSummaryHint(prevSummary: string, taskCandidates: string[]): 
 
 // 旧 OCR/手动路径的工作记录节流。History 派生路径不使用这组全局状态，避免跨 segment 串联。
 const WORK_RECORD_MIN_GAP_MS = 60 * 1000
-const lastWorkRecord = { atMs: 0, content: '', task: null as string | null, app: null as string | null }
+const lastWorkRecord = { atMs: 0, content: '', task: null as string | null, app: null as string | null, recordId: '', endMs: 0 }
 const OCR_FALLBACK_WORK_REASONS = new Set<OcrTriggerReason>([
   'manual',
   'observer_failure',
@@ -65,6 +67,8 @@ export function resetWorkRecordThrottle(): void {
   lastWorkRecord.content = ''
   lastWorkRecord.task = null
   lastWorkRecord.app = null
+  lastWorkRecord.recordId = ''
+  lastWorkRecord.endMs = 0
 }
 
 export function shouldPersistLegacyOcrWork(reason: OcrTriggerReason): boolean {
@@ -90,11 +94,19 @@ export function maybeAddWorkRecord(
   const taskKey = normalizeTaskKey(normalizedTask ?? '')
   const appKey = normalizeTaskKey(frontApp ?? '')
   const now = Date.now()
-  if (
-    normalizedSummary === lastWorkRecord.content &&
+  const occurred = occurredAtMs ?? now
+  const repeated = normalizedSummary === lastWorkRecord.content &&
     taskKey === normalizeTaskKey(lastWorkRecord.task ?? '') &&
     appKey === normalizeTaskKey(lastWorkRecord.app ?? '')
-  ) return
+  if (repeated && lastWorkRecord.recordId && frontApp && occurred > lastWorkRecord.endMs) {
+    const evidence = continuousActivityEvidence(lastWorkRecord.endMs, occurred, frontApp)
+    if (evidence) {
+      extendLegacyWorkRecord(lastWorkRecord.recordId, new Date(evidence.confirmedEndMs).toISOString(), evidence.activeMs)
+      lastWorkRecord.endMs = evidence.confirmedEndMs
+      lastWorkRecord.atMs = now
+      return
+    }
+  }
   // Accessibility 已经按片段聚合并限制最多 8 个上下文；不同语义活动不能再被
   // OCR 路径遗留的全局 60 秒节流合并。OCR 仍保留旧节流，避免旧路径高频写入。
   if (source === 'ocr' && now - lastWorkRecord.atMs < WORK_RECORD_MIN_GAP_MS) return
@@ -102,25 +114,32 @@ export function maybeAddWorkRecord(
   lastWorkRecord.content = normalizedSummary
   lastWorkRecord.task = normalizedTask
   lastWorkRecord.app = frontApp
-  addWorkRecord({
+  const saved = addWorkRecord({
     content: normalizedSummary,
     app: frontApp,
     task: normalizedTask,
     source,
     derivedBy: 'legacy',
-    createdAt: occurredAtMs == null ? undefined : localDateTimeAt(occurredAtMs)
+    createdAt: localDateTimeAt(occurred),
+    startAt: new Date(occurred).toISOString(),
+    endAt: new Date(occurred).toISOString(),
+    activeMs: 0
   })
+  lastWorkRecord.recordId = saved.id
+  lastWorkRecord.endMs = occurred
   debugEvent('record', `工作记录：${normalizedSummary}${normalizedTask ? `（任务：${normalizedTask}）` : ''}`)
 }
 
 // ---------- Accessibility 语义工作归类队列 ----------
 
 const SEMANTIC_WORK_MAX_CONTEXTS = 8
-const semanticWorkContexts = new Map<string, Map<string, AccessibilityWorkContext>>()
+interface SemanticWorkItem { context: AccessibilityWorkContext; historyEpoch: number; generation: number }
+const semanticWorkContexts = new Map<string, Map<string, SemanticWorkItem>>()
 const semanticWorkAttempted = new Set<string>()
 const semanticWorkTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let semanticWorkAbort: AbortController | null = null
 let semanticWorkQueue = Promise.resolve()
+let semanticWorkGeneration = 0
 
 function semanticWorkKey(context: AccessibilityWorkContext): string {
   return `${context.segmentId}|${semanticEvidenceKey(context)}`
@@ -131,114 +150,105 @@ function semanticWorkSegmentEndMs(segmentId: string): number {
   return Number.isFinite(start) ? start + 10 * 60 * 1000 : Date.now() + 60_000
 }
 
-function enqueueSemanticWork(contexts: AccessibilityWorkContext[]): void {
-  const unique = contexts.filter((context, index, all) => {
-    const key = semanticWorkKey(context)
-    return !semanticWorkAttempted.has(key) && all.findIndex((item) => semanticWorkKey(item) === key) === index
+function semanticWorkItemCurrent(item: SemanticWorkItem): boolean {
+  const context = item.context
+  return item.generation === semanticWorkGeneration && item.historyEpoch === getHistoryContentEpoch() &&
+    !historyDerivedWorkActive() && historyContentAllowed({ name: context.appName, bundleId: context.bundleId,
+      windowTitle: context.windowTitle, urlHost: context.urlHost }, item.historyEpoch)
+}
+
+function enqueueSemanticWork(items: SemanticWorkItem[]): void {
+  const unique = items.filter((item, index, all) => {
+    const key = `${item.historyEpoch}|${semanticWorkKey(item.context)}`
+    return semanticWorkItemCurrent(item) && !semanticWorkAttempted.has(key) &&
+      all.findIndex((other) => semanticWorkKey(other.context) === semanticWorkKey(item.context)) === index
   })
   if (!unique.length) return
-  unique.forEach((context) => semanticWorkAttempted.add(semanticWorkKey(context)))
+  unique.forEach((item) => semanticWorkAttempted.add(`${item.historyEpoch}|${semanticWorkKey(item.context)}`))
+  const generation = semanticWorkGeneration
   setWorkClassificationStatus({ status: 'pending', source: 'accessibility', detail: null })
   semanticWorkQueue = semanticWorkQueue
-    .then(() => classifySemanticWork(unique))
+    .then(() => { if (generation === semanticWorkGeneration) return classifySemanticWork(unique) })
     .catch((error) => {
-      if (semanticWorkAbort?.signal.aborted) return
+      if (generation !== semanticWorkGeneration || !unique.some(semanticWorkItemCurrent)) return
       setWorkClassificationStatus({
-        status: 'error',
-        source: 'accessibility',
-        detail: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
-        atMs: Date.now()
+        status: 'error', source: 'accessibility',
+        detail: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160), atMs: Date.now()
       })
       debugEvent('semantic-work', 'Accessibility 归类失败')
     })
 }
 
 export function scheduleSemanticWork(context: AccessibilityWorkContext): void {
-  const segment = semanticWorkContexts.get(context.segmentId) ?? new Map<string, AccessibilityWorkContext>()
+  if (historyDerivedWorkActive() || !getSettings().screenSenseWorkLog) return
+  const item = { context, historyEpoch: getHistoryContentEpoch(), generation: semanticWorkGeneration }
+  if (!semanticWorkItemCurrent(item)) return
+  const segment = semanticWorkContexts.get(context.segmentId) ?? new Map<string, SemanticWorkItem>()
+  for (const [key, pending] of segment) {
+    if (pending.historyEpoch !== item.historyEpoch || pending.generation !== item.generation) segment.delete(key)
+  }
   const key = semanticEvidenceKey(context)
-  if (!segment.has(key) && segment.size < SEMANTIC_WORK_MAX_CONTEXTS) segment.set(key, context)
+  if (segment.has(key) || segment.size < SEMANTIC_WORK_MAX_CONTEXTS) segment.set(key, item)
   semanticWorkContexts.set(context.segmentId, segment)
   if (context.highValueEvent) {
-    enqueueSemanticWork([context])
+    enqueueSemanticWork([item])
     return
   }
   if (semanticWorkTimers.has(context.segmentId)) return
+  const generation = semanticWorkGeneration
   const delay = Math.max(250, semanticWorkSegmentEndMs(context.segmentId) - Date.now() + 250)
-  semanticWorkTimers.set(
-    context.segmentId,
-    setTimeout(() => {
-      semanticWorkTimers.delete(context.segmentId)
-      const pending = [...(semanticWorkContexts.get(context.segmentId)?.values() ?? [])]
-      enqueueSemanticWork(pending)
-    }, delay)
-  )
+  semanticWorkTimers.set(context.segmentId, setTimeout(() => {
+    semanticWorkTimers.delete(context.segmentId)
+    if (generation !== semanticWorkGeneration) return
+    enqueueSemanticWork([...(semanticWorkContexts.get(context.segmentId)?.values() ?? [])])
+  }, delay))
 }
 
-async function classifySemanticWork(contexts: AccessibilityWorkContext[]): Promise<void> {
-  if (!contexts.length) return
-  if (!getSettings().screenSenseWorkLog) return
+async function classifySemanticWork(items: SemanticWorkItem[]): Promise<void> {
+  const allowed = items.filter(semanticWorkItemCurrent)
+  if (!allowed.length || !getSettings().screenSenseWorkLog) return
   if (!cloudReady()) {
-    setWorkClassificationStatus({
-      status: 'unavailable',
-      source: 'accessibility',
-      detail: '解析服务未就绪',
-      atMs: Date.now()
-    })
+    setWorkClassificationStatus({ status: 'unavailable', source: 'accessibility', detail: '解析服务未就绪', atMs: Date.now() })
     return
   }
   const controller = new AbortController()
   semanticWorkAbort = controller
   try {
-    const evidence = contexts.map((context) => ({
-      app: context.appName,
-      bundle_id: context.bundleId,
-      window_title: context.windowTitle,
-      focused_role: context.focusedRole,
-      safe_label: context.safeLabel,
-      event_type: context.eventKind,
-      semantic_score: context.semanticScore,
-      evidence_source: 'Accessibility'
+    const evidence = allowed.map(({ context }) => ({
+      app: context.appName, bundle_id: context.bundleId, window_title: context.windowTitle,
+      focused_role: context.focusedRole, safe_label: context.safeLabel, event_type: context.eventKind,
+      semantic_score: context.semanticScore, evidence_source: 'Accessibility'
     }))
     const { raw } = await parseToItemsRaw({
       text: JSON.stringify({ evidence }),
-      hint: buildSemanticWorkHint(legacyWorkSummaryHint() || null, listFocusTaskCandidates()),
-      signal: controller.signal
+      hint: buildSemanticWorkHint(legacyWorkSummaryHint() || null, listFocusTaskCandidates()), signal: controller.signal
     })
-    const results = parseSemanticWorkResults(raw, contexts.length)
+    if (controller.signal.aborted || !getSettings().screenSenseWorkLog || !allowed.some(semanticWorkItemCurrent)) return
+    const results = parseSemanticWorkResults(raw, allowed.length)
     let saved = 0
     results.forEach((result, index) => {
-      const context = contexts[index]
-      if (!context) return
+      const item = allowed[index]
+      if (!item || !semanticWorkItemCurrent(item)) return
+      const context = item.context
       const workSummary = normalizeActivitySummary(result.workSummary, {
-        appName: context.appName,
-        windowTitle: context.windowTitle,
-        safeLabel: context.safeLabel
+        appName: context.appName, windowTitle: context.windowTitle, safeLabel: context.safeLabel
       })
-      if (workSummary && !historyDerivedWorkActive()) {
-        maybeAddWorkRecord(
-          workSummary,
-          result.focusTask,
-          context.appName,
-          'accessibility',
-          context.occurredAtMs
-        )
-        saved += 1
-      }
+      if (!workSummary) return
+      maybeAddWorkRecord(workSummary, result.focusTask, context.appName, 'accessibility', context.occurredAtMs)
+      saved += 1
     })
     setWorkClassificationStatus({
-      status: 'ok',
-      source: 'accessibility',
-      detail: saved ? `已归类 ${saved} 条活动` : '模型未给出明确工作活动',
-      atMs: Date.now(),
-      increment: true
+      status: 'ok', source: 'accessibility', detail: saved ? `已归类 ${saved} 条活动` : '模型未给出明确工作活动',
+      atMs: Date.now(), increment: true
     })
-    debugEvent('semantic-work', `Accessibility 归类完成：${saved}/${contexts.length}`)
+    debugEvent('semantic-work', `Accessibility 归类完成：${saved}/${allowed.length}`)
   } finally {
     if (semanticWorkAbort === controller) semanticWorkAbort = null
   }
 }
 
 export function stopSemanticWorkClassifier(): void {
+  semanticWorkGeneration++
   for (const timer of semanticWorkTimers.values()) clearTimeout(timer)
   semanticWorkTimers.clear()
   semanticWorkContexts.clear()

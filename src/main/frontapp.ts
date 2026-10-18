@@ -1,9 +1,10 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import { promisify } from 'util'
 import { app } from 'electron'
 import type { ActivityEventKind, ActivityPrivacyState } from '../shared/activity-events.ts'
+import { parseScreenSnapshot, snapshotContext, type ScreenSnapshot } from './screen-snapshot.ts'
 import { ensureNativeHelperBinary } from './native-helper-cache.ts'
 // v3 保留给手动/兼容调用（一次性读前台上下文）；v4 是 Hybrid History 的长驻 JSONL collector。
 // Obj-C 源码在 native/*.m，经 ?raw 导入后由 native-helper-cache 按源码 hash 编译缓存。
@@ -63,6 +64,9 @@ export interface CollectorEvent {
   secureInput?: boolean
   privacyState?: ActivityPrivacyState
   inputMonitoring?: 'available' | 'unavailable' | 'unknown'
+  inputMonitoringPermission?: 'available' | 'unavailable' | 'unknown'
+  inputMonitoringListener?: 'active' | 'inactive' | 'unknown'
+  lastInputEventAtMs?: number | null
   occurredAtMs: number
   accessibility: 'available' | 'unavailable'
 }
@@ -74,6 +78,9 @@ export interface CollectorHealth {
   accessibility: 'available' | 'unavailable' | 'unknown'
   detail: string | null
   inputMonitoring?: 'available' | 'unavailable' | 'unknown'
+  inputMonitoringPermission?: 'available' | 'unavailable' | 'unknown'
+  inputMonitoringListener?: 'active' | 'inactive' | 'unknown'
+  lastInputEventAtMs?: number | null
 }
 
 export interface FrontmostCollectorHandle {
@@ -88,26 +95,15 @@ let ensured: Promise<string> | null = null
 let collectorEnsured: Promise<string> | null = null
 
 async function ensureBinary(): Promise<string> {
-  const bin = join(binDir(), 'frontmost-context-v3-oneshot')
-  if (existsSync(bin)) return bin
-  mkdirSync(binDir(), { recursive: true })
-  const src = join(binDir(), 'frontmost-context-v3-oneshot.m')
-  writeFileSync(src, oneshotObjcSrc)
-  await execFileAsync('/usr/bin/xcrun', [
-    'clang',
-    '-fobjc-arc',
-    '-O2',
-    '-framework',
-    'AppKit',
-    '-framework',
-    'ApplicationServices',
-    '-framework',
-    'CoreGraphics',
-    '-o',
-    bin,
-    src
-  ])
-  return bin
+  return ensureNativeHelperBinary({
+    directory: binDir(), binaryName: 'frontmost-context-v3-oneshot', source: oneshotObjcSrc,
+    compile: async (src, bin) => {
+      await execFileAsync('/usr/bin/xcrun', [
+        'clang', '-fobjc-arc', '-O2', '-framework', 'AppKit', '-framework',
+        'ApplicationServices', '-framework', 'CoreGraphics', '-framework', 'Carbon', '-o', bin, src
+      ], { timeout: 60_000 })
+    }
+  })
 }
 
 async function ensureCollectorBinary(): Promise<string> {
@@ -205,7 +201,7 @@ function parseCollectorLine(line: string): CollectorEvent | null {
         typeof raw.inputLength === 'number' && Number.isFinite(raw.inputLength)
           ? Math.max(0, Math.min(100_000, Math.trunc(raw.inputLength)))
           : undefined,
-      secureInput: raw.secureInput === true,
+      secureInput: typeof raw.secureInput === 'boolean' ? raw.secureInput : undefined,
       privacyState:
         raw.privacyState === 'private' ||
         raw.privacyState === 'excluded' ||
@@ -217,6 +213,20 @@ function parseCollectorLine(line: string): CollectorEvent | null {
         raw.inputMonitoring === 'available' || raw.inputMonitoring === 'unavailable' || raw.inputMonitoring === 'unknown'
           ? raw.inputMonitoring
           : undefined,
+      inputMonitoringPermission:
+        raw.inputMonitoringPermission === 'available' || raw.inputMonitoringPermission === 'unavailable' || raw.inputMonitoringPermission === 'unknown'
+          ? raw.inputMonitoringPermission
+          : undefined,
+      inputMonitoringListener:
+        raw.inputMonitoringListener === 'active' || raw.inputMonitoringListener === 'inactive' || raw.inputMonitoringListener === 'unknown'
+          ? raw.inputMonitoringListener
+          : undefined,
+      lastInputEventAtMs:
+        raw.lastInputEventAtMs === null
+          ? null
+          : typeof raw.lastInputEventAtMs === 'number' && Number.isFinite(raw.lastInputEventAtMs) && raw.lastInputEventAtMs > 0 && raw.lastInputEventAtMs <= 8.64e15
+            ? raw.lastInputEventAtMs
+            : undefined,
       occurredAtMs: raw.occurredAtMs,
       accessibility: raw.accessibility
     }
@@ -237,18 +247,24 @@ export function startFrontmostCollector(
   let launchStartedAtMs = Date.now()
   let accessibility: CollectorHealth['accessibility'] = 'unknown'
   let inputMonitoring: NonNullable<CollectorHealth['inputMonitoring']> = 'unknown'
+  let inputMonitoringPermission: NonNullable<CollectorHealth['inputMonitoringPermission']> = 'unknown'
+  let inputMonitoringListener: NonNullable<CollectorHealth['inputMonitoringListener']> = 'unknown'
+  let lastInputEventAtMs: number | null = null
   let restartTimer: ReturnType<typeof setTimeout> | null = null
   let watchdogTimer: ReturnType<typeof setInterval> | null = null
   let buffer = ''
 
   const report = (state: CollectorHealth['state'], detail: string | null = null): void => {
-    onHealth({ state, restartCount, lastHeartbeatAtMs, accessibility, detail, inputMonitoring })
+    onHealth({ state, restartCount, lastHeartbeatAtMs, accessibility, detail, inputMonitoring,
+      inputMonitoringPermission, inputMonitoringListener, lastInputEventAtMs })
   }
 
   const scheduleRestart = (detail: string): void => {
     if (stopped) return
     if (restartTimer) return
     child = null
+    inputMonitoring = 'unknown'
+    inputMonitoringListener = 'inactive'
     if (restartCount >= 3) {
       report('degraded', detail)
       return
@@ -264,6 +280,12 @@ export function startFrontmostCollector(
 
   const launch = async (): Promise<void> => {
     if (stopped || child) return
+    accessibility = 'unknown'
+    inputMonitoring = 'unknown'
+    inputMonitoringPermission = 'unknown'
+    inputMonitoringListener = 'unknown'
+    lastInputEventAtMs = null
+    lastHeartbeatAtMs = null
     report('starting')
     try {
       if (collectorEnsured && !existsSync(await collectorEnsured.catch(() => ''))) collectorEnsured = null
@@ -278,6 +300,7 @@ export function startFrontmostCollector(
       buffer = ''
       proc.stdout.setEncoding('utf8')
       proc.stdout.on('data', (chunk: string) => {
+        if (stopped || child !== proc) return
         buffer += chunk
         const lines = buffer.split(/\r?\n/)
         buffer = lines.pop() ?? ''
@@ -287,18 +310,27 @@ export function startFrontmostCollector(
           if (event.type === 'heartbeat') lastHeartbeatAtMs = event.occurredAtMs
           accessibility = event.accessibility
           if (event.inputMonitoring) inputMonitoring = event.inputMonitoring
-          report(event.accessibility === 'available' ? 'healthy' : 'degraded', event.accessibility === 'available' ? null : 'Accessibility unavailable')
+          if (event.inputMonitoringPermission) inputMonitoringPermission = event.inputMonitoringPermission
+          if (event.inputMonitoringListener) inputMonitoringListener = event.inputMonitoringListener
+          if (event.lastInputEventAtMs !== undefined) lastInputEventAtMs = event.lastInputEventAtMs
+          const detail = accessibility === 'unavailable' ? 'Accessibility unavailable'
+            : inputMonitoringPermission === 'unavailable' ? 'Input Monitoring permission unavailable'
+              : inputMonitoringListener === 'inactive' ? 'Input listener unavailable' : null
+          report(detail ? 'degraded' : 'healthy', detail)
           onEvent(event)
         }
       })
       proc.stderr.setEncoding('utf8')
       proc.stderr.on('data', (chunk: string) => {
+        if (stopped || child !== proc) return
         const detail = chunk.trim().slice(0, 160)
         if (detail) report('degraded', detail)
       })
-      proc.once('error', (error) => scheduleRestart(error.message))
+      proc.once('error', (error) => {
+        if (!stopped && child === proc) scheduleRestart(error.message)
+      })
       proc.once('exit', (code, signal) => {
-        if (!stopped) scheduleRestart(`collector exited (${code ?? 'null'}/${signal ?? 'none'})`)
+        if (!stopped && child === proc) scheduleRestart(`collector exited (${code ?? 'null'}/${signal ?? 'none'})`)
       })
     } catch (error) {
       scheduleRestart(error instanceof Error ? error.message : String(error))
@@ -323,34 +355,33 @@ export function startFrontmostCollector(
       if (watchdogTimer) clearInterval(watchdogTimer)
       if (child) child.kill()
       child = null
+      inputMonitoring = 'unknown'
+      inputMonitoringListener = 'inactive'
       report('stopped')
     }
   }
 }
 
-/** Current foreground app context; manual and legacy paths keep this fail-closed helper. */
-export async function getFrontmostContext(): Promise<FrontmostContext | null> {
+/** Snapshot only: never feeds the activity collector's state. */
+export async function getScreenSnapshot(signal?: AbortSignal): Promise<ScreenSnapshot | null> {
   try {
+    signal?.throwIfAborted()
     if (ensured && !existsSync(await ensured.catch(() => ''))) ensured = null
-    if (!ensured)
-      ensured = ensureBinary().catch((e) => {
-        ensured = null
-        throw e
-      })
+    if (!ensured) ensured = ensureBinary().catch((e) => { ensured = null; throw e })
     const bin = await ensured
-    const { stdout } = await execFileAsync(bin, [], { timeout: 3000 })
-    const raw = stdout.trim()
-    if (!raw) return null
-    const context = JSON.parse(raw) as Partial<FrontmostContext>
-    if (
-      typeof context.name !== 'string' ||
-      typeof context.bundleId !== 'string' ||
-      typeof context.windowTitle !== 'string'
-    ) return null
-    return { name: context.name, bundleId: context.bundleId, windowTitle: context.windowTitle }
+    signal?.throwIfAborted()
+    const { stdout } = await execFileAsync(bin, [], { timeout: 3000, signal })
+    return parseScreenSnapshot(JSON.parse(stdout.trim()))
   } catch {
+    signal?.throwIfAborted()
     return null
   }
+}
+
+/** Compatibility context for read-only callers; screenshot callers use the full snapshot. */
+export async function getFrontmostContext(): Promise<FrontmostContext | null> {
+  const snapshot = await getScreenSnapshot()
+  return snapshot ? snapshotContext(snapshot) : null
 }
 
 /** 当前前台 App 的本地化名称；兼容现有排除和切换检测调用方。 */

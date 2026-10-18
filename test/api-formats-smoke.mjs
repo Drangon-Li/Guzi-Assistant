@@ -1,8 +1,9 @@
-// 纯函数单测：解析/对话模型的三种接口格式适配。
+// 纯函数单测：自动协议候选顺序及三种接口格式适配。
 // 运行：node test/run.mjs api-formats
 import {
   ANTHROPIC_MAX_TOKENS,
   ANTHROPIC_VERSION,
+  apiFormatCandidates,
   chatBody,
   chatEndpoint,
   chatError,
@@ -33,8 +34,27 @@ const imgMsg = [
 // ---- 格式归一化 ----
 check('认得 anthropic', normalizeApiFormat('anthropic') === 'anthropic')
 check('认得 openai-chat', normalizeApiFormat('openai-chat') === 'openai-chat')
-check('未知值落回 responses（保持老行为）', normalizeApiFormat('乱填') === 'openai-responses')
-check('空值落回 responses', normalizeApiFormat(undefined) === 'openai-responses')
+check('保留显式 responses', normalizeApiFormat('openai-responses') === 'openai-responses')
+check('认得 auto', normalizeApiFormat('auto') === 'auto')
+check('未知值落回 auto', normalizeApiFormat('乱填') === 'auto')
+check('空值落回 auto', normalizeApiFormat(undefined) === 'auto' && normalizeApiFormat('') === 'auto')
+
+// ---- URL 仅用于排列候选，必须继续用真实请求验证 ----
+const candidates = (base) => apiFormatCandidates(base).join(',')
+const CHAT_FIRST = 'openai-chat,openai-responses,anthropic'
+check('未知第三方按 chat → responses → anthropic', candidates('https://gateway.example') === CHAT_FIRST)
+check('OpenAI 精确官方主机优先 responses', apiFormatCandidates('https://api.openai.com/v1')[0] === 'openai-responses')
+check('OpenAI 后缀冒充主机不获得官方优先级', candidates('https://api.openai.com.evil.example/v1') === CHAT_FIRST)
+check('URL 路径中的官方域名不获得官方优先级', candidates('https://gateway.example/api.openai.com') === CHAT_FIRST)
+check('火山 coding v3 优先 responses', apiFormatCandidates('https://ark.cn-beijing.volces.com/api/coding/v3')[0] === 'openai-responses')
+check('Anthropic 官方主机优先 messages', apiFormatCandidates('https://api.anthropic.com')[0] === 'anthropic')
+check('anthropic 路径优先 messages', apiFormatCandidates('https://gateway.example/anthropic')[0] === 'anthropic')
+check('完整 responses 路径是强提示', apiFormatCandidates('https://gateway.example/v3/responses')[0] === 'openai-responses')
+check('完整 chat 路径优先于 OpenAI 主机提示', apiFormatCandidates('https://api.openai.com/v1/chat/completions')[0] === 'openai-chat')
+check('完整 messages 路径优先于火山主机提示', apiFormatCandidates('https://ark.cn-beijing.volces.com/api/coding/v3/messages')[0] === 'anthropic')
+check('候选包含且仅包含三种具体协议', [
+  'https://gateway.example', 'https://api.openai.com', 'https://api.anthropic.com'
+].every((base) => [...apiFormatCandidates(base)].sort().join(',') === 'anthropic,openai-chat,openai-responses'))
 
 // ---- 端点 ----
 check('responses 端点', chatEndpoint('https://x.com', 'openai-responses') === 'https://x.com/v1/responses')
@@ -42,6 +62,10 @@ check('chat 端点', chatEndpoint('https://x.com', 'openai-chat') === 'https://x
 check('anthropic 端点', chatEndpoint('https://x.com', 'anthropic') === 'https://x.com/v1/messages')
 check('已带 /v1 不重复拼', chatEndpoint('https://x.com/v1', 'openai-chat') === 'https://x.com/v1/chat/completions')
 check('结尾斜杠不产生双斜杠', chatEndpoint('https://x.com/', 'anthropic') === 'https://x.com/v1/messages')
+check('火山 /api/coding/v3 保持 v3', chatEndpoint('https://ark.cn-beijing.volces.com/api/coding/v3', 'openai-responses') === 'https://ark.cn-beijing.volces.com/api/coding/v3/responses')
+check('完整 chat 端点不重复拼接', chatEndpoint('https://x.com/v2/chat/completions', 'openai-chat') === 'https://x.com/v2/chat/completions')
+check('完整 responses 端点可切到 messages', chatEndpoint('https://x.com/v3/responses', 'anthropic') === 'https://x.com/v3/messages')
+check('完整 messages 端点可切到 responses', chatEndpoint('https://x.com/v3/messages/', 'openai-responses') === 'https://x.com/v3/responses')
 
 // ---- 请求头 ----
 const oaH = chatHeaders('sk-1', 'openai-chat')
@@ -56,6 +80,7 @@ check('Anthropic 带版本头', anH['anthropic-version'] === ANTHROPIC_VERSION)
 const rb = chatBody({ model: 'm', instructions: 'SYS', input: textMsg, effort: 'none' }, 'openai-responses')
 check('responses 保持 instructions + input 原样', rb.instructions === 'SYS' && rb.input === textMsg)
 check('responses 带 reasoning', JSON.stringify(rb.reasoning) === '{"effort":"none"}')
+check('responses 短测试 token 上限', chatBody({ model: 'm', instructions: 'S', input: textMsg, maxOutputTokens: 16 }, 'openai-responses').max_output_tokens === 16)
 check(
   'responses 不给 effort 时不带 reasoning',
   chatBody({ model: 'm', instructions: 'S', input: textMsg }, 'openai-responses').reasoning === undefined
@@ -66,6 +91,7 @@ const cb = chatBody({ model: 'm', instructions: 'SYS', input: textMsg, effort: '
 check('chat 首条是 system', cb.messages[0].role === 'system' && cb.messages[0].content === 'SYS')
 check('chat 用户消息跟在后面', cb.messages[1].role === 'user' && cb.messages[1].content === '你好')
 check('chat 不带 reasoning（网关多半不认）', cb.reasoning === undefined)
+check('chat 短测试 token 上限', chatBody({ model: 'm', instructions: 'S', input: textMsg, maxOutputTokens: 16 }, 'openai-chat').max_tokens === 16)
 const cbImg = chatBody({ model: 'm', instructions: 'S', input: imgMsg }, 'openai-chat')
 check(
   'chat 图片转成 image_url',
@@ -83,6 +109,7 @@ check(
 const ab = chatBody({ model: 'm', instructions: 'SYS', input: textMsg }, 'anthropic')
 check('anthropic system 独立字段', ab.system === 'SYS')
 check('anthropic 必须带 max_tokens', ab.max_tokens === ANTHROPIC_MAX_TOKENS)
+check('anthropic 短测试 token 上限覆盖默认值', chatBody({ model: 'm', instructions: 'S', input: textMsg, maxOutputTokens: 16 }, 'anthropic').max_tokens === 16)
 check('anthropic messages 里没有 system 角色', !ab.messages.some((m) => m.role === 'system'))
 check('anthropic 文本段', ab.messages[0].content[0].type === 'text')
 const abImg = chatBody({ model: 'm', instructions: 'S', input: imgMsg }, 'anthropic')

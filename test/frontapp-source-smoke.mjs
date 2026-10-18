@@ -46,6 +46,8 @@ const checks = [
   ['同标题窗口使用 WindowServer 身份区分', /kCGWindowNumber/.test(nativeSource) && /lastWindowId/.test(nativeSource) && /windowId\s*==\s*lastWindowId/.test(nativeSource)],
   ['无前台应用仍发送 heartbeat', /if \(!application && !\[type isEqualToString:@"heartbeat"\]\) return/.test(nativeSource) && /emitActivity\(@"heartbeat", front/.test(nativeSource)],
   ['Input Monitoring 使用权限预检和实际事件探针', /CGPreflightListenEventAccess\(\)/.test(nativeSource) && /inputMonitoringStatus/.test(nativeSource) && /inputMonitoringObserved/.test(nativeSource) && /@"unknown"/.test(nativeSource)],
+  ['NSEvent monitor 使用后台 NSApplication 事件循环', /\[NSApplication sharedApplication\]/.test(collectorSource) && /NSApplicationActivationPolicyProhibited/.test(collectorSource) && /\[NSApp run\]/.test(collectorSource) && !/\[\[NSRunLoop currentRunLoop\] run\]/.test(collectorSource)],
+  ['输入健康分别报告授权、监听和最后事件时间', /inputMonitoringPermission/.test(collectorSource) && /inputMonitoringListener/.test(collectorSource) && /handleGlobalEvent:[\s\S]*lastInputEventAtMs = nowMs\(\)/.test(collectorSource)],
   ['collector IPC 拒绝键盘/选中文本字段', /charactersIgnoringModifiers/.test(source) && /selectedText/.test(source) && /return null/.test(source)],
   ['AX 超时进入 degraded/backoff', /kAXErrorCannotComplete/.test(nativeSource) && /activeAccessibilityAvailable/.test(nativeSource) && /noteBundleFailure\(application\)/.test(nativeSource)],
   ['native helper 对 bundle 失败做退避', /bundleBackoffUntil/.test(source) && /noteBundleFailure/.test(source) && /bundleBackedOff/.test(source)],

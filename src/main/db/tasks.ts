@@ -115,15 +115,13 @@ function markOverdue(): void {
 }
 
 /** 是否已存在同名同截止时间的有效任务（重复提交去重） */
-const hasClock = (iso: string | null): boolean => !!iso && iso.slice(11, 16) !== '00:00'
 // 归一化标题：剥掉模型常加的动作词/虚词，只留事件主体，便于「同一事件不同表述」对照
 const DUP_STRIP = /参加|参与|出席|列席|旁听|报名|提醒|记得|别忘了|去|到场/g
 const normTitle = (t: string): string => t.replace(DUP_STRIP, '').replace(/[\s的了·,，。、:：]/g, '').toLowerCase()
 
 /**
- * 模糊查重：识别「同一事件的不同表述」（本地「开会」与云端「参加华师大会议」=同一个会）。命中返回已有任务标题，否则 null。
- * 信号：① 两者都带具体钟点且分钟级相等（同一时刻=同一事件，强信号）；② 归一化标题相等/互相包含 + 同日。
- * 注：比旧 taskExists（标题+时间完全相等）更宽，代价是同一时刻的两件不同事可能被误判为重复。
+ * 模糊查重：识别「同一事件的不同表述」（「参加课题组会议」与「课题组会议」）。命中返回已有任务标题，否则 null。
+ * 标题必须相等或有足够长度的包含关系，并且时间相同；只有日期的默认时间仍参与标题联合判断。
  */
 export function findDuplicateTitle(title: string, startTime: string | null, dueTime: string | null): string | null {
   const candTime = dueTime ?? startTime
@@ -133,11 +131,13 @@ export function findDuplicateTitle(title: string, startTime: string | null, dueT
     .all() as { title: string; start_time: string | null; due_time: string | null }[]
   for (const r of rows) {
     const exTime = r.due_time ?? r.start_time
-    if (hasClock(candTime) && hasClock(exTime) && candTime!.slice(0, 16) === exTime!.slice(0, 16)) return r.title
     const exNorm = normTitle(r.title)
-    if (candNorm && exNorm && (candNorm === exNorm || candNorm.includes(exNorm) || exNorm.includes(candNorm))) {
-      const sameDay = candTime && exTime && candTime.slice(0, 10) === exTime.slice(0, 10)
-      if (sameDay || (!candTime && !exTime)) return r.title
+    const similarTitle = candNorm && exNorm && (candNorm === exNorm || (
+      Math.min(candNorm.length, exNorm.length) >= 4 && (candNorm.includes(exNorm) || exNorm.includes(candNorm))
+    ))
+    if (similarTitle) {
+      const sameTime = candTime && exTime && candTime.slice(0, 16) === exTime.slice(0, 16)
+      if (sameTime || (!candTime && !exTime)) return r.title
     }
   }
   return null
@@ -240,6 +240,20 @@ export function updateTask(id: string, patch: Partial<TaskRecord>): void {
     const next = row.due_time || row.start_time ? 'scheduled' : 'not_started'
     getDb().prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run(next, localNow(), id)
   }
+}
+
+/** 用户明确确认 pending 草稿：归属与状态一起落库；普通状态编辑不代表归属确认。 */
+export function confirmTasks(ids: string[]): void {
+  const now = localNow()
+  const stmt = getDb().prepare(`
+    UPDATE tasks SET belongs_to_user = 'yes',
+      status = CASE WHEN start_time IS NOT NULL OR due_time IS NOT NULL THEN 'scheduled' ELSE 'not_started' END,
+      updated_at = ?
+    WHERE id = ? AND status = 'pending'
+  `)
+  getDb().transaction(() => {
+    for (const id of ids) stmt.run(now, id)
+  })()
 }
 
 export function bulkUpdateStatus(ids: string[], status: TaskStatus): void {

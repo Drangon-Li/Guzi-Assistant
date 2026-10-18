@@ -57,7 +57,7 @@ check(
 )
 check('无 ops 字段 → 空数组', parseAssistantOutput('{"reply":"r"}').ops.length === 0)
 
-// ---- resolveAddPicks：add 序号先指上一轮候选，越界回落本轮候选 ----
+// ---- resolveAddPicks：来源明确且不跨候选组回落 ----
 {
   const prev = [normalizeItem({ title: '旧候选' })]
   const curr = [normalizeItem({ title: '明天提醒我交周报', due_time: '2026-08-24T23:59' })]
@@ -69,12 +69,12 @@ check('无 ops 字段 → 空数组', parseAssistantOutput('{"reply":"r"}').ops.
     })()
   )
   check(
-    '确认旧候选：序号命中上一轮列表时优先用上一轮',
-    resolveAddPicks([{ candidate: 1, patch: null, force: false }], prev, curr)[0].item.title === '旧候选'
+    '确认旧候选：明确 previous 来源',
+    resolveAddPicks([{ source: 'previous', candidate: 1, patch: null, force: false }], prev, curr)[0].item.title === '旧候选'
   )
   check(
-    '序号越过上一轮时回落本轮',
-    resolveAddPicks([{ candidate: 2, patch: null, force: false }], prev, [curr[0], normalizeItem({ title: '第二项' })])[0].item.title === '第二项'
+    '两组同时存在缺来源 → 不添加',
+    resolveAddPicks([{ candidate: 2, patch: null, force: false }], prev, [curr[0], normalizeItem({ title: '第二项' })]).length === 0
   )
   check(
     'patch 应用到回落的候选上',

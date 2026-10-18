@@ -69,17 +69,17 @@ const runs = productiveRuns(
   cat
 )
 check('分成 3 段', runs.length === 3)
-check('第一段 6 分钟', runs[0].seconds === 6 * 60)
-check('第二段 09:20–09:25', runs[1].start.endsWith('09:20') && runs[1].seconds === 6 * 60)
+check('第一段仅两条一分钟估算，不桥接观察空隙', runs[0].seconds === 2 * 60)
+check('第二段 09:20–09:25', runs[1].start.endsWith('09:20') && runs[1].seconds === 2 * 60)
 check('单条段算 1 分钟', runs[2].seconds === 60)
 const longRuns = productiveRuns(
   [wr('10:00', 'Code'), wr('10:08', 'Code'), wr('10:16', 'Code'), wr('10:24', 'Code')],
   cat
 )
-check('25 分钟段计深度工作', deepWorkSeconds(longRuns) === 25 * 60)
+check('四条分散观察不被虚构成25分钟深度工作', deepWorkSeconds(longRuns) === 0)
 check('短段不计深度工作', deepWorkSeconds(runs) === 0)
-check('深度块数', deepBlockCount(longRuns) === 1 && deepBlockCount(runs) === 0)
-check('最长专注块', longestRunSeconds(longRuns) === 25 * 60)
+check('深度块数', deepBlockCount(longRuns) === 0 && deepBlockCount(runs) === 0)
+check('最长专注块', longestRunSeconds(longRuns) === 4 * 60)
 check('空记录 → 空段', productiveRuns([], cat).length === 0)
 
 // ---- taskSwitchCount ----
@@ -109,7 +109,7 @@ check(
 check('切换不足 → null', shortDwellShare([sw('09:00')]) === null)
 
 // ---- productiveRunsFromSwitches：前台切换口径的专注段 ----
-const psw = (t, to) => ({ ts: `2026-07-02T${t}:00`, fromApp: null, toApp: to })
+const psw = (t, to) => ({ ts: `2026-07-02T${t}:00`, fromApp: 'previous', toApp: to })
 const swNow = Date.parse('2026-07-02T10:00:00')
 {
   // Code 20min → 微信 5min → Code 35min：短暂中性插断 ≤10min 桥接成一段
@@ -119,7 +119,7 @@ const swNow = Date.parse('2026-07-02T10:00:00')
     10,
     swNow
   )
-  check('切换口径：插断桥接成一段', r.length === 1 && r[0].seconds === 3600)
+  check('切换口径：插断桥接成一段', r.length === 1 && r[0].seconds === 1200)
   check('切换口径：深度块 1 个', deepBlockCount(r) === 1)
 }
 {
@@ -130,7 +130,7 @@ const swNow = Date.parse('2026-07-02T10:00:00')
     10,
     swNow
   )
-  check('切换口径：长分心断开两段', r.length === 2 && r[0].seconds === 1800 && r[1].seconds === 600)
+  check('切换口径：末条缺少结束证据不计时', r.length === 1 && r[0].seconds === 1800)
 }
 {
   const r = productiveRunsFromSwitches([psw('09:00', '微信'), psw('09:30', 'bilibili')], cat, 10, swNow)
@@ -139,7 +139,7 @@ const swNow = Date.parse('2026-07-02T10:00:00')
 {
   // 用户覆盖后微信变专注
   const r = productiveRunsFromSwitches([psw('09:00', '微信')], (a) => categoryOf(a, ov), 10, swNow)
-  check('切换口径：分类覆盖生效', r.length === 1 && r[0].seconds === 3600)
+  check('切换口径：分类覆盖不补不存在的末尾时长', r.length === 0)
 }
 check('切换口径：空切换 → 空段', productiveRunsFromSwitches([], cat).length === 0)
 check('谷子学术默认专注类', categoryOf('谷子学术', noOv) === 'productive')

@@ -19,7 +19,7 @@ check('helper 规范化钩子已启用', /afterPack:\s*scripts\/after-pack\.cjs/
 check('外部显示名使用谷子助手', /CFBundleDisplayName:\s*谷子助手/.test(builder))
 check('主 Bundle 内部名保留 GuziAssistant', /CFBundleName:\s*GuziAssistant/.test(builder))
 check('主进程可执行文件由钩子保留 GuziAssistant', /CFBundleExecutable.*GuziAssistant|INTERNAL\s*=\s*'GuziAssistant'/.test(builder + read('../scripts/after-pack.cjs')))
-check('安装包文件名使用谷子助手', /artifactName:\s*['"]谷子助手-/.test(builder))
+check('安装包文件名使用 ASCII', /artifactName:\s*['"]GuziAssistant-/.test(builder))
 check('appId 保持不变', /appId:\s*cn\.shilong\.gooz/.test(builder))
 check('userData 固定到旧目录', /app\.setPath\('userData', join\(app\.getPath\('appData'\), 'GuziAssistant'\)\)/.test(index))
 check('快捷操作继续使用兼容 dropbox', /Application Support\/GuziAssistant\/dropbox/.test(quickAction))
