@@ -2,6 +2,7 @@
 // 保留：点击穿透 hit-test、手动拖拽、单击桌宠（开助手）、双击桌宠（开/关主窗）、气泡内容替换、文件拖放到桌宠。
 // 去掉：动画 reaction/motion 状态、音频、TTS、override、插件气泡 action/input、hover。
 const { ipcRenderer, webUtils } = require('electron')
+const contentEpoch = ipcRenderer.sendSync('guzi-assistant:content-epoch')
 
 let lastInteractiveHit = null
 let dragging = false
@@ -206,7 +207,7 @@ const installMouseInterop = () => {
         }
       })
       .filter(Boolean)
-    if (paths.length) ipcRenderer.send('openpets:pet-drop-files', paths)
+    if (paths.length) ipcRenderer.send('openpets:pet-drop-files', { contentEpoch }, paths)
     setInteractiveHit(false, 'drag')
   })
 

@@ -9,6 +9,10 @@ import { PLUGINS, findPlugin } from '@shared/plugin-registry'
 
 const KEY = 'enabledPlugins'
 
+export function pluginSettingKey(id: string, key: string): string {
+  return `plugin:${id}:${key}`
+}
+
 /**
  * 已启用的插件 id。会顺手剔除注册表里已不存在的、以及硬依赖不全的条目——
  * 用户手改过库、或者某个插件在新版里被下掉时，不至于让主进程按残缺状态跑。
@@ -44,7 +48,7 @@ export function writeEnabledPlugins(ids: readonly string[]): void {
 export function readPluginSetting(id: string, key: string): string | null {
   const row = getDb()
     .prepare('SELECT value FROM settings WHERE key = ?')
-    .get(`plugin:${id}:${key}`) as { value: string } | undefined
+    .get(pluginSettingKey(id, key)) as { value: string } | undefined
   return row?.value ?? null
 }
 
@@ -53,7 +57,7 @@ export function writePluginSetting(id: string, key: string, value: string): void
     .prepare(
       'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
     )
-    .run(`plugin:${id}:${key}`, value)
+    .run(pluginSettingKey(id, key), value)
 }
 
 /** 卸载时连偏好一起清掉，否则重装会带着上一轮的设置回来。 */

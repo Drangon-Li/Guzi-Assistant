@@ -12,11 +12,11 @@ import {
   focusLabel,
   goalLabel,
   formatCountdown,
-  nextPhase,
   remainingSeconds,
   type DayStats,
   type PomodoroKind,
   type PomodoroPrefs,
+  type PomodoroRuntime,
   type PomodoroSession,
   type TaskBreakdown
 } from '@shared/pomodoro'
@@ -69,21 +69,26 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
   // 刚走完的那一轮：拿来生成复盘，用户处理完（保留或丢弃）就清掉
   const [reviewFor, setReviewFor] = useState<string | null>(null)
   const finishing = useRef(false)
+  const refreshRequest = useRef(0)
 
   const refresh = useCallback(async () => {
-    const [today, hist] = await Promise.all([
+    const request = ++refreshRequest.current
+    const [today, hist, runtime] = await Promise.all([
       api.plugin<TodayPayload>('pomodoro', 'today'),
-      api.plugin<HistoryRow[]>('pomodoro', 'history', 14)
+      api.plugin<HistoryRow[]>('pomodoro', 'history', 14),
+      api.plugin<PomodoroRuntime>('pomodoro', 'runtime')
     ])
+    if (request !== refreshRequest.current) return
     setStats(today.stats)
     setSessions(today.sessions)
     setByTask(today.byTask)
     setHistory(hist)
+    setSession(runtime.running)
+    setQueued(runtime.next)
   }, [])
 
   useEffect(() => {
     void api.plugin<PomodoroPrefs>('pomodoro', 'prefs').then(setPrefs)
-    void api.plugin<PomodoroSession | null>('pomodoro', 'running').then((s) => setSession(s))
     void api.listTasks().then(setTasks)
     void refresh()
   }, [refresh])
@@ -100,31 +105,12 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
     async (completed: boolean) => {
       if (!session || finishing.current) return
       finishing.current = true
-      const justFinished = session.kind
-      const finishedId = session.id
-      await api.plugin('pomodoro', 'finish', finishedId, completed)
-      setSession(null)
-      const after = await api.plugin<TodayPayload>('pomodoro', 'today')
-      setStats(after.stats)
-      setSessions(after.sessions)
-      setByTask(after.byTask)
-      void api.plugin<HistoryRow[]>('pomodoro', 'history', 14).then(setHistory)
-      if (completed) {
-        const next = nextPhase(justFinished, after.stats.rounds, prefs)
-        setQueued(next)
-        await api.plugin(
-          'pomodoro',
-          'say',
-          justFinished === 'focus'
-            ? `一轮专注完成了，歇 ${next.minutes} 分钟吧`
-            : '休息结束，接着来一轮？'
-        )
-      } else {
-        setQueued(null)
-      }
-      finishing.current = false
+      try {
+        await api.plugin('pomodoro', 'finish', session.id, completed)
+        await refresh()
+      } finally { finishing.current = false }
     },
-    [session, prefs]
+    [session, refresh]
   )
 
   // 只负责显示读数。**到点结算在主进程**——页面没开着的时候那一轮照样要结算、
@@ -142,7 +128,6 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
     return api.on('guzi-assistant:plugin-event', (payload) => {
       const e = payload as { event?: string; payload?: { sessionId?: string } }
       if (e.event !== 'pomodoro:round-completed' && e.event !== 'pomodoro:break-completed') return
-      setSession(null)
       void refresh()
       if (e.event === 'pomodoro:round-completed' && e.payload?.sessionId) {
         setReviewFor(e.payload.sessionId)
@@ -158,7 +143,7 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
   const start = useCallback(
     async (kind: PomodoroKind, minutes: number): Promise<void> => {
       const task = activeTasks.find((t) => t.id === pickedTask)
-      const created = await api.plugin<PomodoroSession | null>(
+      await api.plugin<PomodoroSession | null>(
         'pomodoro',
         'start',
         kind,
@@ -167,28 +152,16 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
         kind === 'focus' ? task?.id ?? null : null,
         kind === 'focus' ? task?.title ?? null : null
       )
-      setQueued(null)
       setCustomMin(null)
-      setSession(created)
+      await refresh()
     },
-    [activeTasks, pickedTask, pickedBlock]
+    [activeTasks, pickedTask, pickedBlock, refresh]
   )
-
-  // 自动开始下一轮：勾了才自动，否则停在「准备开始」等用户点
-  useEffect(() => {
-    if (!queued || !prefs.autoStart || session) return
-    void start(queued.kind, queued.minutes)
-  }, [queued, prefs.autoStart, session, start])
 
   const togglePause = async (): Promise<void> => {
     if (!session) return
-    setSession(
-      await api.plugin<PomodoroSession | null>(
-        'pomodoro',
-        session.pausedAt ? 'resume' : 'pause',
-        session.id
-      )
-    )
+    await api.plugin('pomodoro', session.pausedAt ? 'resume' : 'pause', session.id)
+    await refresh()
   }
 
   const saveNote = async (id: string, text: string): Promise<void> => {
@@ -250,7 +223,7 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
       <div className="mb-5 flex flex-col items-center rounded-xl border border-slate-200 bg-surface px-6 py-8 shadow-sm">
         <Dial ratio={ratio} kind={session?.kind ?? queued?.kind ?? 'focus'} dim={paused}>
           <div className={`text-4xl font-semibold tabular-nums ${paused ? 'text-slate-300' : ''}`}>
-            {session ? formatCountdown(remaining) : formatCountdown(startMinutes * 60)}
+            {session ? formatCountdown(remaining) : formatCountdown((queued?.minutes ?? startMinutes) * 60)}
           </div>
           <div className="mt-1 text-xs text-slate-400">
             {session
@@ -365,7 +338,7 @@ export default function PomodoroPage({ enabledPlugins }: PluginPageProps): React
                 </button>
               )}
               <button
-                onClick={() => setQueued(null)}
+                onClick={() => void api.plugin('pomodoro', 'dismiss-next').then(refresh)}
                 className="rounded-lg border border-slate-200 px-5 py-2 text-sm text-slate-500"
               >
                 先停一下
@@ -497,12 +470,15 @@ function SessionRow({
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(session.note ?? '')
+  const status = session.endAt
+    ? session.completed ? '完成' : '中途放弃'
+    : session.pausedAt ? '已暂停' : '进行中'
 
   return (
     <li className="flex items-start gap-3 py-2.5">
       <span
         className={`mt-1 size-2 shrink-0 rounded-full ${session.completed ? 'bg-brand' : 'bg-slate-300'}`}
-        title={session.completed ? '完成' : '中途放弃'}
+        title={status}
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 text-sm">
@@ -513,7 +489,7 @@ function SessionRow({
               {session.taskTitle}
             </span>
           )}
-          {!session.completed && <span className="text-xs text-slate-400">未完成</span>}
+          {!session.completed && <span className="text-xs text-slate-400">{session.endAt ? '未完成' : status}</span>}
         </div>
         {editing ? (
           <input

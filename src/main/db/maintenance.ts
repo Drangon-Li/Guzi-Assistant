@@ -3,6 +3,7 @@
 import { getDb } from './connection.ts'
 import { listWorkRecordsBetween } from './work-records.ts'
 import { localNow } from '@shared/parsing'
+import { pluginSettingKey } from './plugins.ts'
 
 /** 数据导出：某时间范围（含端点，日键比较）内的工作记录/日报/应用时长/检测。 */
 export function exportRange(fromDay: string, toDay: string): Record<string, unknown> {
@@ -26,12 +27,23 @@ export function exportRange(fromDay: string, toDay: string): Record<string, unkn
 }
 
 export function wipeAll(): void {
-  getDb().exec(
-    'DELETE FROM tasks; DELETE FROM sources; DELETE FROM detections; DELETE FROM profile; DELETE FROM work_records; DELETE FROM app_usage; DELETE FROM reports; DELETE FROM personal_memory; DELETE FROM focus_tasks; DELETE FROM app_switches; DELETE FROM app_categories; DELETE FROM detection_notes; DELETE FROM activity_segments; DELETE FROM ocr_evidence; DELETE FROM history_summaries; DELETE FROM activity_intervals;'
-  )
+  const db = getDb()
+  // FTS shadow 表由虚表管理，逐个 DELETE 会破坏索引；停用插件的内容表也要覆盖。
+  const tables = db.prepare(`
+    SELECT name FROM pragma_table_list
+    WHERE schema = 'main' AND type IN ('table', 'virtual')
+      AND name NOT LIKE 'sqlite_%' AND name != 'settings'
+  `).all() as { name: string }[]
+  db.transaction(() => {
+    for (const { name } of tables) db.exec(`DELETE FROM "${name.replace(/"/g, '""')}"`)
+    if (tables.some(({ name }) => name === 'sources_fts'))
+      db.exec("INSERT INTO sources_fts(sources_fts) VALUES('optimize')")
+    db.prepare("DELETE FROM settings WHERE key LIKE 'activityTimelineComparison:%' OR key = ?")
+      .run(pluginSettingKey('pomodoro', 'continuation'))
+  })()
   // SQLite 删除只标记页空闲，原文字节仍留在文件里；清数据要真正回收
-  getDb().pragma('wal_checkpoint(TRUNCATE)')
-  getDb().exec('VACUUM')
+  db.exec('VACUUM')
+  db.pragma('wal_checkpoint(TRUNCATE)')
 }
 
 /** 清空「记忆」：来源历史(sources+FTS)、屏幕识别历史(detections)、工作记录与个人画像。保留任务/档案/日报。 */

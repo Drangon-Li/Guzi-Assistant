@@ -16,6 +16,7 @@ import {
   workRecordStart
 } from '@shared/work-report'
 import type { Profile } from '@shared/types'
+import { assertContentEpoch, captureContentEpoch } from './content-lifecycle.ts'
 
 const LOOKBACK_DAYS = 14
 
@@ -72,6 +73,7 @@ async function generate(instructions: string, text: string): Promise<string> {
 
 /** 刷新近期行为画像：近 14 天活动 + 任务 → 云端归纳「最近在做什么」。 */
 export async function refreshPersonalMemory(): Promise<PersonalMemory> {
+  const epoch = captureContentEpoch()
   const { profile, activityLines, tasks } = gatherMaterial()
   if (!activityLines.length && !tasks.length)
     throw new Error('还没有足够的历史活动，用一段时间后再来生成')
@@ -83,11 +85,14 @@ export async function refreshPersonalMemory(): Promise<PersonalMemory> {
     cur.recent,
     cur.base
   )
-  return setPersonalMemory('recent', await generate(instructions, text))
+  const content = await generate(instructions, text)
+  assertContentEpoch(epoch)
+  return setPersonalMemory('recent', content)
 }
 
 /** 刷新基本画像：以档案为主、长期活动模式为辅，小幅演进用户的身份定义（3~6 条）。 */
 export async function refreshBaseMemory(): Promise<PersonalMemory> {
+  const epoch = captureContentEpoch()
   const { profile, activityLines, tasks } = gatherMaterial()
   const profileDesc = [
     `姓名：${profile.name}`,
@@ -105,5 +110,7 @@ export async function refreshBaseMemory(): Promise<PersonalMemory> {
     tasks,
     getPersonalMemory().base
   )
-  return setPersonalMemory('base', await generate(instructions, text))
+  const content = await generate(instructions, text)
+  assertContentEpoch(epoch)
+  return setPersonalMemory('base', content)
 }

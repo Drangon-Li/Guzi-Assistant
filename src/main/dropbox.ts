@@ -3,9 +3,11 @@ import { join } from 'path'
 import { app } from 'electron'
 import { submitExternalFiles } from './capture'
 import { isSafeDropPath } from '@shared/safe-path'
+import { isContentResetting } from './content-lifecycle'
 
 let debounce: NodeJS.Timeout | null = null
 let watcher: FSWatcher | null = null
+let quitHooked = false
 
 export function dropboxDir(): string {
   return join(app.getPath('userData'), 'dropbox')
@@ -13,6 +15,7 @@ export function dropboxDir(): string {
 
 /** 右键快速操作把选中文件的路径写成 manifest（.txt 一行一个路径），这里消费并删除 */
 function processManifests(): void {
+  if (isContentResetting()) return
   const dir = dropboxDir()
   let manifests: string[] = []
   try {
@@ -41,6 +44,7 @@ function processManifests(): void {
 }
 
 export function initDropbox(): void {
+  stopDropbox()
   const dir = dropboxDir()
   mkdirSync(dir, { recursive: true })
   // 应用没开时通过右键发送的文件，启动时补处理
@@ -50,8 +54,15 @@ export function initDropbox(): void {
     debounce = setTimeout(processManifests, 300)
   })
   // 退出时关闭 watcher 句柄，避免常驻 libuv handle 拖延退出
-  app.on('before-quit', () => {
-    watcher?.close()
-    watcher = null
-  })
+  if (!quitHooked) {
+    app.on('before-quit', stopDropbox)
+    quitHooked = true
+  }
+}
+
+export function stopDropbox(): void {
+  if (debounce) clearTimeout(debounce)
+  debounce = null
+  watcher?.close()
+  watcher = null
 }

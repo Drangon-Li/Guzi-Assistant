@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 const screenwatch = readFileSync(new URL('../src/main/screenwatch.ts', import.meta.url), 'utf8')
 const service = readFileSync(new URL('../src/main/history/service.ts', import.meta.url), 'utf8')
 const ipc = readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')
+const reset = readFileSync(new URL('../src/main/data-reset.ts', import.meta.url), 'utf8')
 const channels = readFileSync(new URL('../src/shared/ipc-channels.ts', import.meta.url), 'utf8')
 let failed = 0
 function check(name, ok) {
@@ -24,9 +25,9 @@ const dataWipeStart = ipc.indexOf("ipcMain.handle('data:wipe'")
 const memoryWipeStart = ipc.indexOf("ipcMain.handle('memory:wipe'")
 const dataWipeBlock = ipc.slice(dataWipeStart, memoryWipeStart)
 const memoryWipeBlock = ipc.slice(memoryWipeStart, ipc.indexOf("ipcMain.handle('permissions:get'"))
-check('legacy data wipe clears History before SQLite VACUUM',
-  dataWipeBlock.includes("async ()") && dataWipeBlock.includes('acquireHistoryMutationBarrier()') &&
-    dataWipeBlock.includes('await clearHistory()') && dataWipeBlock.indexOf('await clearHistory()') < dataWipeBlock.indexOf('wipeAll()'))
+check('data wipe delegates to the coordinator that clears History before SQLite VACUUM',
+  dataWipeBlock.includes('await resetAllUserContent()') && reset.includes('acquireHistoryMutationBarrier()') &&
+    reset.includes('await clearHistory()') && reset.indexOf('await clearHistory()') < reset.indexOf('wipeAll()'))
 check('legacy memory wipe clears History before SQLite VACUUM',
   memoryWipeBlock.includes("async ()") && memoryWipeBlock.includes('acquireHistoryMutationBarrier()') &&
     memoryWipeBlock.includes('await clearHistory()') && memoryWipeBlock.indexOf('await clearHistory()') < memoryWipeBlock.indexOf('wipeMemory()'))

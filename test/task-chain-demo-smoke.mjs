@@ -13,7 +13,8 @@ const modules = [
   'src/shared/parsing.ts', 'src/shared/work-report.ts', 'src/shared/detection-gate.ts',
   'src/shared/phash.ts', 'src/shared/fts-query.ts', 'src/shared/task-reminder.ts',
   'src/main/db/tasks.ts', 'src/main/db/detections.ts', 'src/main/db/sources.ts',
-  'src/main/db-migrations.ts', 'src/main/task-ingest.ts', 'src/main/detection-cards.ts', 'src/main/assistant.ts'
+  'src/main/db-migrations.ts', 'src/main/task-ingest.ts', 'src/main/detection-cards.ts', 'src/main/assistant.ts',
+  'src/main/content-lifecycle.ts'
 ]
 const stubs = {
   'src/main/db/connection.ts': 'export const getDb = () => globalThis.demoDb; export const isFtsReady = () => false;',

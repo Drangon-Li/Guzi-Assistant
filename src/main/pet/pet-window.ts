@@ -172,6 +172,13 @@ export function setPetBubble(text: string | null, reaction?: PetReaction): void 
   })
 }
 
+export function clearPetWindowContent(): void {
+  const win = accessor()
+  if (win) records.set(win, { reaction: 'idle', bubbleText: null })
+  mkdirSync(petUserDataDir(), { recursive: true })
+  writeFileSync(join(petUserDataDir(), 'pet.html'), fullHtml('idle', null), 'utf8')
+}
+
 /** 扫描/解析中：桌宠显示 Siri 式旋转光环（切 class，不重渲染）。 */
 export function setPetScanning(on: boolean): void {
   const win = accessor()

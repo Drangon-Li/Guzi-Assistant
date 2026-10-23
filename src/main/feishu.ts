@@ -3,6 +3,7 @@ import { nativeImage } from 'electron'
 import { getSettings } from './db'
 import { submitFeishu, toJpegDataUrl } from './capture'
 import type { FeishuStatus, ParseSummary } from '@shared/types'
+import { captureContentEpoch, isContentEpochCurrent, isContentResetting } from './content-lifecycle'
 
 let state: FeishuStatus = { status: 'disabled', detail: '' }
 let startedWith: string | null = null
@@ -80,6 +81,8 @@ async function start(appId: string, appSecret: string): Promise<void> {
 }
 
 async function handleMessage(msg: FeishuMessage | undefined): Promise<void> {
+  if (isContentResetting()) return
+  const epoch = captureContentEpoch()
   if (!msg || seenMessages.has(msg.message_id)) return
   seenMessages.add(msg.message_id)
   // LRU 淘汰：超限只删最旧的一批，保留近 200 条去重窗口（整批 clear 会让重投消息漏去重）
@@ -102,9 +105,10 @@ async function handleMessage(msg: FeishuMessage | undefined): Promise<void> {
     await reply(msg.chat_id, '暂不支持这种消息类型，请发送文本、富文本或图片（截图）。')
     return
   }
-  if (!text && !imageDataUrl) return
+  if (!isContentEpochCurrent(epoch) || (!text && !imageDataUrl)) return
 
   const summary = await submitFeishu({ text, imageDataUrl })
+  if (!isContentEpochCurrent(epoch)) return
   await reply(msg.chat_id, summaryText(summary))
 }
 

@@ -14,6 +14,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { TaskRecord, WorkRecord } from '@shared/types'
 import { isFinishedEvent } from '@shared/task-filters'
 import { dayKey } from '@shared/work-report'
+import type { PomodoroSession } from '@shared/pomodoro'
 import {
   conflictsWith,
   coverageOf,
@@ -462,8 +463,15 @@ export default function TimeblockPage({ enabledPlugins }: PluginPageProps): Reac
 
   const startFocus = async (b: TimeBlock): Promise<void> => {
     const minutes = Math.max(1, Math.min(180, b.endMin - b.startMin))
-    await api.plugin('pomodoro', 'start', 'focus', minutes, b.id, b.taskId, taskTitle(b.taskId) ?? b.title)
-    flash(`已开始专注 ${minutes} 分钟`)
+    const session = await api.plugin<PomodoroSession>(
+      'pomodoro', 'start', 'focus', minutes, b.id, b.taskId, taskTitle(b.taskId) ?? b.title
+    )
+    if (session.kind !== 'focus' || session.blockId !== b.id || session.minutes !== minutes || session.pausedAt) {
+      const phase = session.kind === 'focus' ? '专注' : '休息'
+      flash(`已有 ${session.minutes} 分钟${phase}${session.pausedAt ? '暂停中' : '进行中'}，请到专注页查看`)
+      return
+    }
+    flash(`此时间块正在专注 ${session.minutes} 分钟`)
   }
 
   const hours = useMemo(() => {

@@ -100,13 +100,14 @@ async function ensureHelperBinary(): Promise<string> {
 
 let child: ChildProcessWithoutNullStreams | null = null
 let stopped = true
+let lifecycleGeneration = 0
 let restartTimer: ReturnType<typeof setTimeout> | null = null
 let restartAttempts = 0
 let unsupported = false
 /** 同内容冷却表 */
 const cooldown = new CooldownMap(CLIP_LIMITS.cooldownMs)
 let lastParseAtMs: number | null = null
-let running = false
+let parseAbort: AbortController | null = null
 
 function parseLine(line: string): ClipHelperEvent | null {
   if (!line) return null
@@ -130,8 +131,9 @@ function excludedApp(appName: string, bundleId: string): boolean {
 }
 
 async function handleHit(event: ClipHelperHit): Promise<void> {
+  if (stopped) return
   // 这三条早退必须留痕：用户的感受是「复制了但毫无反应」，没有日志就无从判断卡在哪
-  if (running) {
+  if (parseAbort) {
     debugEvent('clip', '上一条仍在解析，本条跳过')
     return
   }
@@ -197,14 +199,17 @@ async function handleHit(event: ClipHelperHit): Promise<void> {
 
   // 命中或未命中都冷却：同一段内容反复复制时不重复跑模型
   lastParseAtMs = now
-  running = true
+  const controller = new AbortController()
+  parseAbort = controller
   try {
     // 上云前脱敏：凭据/证件/卡号的值打码（第②道门管不到没打标记的密码）
     const redacted = redactSensitive(event.text)
     if (redacted.hits.length) debugEvent('clip', `已脱敏：${redacted.hits.join('、')}`)
     debugEvent('clip', `CalendarEvent 命中，解析中（${redacted.text.length} 字，来自 ${event.app || '未知'}）`)
 
-    const items = await parseToItems({ text: redacted.text, hint: HINTS.clipboard_text })
+    const items = await parseToItems({ text: redacted.text, hint: HINTS.clipboard_text, signal: controller.signal })
+    if (controller.signal.aborted || stopped || isWatchPaused() || !getSettings().clipWatchEnabled ||
+        excludedApp(event.app, event.bundleId)) return
     // 明确是别人的事就不记不弹：剪贴板是「用户主动复制了一段内容」，从群消息里复制到
     // 别人的安排很常见，全都进记忆只会把历史刷满。屏幕路径条目多、需要回看，故不同口径。
     const hits = items.filter((item) => item.belongs_to_user !== 'no')
@@ -216,12 +221,13 @@ async function handleHit(event: ClipHelperHit): Promise<void> {
       hits.map((item) => ({ extraction: parsedToExtraction(item), item })),
       redacted.text,
       event.app,
-      settings.screenSensePopup
+      getSettings().screenSensePopup
     )
   } catch (e) {
-    debugEvent('clip', `解析失败：${e instanceof Error ? e.message : String(e)}`)
+    if (!controller.signal.aborted)
+      debugEvent('clip', `解析失败：${e instanceof Error ? e.message : String(e)}`)
   } finally {
-    running = false
+    if (parseAbort === controller) parseAbort = null
   }
 }
 
@@ -243,8 +249,8 @@ function presentCards(
   applyExternalPetSay(cards.length > 1 ? `发现 ${cards.length} 个日程~` : '发现一个日程~', 'waiting')
 }
 
-function scheduleRestart(reason: string): void {
-  if (stopped || restartTimer) return
+function scheduleRestart(reason: string, generation: number): void {
+  if (stopped || generation !== lifecycleGeneration || restartTimer) return
   if (child) {
     child.removeAllListeners()
     child = null
@@ -253,6 +259,7 @@ function scheduleRestart(reason: string): void {
   const delay = Math.min(RESTART_MAX_MS, RESTART_BASE_MS * 2 ** (restartAttempts - 1))
   debugEvent('clip', `helper 退出（${reason}），${Math.round(delay / 1000)}s 后重启`)
   restartTimer = setTimeout(() => {
+    if (stopped || generation !== lifecycleGeneration) return
     restartTimer = null
     void launch()
   }, delay)
@@ -261,17 +268,24 @@ function scheduleRestart(reason: string): void {
 
 async function launch(): Promise<void> {
   if (stopped || child || unsupported) return
+  const generation = lifecycleGeneration
   try {
-    if (ensured && !existsSync(await ensured.catch(() => ''))) ensured = null
+    if (ensured) {
+      const cached = await ensured.catch(() => '')
+      if (stopped || generation !== lifecycleGeneration || child) return
+      if (!existsSync(cached)) ensured = null
+    }
     if (!ensured) ensured = ensureHelperBinary()
     const bin = await ensured
-    if (stopped) return
+    if (stopped || generation !== lifecycleGeneration || child) return
 
     const proc = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] })
     child = proc
+    const current = (): boolean => !stopped && generation === lifecycleGeneration && child === proc
     let buffer = ''
     proc.stdout.setEncoding('utf8')
     proc.stdout.on('data', (chunk: string) => {
+      if (!current()) return
       buffer += chunk
       const lines = buffer.split(/\r?\n/)
       buffer = lines.pop() ?? ''
@@ -299,15 +313,18 @@ async function launch(): Promise<void> {
     })
     proc.stderr.setEncoding('utf8')
     proc.stderr.on('data', (chunk: string) => {
+      if (!current()) return
       const detail = chunk.trim().slice(0, 160)
       if (detail) debugEvent('clip', `helper stderr：${detail}`)
     })
-    proc.once('error', (error) => scheduleRestart(error.message))
+    proc.once('error', (error) => {
+      if (current()) scheduleRestart(error.message, generation)
+    })
     proc.once('exit', (code, signal) => {
-      if (!stopped) scheduleRestart(`code=${code ?? 'null'} signal=${signal ?? 'none'}`)
+      if (current()) scheduleRestart(`code=${code ?? 'null'} signal=${signal ?? 'none'}`, generation)
     })
   } catch (e) {
-    scheduleRestart(e instanceof Error ? e.message : String(e))
+    scheduleRestart(e instanceof Error ? e.message : String(e), generation)
   }
 }
 
@@ -320,6 +337,9 @@ export function startClipWatch(): void {
 
 export function stopClipWatch(): void {
   stopped = true
+  lifecycleGeneration += 1
+  parseAbort?.abort()
+  parseAbort = null
   if (restartTimer) clearTimeout(restartTimer)
   restartTimer = null
   if (child) {

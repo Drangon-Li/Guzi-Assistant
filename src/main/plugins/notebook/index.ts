@@ -75,6 +75,10 @@ interface NoteRow {
 }
 
 const initTables = (db: Database.Database): void => {
+  // SQLite 内置 lower 只处理 ASCII，沿用原筛选的 Unicode 大小写规则。
+  db.function('notebook_contains', { deterministic: true }, (value, query) =>
+    typeof value === 'string' && value.toLowerCase().includes(query as string) ? 1 : 0
+  )
   db.exec(`
     CREATE TABLE IF NOT EXISTS p_notebook_folder (
       id TEXT PRIMARY KEY,
@@ -191,6 +195,17 @@ const notebook: PluginMainModule = {
           .prepare('SELECT * FROM p_notebook_note ORDER BY updated_at DESC')
           .all() as NoteRow[]
       ).map(rowToSummary),
+
+    search: (query: string): string[] => {
+      const q = query.trim().toLowerCase()
+      if (!q) return []
+      return (getDb().prepare(`
+        SELECT id FROM p_notebook_note
+        WHERE notebook_contains(title, ?)
+          OR EXISTS (SELECT 1 FROM json_each(tags) WHERE notebook_contains(value, ?))
+          OR notebook_contains(content, ?)
+      `).all(q, q, q) as { id: string }[]).map((r) => r.id)
+    },
 
     get: (id: string): NoteRecord | null => {
       const row = getDb().prepare('SELECT * FROM p_notebook_note WHERE id = ?').get(id) as

@@ -6,6 +6,9 @@
 // 「是否已启用」由主进程那边决定——停用的插件根本没有 handler，invoke 会直接失败。
 // 两层缺一不可，测试 test/ipc-channels-smoke.mjs 两头都卡。
 
+/** preload 初始化使用，不暴露给页面的 invoke API。 */
+export const CONTENT_EPOCH_CHANNEL = 'guzi-assistant:content-epoch'
+
 /** 渲染层 → 主进程的 invoke 通道（对应 ipcMain.handle） */
 export const INVOKE_CHANNELS = [
   'profile:get',

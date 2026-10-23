@@ -32,6 +32,8 @@ interface Draft {
   value: string
 }
 
+type NotePatch = { title?: string; content?: string; tags?: string[] }
+
 /** 分类名的内联输入。Electron 里没有 window.prompt，新建和重命名都在树里就地完成。 */
 function FolderInput({
   value,
@@ -168,12 +170,42 @@ export default function NotebookPage(): React.JSX.Element {
   const [folderId, setFolderId] = useState<string>('all')
   const [tag, setTag] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [searchResult, setSearchResult] = useState<{ query: string; ids: Set<string> } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [draft, setDraft] = useState<Draft | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null)
   const [prefs, setPrefs] = useState<NotebookPrefs>(DEFAULT_NOTEBOOK_PREFS)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const saveTimer = useRef<number | undefined>(undefined)
+  const pendingSaves = useRef(new Map<string, { patch: NotePatch; version: number }>())
+  const editVersions = useRef(new Map<string, number>())
+  const openRequest = useRef(0)
+  const mounted = useRef(true)
+
+  const flushSaves = useCallback(async (): Promise<void> => {
+    window.clearTimeout(saveTimer.current)
+    const pending = [...pendingSaves.current]
+    pendingSaves.current.clear()
+    await Promise.all(pending.map(async ([id, { patch, version }]) => {
+      await call('update', id, patch)
+      const saved = await call<NoteRecord | null>('get', id)
+      if (!saved || !mounted.current || editVersions.current.get(id) !== version) return
+      const { content: _content, ...summary } = saved
+      setNotes((prev) => prev.map((n) => n.id === id ? summary : n))
+      setActive((prev) => prev?.id === id ? {
+        ...prev, title: saved.title, tags: saved.tags, updatedAt: saved.updatedAt
+      } : prev)
+    }))
+  }, [])
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      openRequest.current++
+      void flushSaves()
+    }
+  }, [flushSaves])
 
   const reload = useCallback(async (): Promise<void> => {
     const [n, f, p] = await Promise.all([
@@ -222,33 +254,74 @@ export default function NotebookPage(): React.JSX.Element {
 
   const tree = useMemo(() => buildFolderTree(folders, notes), [folders, notes])
   const tags = useMemo(() => collectTags(notes), [notes])
+  const searchQuery = query.trim()
+  useEffect(() => {
+    if (!searchQuery) {
+      setSearchResult(null)
+      return
+    }
+    let canceled = false
+    setSearchResult(null)
+    const timer = window.setTimeout(() => {
+      void call<string[]>('search', searchQuery).then((ids) => {
+        if (!canceled) setSearchResult({ query: searchQuery, ids: new Set(ids) })
+      })
+    }, 250)
+    return () => {
+      canceled = true
+      window.clearTimeout(timer)
+    }
+  }, [searchQuery, notes])
+  const searching = !!searchQuery && searchResult?.query !== searchQuery
   const visible = useMemo(
-    () => sortNotes(filterNotes(notes, { folderId, tag, query })),
-    [notes, folderId, tag, query]
+    () => {
+      const scoped = filterNotes(notes, { folderId, tag })
+      if (!searchQuery) return sortNotes(scoped)
+      if (searchResult?.query !== searchQuery) return []
+      const matches = new Set([
+        ...searchResult.ids,
+        ...filterNotes(scoped, { query: searchQuery }).map((n) => n.id)
+      ])
+      return sortNotes(scoped.filter((n) => matches.has(n.id)))
+    },
+    [notes, folderId, tag, searchQuery, searchResult]
   )
 
   const open = async (id: string): Promise<void> => {
-    setActive(await call<NoteRecord | null>('get', id))
+    const request = ++openRequest.current
+    await flushSaves()
+    const version = editVersions.current.get(id)
+    const next = await call<NoteRecord | null>('get', id)
+    if (!mounted.current || request !== openRequest.current) return
+    setActive((prev) => prev?.id === id && editVersions.current.get(id) !== version ? prev : next)
   }
 
   const createNote = async (): Promise<void> => {
+    const request = ++openRequest.current
+    await flushSaves()
     const { id } = await call<{ id: string }>('create', {
       folderId: folderId === 'all' || folderId === 'none' ? null : folderId,
       title: '',
       content: ''
     })
     await reload()
-    await open(id)
+    if (mounted.current && request === openRequest.current) await open(id)
   }
 
   /** 编辑器每次改动都进这里：本地立刻更新，落库防抖 600ms，避免每个字符一次 IPC。 */
-  const onEdit = (patch: { title?: string; content?: string; tags?: string[] }): void => {
+  const onEdit = (patch: NotePatch): void => {
     if (!active) return
-    setActive({ ...active, ...patch })
-    window.clearTimeout(saveTimer.current)
     const id = active.id
+    const version = (editVersions.current.get(id) ?? 0) + 1
+    editVersions.current.set(id, version)
+    setActive((prev) => prev?.id === id ? { ...prev, ...patch } : prev)
+    pendingSaves.current.set(id, {
+      patch: { ...pendingSaves.current.get(id)?.patch, ...patch },
+      version
+    })
+    window.clearTimeout(saveTimer.current)
     saveTimer.current = window.setTimeout(() => {
-      void call('update', id, patch).then(reload)
+      void flushSaves()
     }, 600)
   }
 
@@ -510,7 +583,7 @@ export default function NotebookPage(): React.JSX.Element {
         <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
           {visible.length === 0 && (
             <li className="px-2 py-10 text-center text-xs leading-6 whitespace-pre-line text-slate-400">
-              {notes.length ? '没有符合条件的笔记' : '还没有笔记\n点「新建」写第一篇'}
+              {searching ? '搜索中…' : notes.length ? '没有符合条件的笔记' : '还没有笔记\n点「新建」写第一篇'}
             </li>
           )}
           {visible.map((n) => (

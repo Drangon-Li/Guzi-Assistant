@@ -2,9 +2,11 @@ import { addReport, appUsageSummary, getProfile, listTasks, listWorkRecords } fr
 import { callModel } from './parser'
 import { buildDailyReportPrompt, defaultReportTitle, splitTasksForDay } from '@shared/work-report'
 import type { ReportRecord } from '@shared/types'
+import { assertContentEpoch, captureContentEpoch } from './content-lifecycle.ts'
 
 /** 生成某天（YYYY-MM-DD）的工作日报：当日工作记录 + 应用时长 + 任务完成情况 → 云端撰写 Markdown。 */
 export async function generateDailyReport(day: string): Promise<ReportRecord> {
+  const epoch = captureContentEpoch()
   const profile = getProfile()
   if (!profile) throw new Error('尚未完成用户档案设置')
   const records = listWorkRecords(day)
@@ -41,6 +43,7 @@ export async function generateDailyReport(day: string): Promise<ReportRecord> {
     [{ role: 'user', content: [{ type: 'input_text', text }] }],
     'parse_text'
   )
+  assertContentEpoch(epoch)
   // 模型偶尔无视指令包一层代码块围栏，剥掉
   const content = output
     .trim()
