@@ -149,6 +149,15 @@ check('别的日期不混入', dayStats(sessions, '2026-08-27').rounds === 1)
 check('没有记录的日期全零', dayStats(sessions, '2026-08-01').rounds === 0)
 check('非法 startAt 被跳过', dayStats([s({ startAt: '坏数据' })], '2026-08-28').rounds === 0)
 
+const unsettled = [
+  s({ id: 'running', endAt: null, completed: false }),
+  s({ id: 'paused', endAt: null, completed: false, pausedAt: '2026-08-28T10:05:00' })
+]
+const activeToday = dayStats([...sessions, ...unsettled], '2026-08-28')
+check('进行中和暂停的专注不算当日中途放弃', activeToday.abandoned === 1)
+check('当日只有进行中/暂停会话时放弃数为零', dayStats(unsettled, '2026-08-28').abandoned === 0)
+check('未结算会话不提前增加完成轮数或分钟', activeToday.rounds === 2 && activeToday.focusMinutes === 55)
+
 // ---------- 按任务聚合 ----------
 const bt = breakdownByTask(sessions, '2026-08-28')
 check('按时长降序', eq(bt.map((r) => r.label), ['看论文', '未关联任务']))
@@ -181,6 +190,14 @@ check('完成率', Math.abs(rs.completionRate - 4 / 5) < 1e-9)
 check('最投入的一天', rs.bestDay?.date === '2026-08-21' && rs.bestDay?.minutes === 60)
 check('空区间不炸', rangeStats([], '2026-08-01', '2026-08-07').rounds === 0)
 check('空区间 bestDay 为 null', rangeStats([], '2026-08-01', '2026-08-07').bestDay === null)
+
+const activeRange = rangeStats([...range, ...unsettled], '2026-08-20', '2026-08-28')
+check('进行中和暂停的专注不算区间中途放弃', activeRange.abandoned === 1)
+check('区间完成率仅计算已结算会话', Math.abs(activeRange.completionRate - 4 / 5) < 1e-9)
+const noSettled = rangeStats(unsettled, '2026-08-20', '2026-08-28')
+check('没有已结算会话时完成率为零', noSettled.completionRate === 0 && noSettled.abandoned === 0)
+check('有完成且无放弃时，进行中会话不降低完成率',
+  rangeStats([s({}), ...unsettled], '2026-08-28', '2026-08-28').completionRate === 1)
 
 check('最长连续段', longestConsecutive(['2026-08-01', '2026-08-02', '2026-08-03', '2026-08-10']) === 3)
 check('跨月连续', longestConsecutive(['2026-08-31', '2026-09-01']) === 2)

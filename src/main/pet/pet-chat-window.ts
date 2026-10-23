@@ -3,6 +3,7 @@
 import { BrowserWindow, ipcMain, screen } from 'electron'
 import { anchorWindowNearPet, appState, load, preload } from '../windows'
 import { extractPetDropText, submitExternalFiles } from '../capture'
+import { captureContentEpoch, isContentEpochCurrent } from '../content-lifecycle'
 
 const CHAT_W = 380
 /** 初始高度。开起来就按正文实际需要调整（resizePetChat），这只是还没量到内容前的样子。 */
@@ -118,27 +119,32 @@ export function togglePetChat(): void {
 ipcMain.on('openpets:pet-drag-start', () => hidePetChat())
 
 // 拖文件到桌宠：可抽文本的(txt/md/pdf/docx) → 打开对话框让助手总结+找日程；其余(图片等) → 回退现有捕获管线。
-ipcMain.on('openpets:pet-drop-files', (_e, paths: string[]) => {
+ipcMain.on('openpets:pet-drop-files', (_e, envelope: { contentEpoch?: number } | null, paths: string[]) => {
+  if (!isContentEpochCurrent(envelope?.contentEpoch as number)) return
   if (!Array.isArray(paths) || paths.length === 0) return
-  void handlePetDrop(paths)
+  void handlePetDrop(paths).catch(() => {})
 })
 
 async function handlePetDrop(paths: string[]): Promise<void> {
+  const epoch = captureContentEpoch()
   const extracted = await extractPetDropText(paths[0])
+  if (!isContentEpochCurrent(epoch)) return
   if (!extracted) {
     void submitExternalFiles(paths) // 图片/无文本：走现有管线（结果卡会贴在桌宠旁）
     return
   }
   const content = `请先用一句话总结这个文件的内容，然后从中找出可能属于我的日程或待办（如有），按候选列出让我确认；没有就说明没有。\n\n文件名：${extracted.name}\n文件内容：\n${extracted.text}`
-  injectPetChat({ display: `📎 拖入文件：${extracted.name}`, content })
+  injectPetChat({ display: `📎 拖入文件：${extracted.name}`, content }, epoch)
 }
 
 /** 打开对话框并注入一条用户消息（窗口未加载完则等 load 再送）。 */
-function injectPetChat(payload: { display: string; content: string }): void {
+function injectPetChat(payload: { display: string; content: string }, epoch: number): void {
   showPetChat()
   const win = ensureWindow()
   if (win.webContents.isLoading()) {
-    win.webContents.once('did-finish-load', () => win.webContents.send('guzi-assistant:pet-chat-drop', payload))
+    win.webContents.once('did-finish-load', () => {
+      if (isContentEpochCurrent(epoch)) win.webContents.send('guzi-assistant:pet-chat-drop', payload)
+    })
   } else {
     win.webContents.send('guzi-assistant:pet-chat-drop', payload)
   }

@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
+import { app, dialog, ipcMain as rawIpcMain, nativeTheme, shell, systemPreferences } from 'electron'
 import { writeFileSync } from 'fs'
 import {
   addFocusTask,
@@ -37,7 +37,6 @@ import {
   setPersonalMemory,
   setTaskSnooze,
   updateTask,
-  wipeAll,
   wipeMemory
 } from './db'
 import { generateDailyReport } from './report'
@@ -137,6 +136,16 @@ import type {
 } from '@shared/types'
 import type { HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
 import type { PcmSegment } from '@shared/voicenotes'
+import { CONTENT_EPOCH_CHANNEL } from '@shared/ipc-channels'
+import { assertContentEpoch, captureContentEpoch, isContentEpochCurrent, isContentResetting } from './content-lifecycle'
+import { withContentEpoch } from './content-ipc'
+import { resetAllUserContent } from './data-reset'
+
+const ipcMain = {
+  handle: (channel: string, listener: Parameters<typeof rawIpcMain.handle>[1]): void => {
+    rawIpcMain.handle(channel, withContentEpoch(listener, channel === 'data:wipe'))
+  }
+}
 
 const STATUSES: TaskStatus[] = [
   'pending',
@@ -150,15 +159,21 @@ const STATUSES: TaskStatus[] = [
 
 /** 快捷键 / 托盘共用的剪切板捕获入口 */
 export function triggerClipboardCapture(): void {
+  if (isContentResetting()) return
   showPreview(readClipboardPending())
 }
 
 /** 提交屏幕截图：交互框选截图 → 送解析。供全局快捷键调用。 */
 export function triggerScreenshotCapture(): void {
+  if (isContentResetting()) return
+  const epoch = captureContentEpoch()
   void (async () => {
     const dataUrl = await takeScreenshot()
+    assertContentEpoch(epoch)
     if (dataUrl) await submitScreenshot(dataUrl)
-  })()
+  })().catch((error) => {
+    if (isContentEpochCurrent(epoch)) showPreview({ error: error instanceof Error ? error.message : String(error) })
+  })
 }
 
 // 到期提醒每次运行只发一次（应用常驻，重启即重置）
@@ -176,6 +191,9 @@ function readLaunchAtLogin(): LaunchAtLoginState {
 }
 
 export function registerIpc(): void {
+  rawIpcMain.on(CONTENT_EPOCH_CHANNEL, (event) => {
+    event.returnValue = isContentResetting() ? null : captureContentEpoch()
+  })
   ipcMain.handle('profile:get', () => getProfile())
   ipcMain.handle('profile:save', (_e, p: Profile) => saveProfile(p))
 
@@ -395,15 +413,7 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('data:wipe', async () => {
-    const releaseHistoryBarrier = acquireHistoryMutationBarrier()
-    try {
-      await clearHistory()
-      wipeAll()
-      clearAllShots() // 一键清除覆盖加密截图（#53）
-      broadcast('guzi-assistant:tasks-updated')
-    } finally {
-      releaseHistoryBarrier()
-    }
+    await resetAllUserContent()
   })
 
   // 记忆页「清空所有记忆」：清来源历史 + 屏幕识别历史 + 加密截图；保留任务/校正记忆/档案
@@ -478,8 +488,10 @@ export function registerIpc(): void {
   // 检测卡「备注」：存反馈（注入后续提示词）+「不是我的」语义顺带走归属学习 + 关闭该检测
   // 日程页悬浮加号·自然语言快建：解析后强制归属本人直接入库（用户亲手输入，无需再走确认流）
   ipcMain.handle('tasks:quick-add', async (_e, text: string) => {
+    const epoch = captureContentEpoch()
     const hint = `${HINTS.text_input}\n这是用户在日程页为自己手动创建的日程/待办（belongs_to_user 一律填 yes），请尽量解析出明确时间。`
     const items = await parseToItems({ text, hint })
+    assertContentEpoch(epoch)
     for (const item of items)
       assistantAdd({
         sourceText: `手动创建：${text.slice(0, 200)}`,
@@ -547,12 +559,14 @@ export function registerIpc(): void {
 
   // 数据导出：时间范围内的工作记录/日报/应用时长/检测 → JSON 文件
   ipcMain.handle('data:export-range', async (_e, fromDay: string, toDay: string) => {
+    const epoch = captureContentEpoch()
     const res = await dialog.showSaveDialog({
       title: '导出数据',
       defaultPath: `guzi-assistant-export-${fromDay}_${toDay}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
     if (res.canceled || !res.filePath) return false
+    assertContentEpoch(epoch)
     writeFileSync(res.filePath, JSON.stringify(exportRange(fromDay, toDay), null, 2), 'utf8')
     return true
   })
@@ -565,12 +579,14 @@ export function registerIpc(): void {
   ipcMain.handle('reports:list', () => listReports())
   ipcMain.handle('reports:delete', (_e, id: string) => deleteReport(id))
   ipcMain.handle('report:export', async (_e, r: { title: string; content: string }) => {
+    const epoch = captureContentEpoch()
     const res = await dialog.showSaveDialog({
       title: '导出日报',
       defaultPath: `${r.title}.md`,
       filters: [{ name: 'Markdown', extensions: ['md'] }]
     })
     if (res.canceled || !res.filePath) return false
+    assertContentEpoch(epoch)
     writeFileSync(res.filePath, r.content, 'utf8')
     return true
   })
@@ -585,7 +601,9 @@ export function registerIpc(): void {
   ipcMain.handle(
     'assistant:quick-chat',
     async (_e, payload: { history: ChatHistoryItem[]; candidates: CandidateContext | null }) => {
+      const epoch = captureContentEpoch()
       const res = await assistantChat(payload)
+      assertContentEpoch(epoch)
       if (!isQuickBarVisible()) {
         const lastUserText = [...payload.history].reverse().find((m) => m.role === 'user')?.content ?? ''
         notifyQuickChatResult(res, lastUserText)

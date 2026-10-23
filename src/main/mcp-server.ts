@@ -22,6 +22,7 @@ import {
 import type { HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
 import { bearerTokenMatches } from './history/mcp-auth.ts'
 import { workRecordInterval } from '@shared/work-report'
+import { captureContentEpoch, isContentEpochCurrent, isContentResetting } from './content-lifecycle'
 
 const STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'done', 'overdue', 'ignored']
 
@@ -325,6 +326,12 @@ function tokenOk(req: IncomingMessage): boolean {
 }
 
 function onRequest(req: IncomingMessage, res: ServerResponse): void {
+  if (isContentResetting()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(rpcError(null, -32000, '正在清除用户内容'))
+    return
+  }
+  const epoch = captureContentEpoch()
   if (!tokenOk(req)) {
     res.writeHead(401, { 'Content-Type': 'application/json' })
     res.end(rpcError(null, -32000, '未授权：请携带正确的 Bearer token'))
@@ -341,6 +348,11 @@ function onRequest(req: IncomingMessage, res: ServerResponse): void {
     if (body.length > 256 * 1024) req.destroy() // 防撑爆：MCP 请求不该这么大
   })
   req.on('end', () => {
+    if (!isContentEpochCurrent(epoch)) {
+      res.writeHead(409, { 'Content-Type': 'application/json' })
+      res.end(rpcError(null, -32000, '此次请求已失效'))
+      return
+    }
     let parsed: RpcRequest
     try {
       parsed = JSON.parse(body) as RpcRequest
@@ -351,6 +363,11 @@ function onRequest(req: IncomingMessage, res: ServerResponse): void {
     }
     void handleRpc(parsed)
       .then(({ status, body: out }) => {
+        if (!isContentEpochCurrent(epoch)) {
+          res.writeHead(409, { 'Content-Type': 'application/json' })
+          res.end(rpcError(null, -32000, '此次请求已失效'))
+          return
+        }
         if (out === null) {
           res.writeHead(status)
           res.end()

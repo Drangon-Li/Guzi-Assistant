@@ -4,6 +4,7 @@ import {
   hidePet,
   isPetVisible,
   resetPetPosition,
+  clearPetWindowContent,
   setPetBubble,
   setPetListening as setPetListeningWin,
   setPetPaused,
@@ -104,6 +105,19 @@ export function clearPetPersistentSay(): void {
   if (!persistent) return
   persistent = null
   if (!listeningOn) setPetBubble(null)
+}
+
+export function resetPetContent(): void {
+  if (sayTimer) clearTimeout(sayTimer)
+  sayTimer = null
+  sayToken += 1
+  persistent = null
+  processingBubble = false
+  listeningOn = false
+  lastReaction = 'idle'
+  setPetScanningWin(false)
+  setPetListeningWin(false)
+  clearPetWindowContent()
 }
 
 /** 全局快捷键：开/关说话（聆听）模式——与长按桌宠等效，但按一下切换而非按住。 */

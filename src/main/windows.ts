@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeTheme, screen } from 'electron'
 import { appendFileSync } from 'fs'
 import { join } from 'path'
 import { getPetBadgeBounds } from './pet/pet-window'
+import { isContentResetting } from './content-lifecycle'
 
 export const appState = { quitting: false }
 
@@ -258,6 +259,7 @@ export function debugIsOpen(): boolean {
 
 /** 向调试窗推一条事件（窗没开则忽略，零开销）。 */
 export function debugEvent(stage: string, message: string, extra?: Record<string, unknown>): void {
+  if (isContentResetting()) return
   if (debugWin && !debugWin.isDestroyed())
     debugWin.webContents.send('guzi-assistant:debug', { ts: Date.now(), stage, message, ...extra })
   // 诊断：同时落盘到 userData/screen-sense-debug.log（排除带大图的 screenshot），便于离线排查

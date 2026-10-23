@@ -31,6 +31,7 @@ import notebook from './notebook/index.ts'
 import pomodoro from './pomodoro/index.ts'
 import timeblock from './timeblock/index.ts'
 import type { AssistantActionResult, PluginMainModule } from './types.ts'
+import { withContentEpoch } from '../content-ipc'
 
 export const PLUGIN_MODULES: Record<string, PluginMainModule> = {
   timeblock,
@@ -89,7 +90,7 @@ function registerHandlers(id: string): void {
   for (const [action, handler] of Object.entries(mod.handlers)) {
     const channel = pluginChannel(id, action)
     ipcMain.removeHandler(channel)
-    ipcMain.handle(channel, (_e, ...args: unknown[]) => handler(...args))
+    ipcMain.handle(channel, withContentEpoch((_e, ...args: unknown[]) => handler(...args)))
   }
 }
 
@@ -105,6 +106,14 @@ export function initPluginIpc(): void {
     registerHandlers(id)
     runInit(id)
   }
+}
+
+export function suspendPluginRuntime(): void {
+  for (const id of readEnabledPlugins()) runDispose(id)
+}
+
+export function resumePluginRuntime(): void {
+  for (const id of readEnabledPlugins()) runInit(id)
 }
 
 function runInit(id: string): void {

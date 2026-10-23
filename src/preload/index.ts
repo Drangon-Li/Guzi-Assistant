@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 // preload 构建无 @shared 别名，走相对路径
-import { INVOKE_CHANNELS, EVENT_CHANNELS } from '../shared/ipc-channels'
+import { INVOKE_CHANNELS, EVENT_CHANNELS, CONTENT_EPOCH_CHANNEL } from '../shared/ipc-channels'
 import { parsePluginChannel } from '../shared/plugin-manifest'
 import { PLUGINS } from '../shared/plugin-registry'
 
@@ -12,6 +12,7 @@ const EVENT_SET: ReadonlySet<string> = new Set(EVENT_CHANNELS)
 // 这里只管「id 是不是我们认识的插件」，「插件有没有启用」由主进程决定——
 // 停用的插件没有 handler，invoke 会在 ipcMain 那里失败。少任何一层都不够。
 const PLUGIN_IDS: ReadonlySet<string> = new Set(PLUGINS.map((p) => p.id))
+const contentEpoch: number = ipcRenderer.sendSync(CONTENT_EPOCH_CHANNEL)
 
 function isAllowedInvoke(channel: string): boolean {
   if (INVOKE_SET.has(channel)) return true
@@ -24,7 +25,7 @@ const api = {
     if (!isAllowedInvoke(channel)) {
       return Promise.reject(new Error(`未授权的 IPC 通道: ${channel}`))
     }
-    return ipcRenderer.invoke(channel, ...args)
+    return ipcRenderer.invoke(channel, { contentEpoch }, ...args)
   },
   on: (channel: string, cb: (payload: unknown) => void): (() => void) => {
     if (!EVENT_SET.has(channel)) {

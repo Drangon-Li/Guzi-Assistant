@@ -14,6 +14,7 @@ import { createTaskFromItem } from '../task-ingest'
 import { redactSensitive } from '@shared/sensitive'
 import { recentWorkBlock } from '@shared/voicenotes'
 import { dayKey } from '@shared/work-report'
+import { assertContentEpoch, captureContentEpoch } from '../content-lifecycle'
 
 /** 一场会的转录可能很长；超过这个长度截断，尾部（结论和分工通常在后面）优先保留。 */
 const MAX_TRANSCRIPT_CHARS = 24_000
@@ -32,6 +33,7 @@ export async function parseVoiceTranscript(
   transcript: string,
   appName: string | null
 ): Promise<number> {
+  const epoch = captureContentEpoch()
   const text = clampTranscript(transcript)
   const source = createSource({
     type: 'voice_note',
@@ -47,6 +49,7 @@ export async function parseVoiceTranscript(
   }`
 
   let items = await parseToItems({ text: safe, hint })
+  assertContentEpoch(epoch)
   // 会议场景刻意不做「自动加入」：哪怕 confirmMode 是 aggressive，
   // 转录错字 + 归属靠猜，直接进日程风险太高，一律走待确认让用户过一眼。
   items = items.filter((it) => it.belongs_to_user !== 'no')

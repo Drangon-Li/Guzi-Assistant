@@ -2,6 +2,7 @@ import { dialog, shell } from 'electron'
 import { writeFileSync } from 'fs'
 import { buildIcs } from '@shared/ics'
 import type { TaskRecord } from '@shared/types'
+import { assertContentEpoch, captureContentEpoch } from './content-lifecycle'
 
 export interface IcsExportResult {
   ok: boolean
@@ -11,6 +12,7 @@ export interface IcsExportResult {
 
 /** 把单个任务导出成 .ics，弹原生保存框，存盘后交系统默认日历 App 打开导入 */
 export async function exportTaskIcs(task: TaskRecord): Promise<IcsExportResult> {
+  const epoch = captureContentEpoch()
   const ics = buildIcs(task)
   if (!ics) return { ok: false, error: '该任务没有时间，无法生成日历事件' }
 
@@ -21,6 +23,7 @@ export async function exportTaskIcs(task: TaskRecord): Promise<IcsExportResult> 
     filters: [{ name: 'iCalendar', extensions: ['ics'] }]
   })
   if (canceled || !filePath) return { ok: false, canceled: true }
+  assertContentEpoch(epoch)
 
   try {
     writeFileSync(filePath, ics, 'utf-8')

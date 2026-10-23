@@ -130,6 +130,13 @@ export function nextPhase(
   }
 }
 
+export type PomodoroPhase = ReturnType<typeof nextPhase>
+
+export interface PomodoroRuntime {
+  running: PomodoroSession | null
+  next: PomodoroPhase | null
+}
+
 /** 剩余秒数 → MM:SS；超过一小时用 H:MM:SS。 */
 export function formatCountdown(totalSeconds: number): string {
   const s = Math.max(0, Math.round(totalSeconds))
@@ -201,6 +208,8 @@ const dateOf = (iso: string): string | null => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+const isAbandoned = (session: PomodoroSession): boolean => !!session.endAt && !session.completed
+
 /** 某一天的专注统计。date 是 YYYY-MM-DD，按 startAt 的本地日期归属。 */
 export function dayStats(
   sessions: readonly PomodoroSession[],
@@ -216,7 +225,7 @@ export function dayStats(
   return {
     rounds,
     focusMinutes,
-    abandoned: focus.length - done.length,
+    abandoned: focus.filter(isAbandoned).length,
     goal,
     goalCurrent: current,
     remainingToGoal: Math.max(0, goal.value - current),
@@ -304,6 +313,8 @@ export function rangeStats(
   const goal = normalizeGoal(dailyGoal)
   const focus = inRange(sessions, fromDate, toDate).filter((s) => s.kind === 'focus')
   const done = focus.filter((s) => s.completed)
+  const abandoned = focus.filter(isAbandoned).length
+  const settled = done.length + abandoned
 
   const byDay = new Map<string, { minutes: number; rounds: number }>()
   for (const s of done) {
@@ -329,12 +340,12 @@ export function rangeStats(
   return {
     rounds: done.length,
     focusMinutes,
-    abandoned: focus.length - done.length,
+    abandoned,
     activeDays,
     goalDays: goalDates.length,
     avgMinutesPerActiveDay: activeDays ? Math.round(focusMinutes / activeDays) : 0,
     bestDay,
-    completionRate: focus.length ? done.length / focus.length : 0,
+    completionRate: settled ? done.length / settled : 0,
     bestGoalStreak: longestConsecutive(goalDates)
   }
 }

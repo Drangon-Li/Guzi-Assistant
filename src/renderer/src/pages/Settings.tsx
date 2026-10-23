@@ -126,9 +126,12 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
   }
 
   const wipe = async (): Promise<void> => {
-    if (!window.confirm('将删除所有任务、来源和用户档案，无法恢复。确定清除？')) return
-    await api.wipeData()
-    window.location.reload()
+    if (!window.confirm('将删除全部用户内容：任务、来源、档案、活动与历史、日报、对话、语音纪要及录音、插件记录与成就、笔记及图片。应用设置、插件配置与启用状态会保留。此操作无法恢复，确定清除？')) return
+    try {
+      await api.wipeData()
+    } catch {
+      // 主进程原生错误框不会被清空后的窗口重载打断。
+    }
   }
 
   // 原记忆页的「清空所有记忆」，随记忆页拆解移入数据管理

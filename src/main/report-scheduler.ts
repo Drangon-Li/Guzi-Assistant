@@ -6,11 +6,17 @@ import { msUntilDailyTime } from '@shared/daily-brief'
 import { dayKey } from '@shared/work-report'
 
 let timer: NodeJS.Timeout | null = null
+let scheduleGeneration = 0
+
+export function stopReportSchedule(): void {
+  scheduleGeneration += 1
+  if (timer) clearTimeout(timer)
+  timer = null
+}
 
 /** 跟随 dailyReportTime 设置启停每日定时日报（由 applyScreenSenseSettings 在启动/存设置时调用）。 */
 export function applyReportSchedule(): void {
-  if (timer) clearTimeout(timer)
-  timer = null
+  stopReportSchedule()
   const m = /^(\d{1,2}):(\d{2})$/.exec(getSettings().dailyReportTime)
   if (!m) return
   const hh = Math.min(23, Number(m[1]))
@@ -19,6 +25,7 @@ export function applyReportSchedule(): void {
 }
 
 async function fire(): Promise<void> {
+  const generation = scheduleGeneration
   try {
     const report = await generateDailyReport(dayKey(new Date()))
     broadcast('guzi-assistant:reports-updated')
@@ -30,5 +37,5 @@ async function fire(): Promise<void> {
   } catch {
     // 当天没记录/未登录等：静默跳过，明天再试
   }
-  applyReportSchedule() // 滚动到下一天（顺带拾取最新设置）
+  if (generation === scheduleGeneration) applyReportSchedule()
 }

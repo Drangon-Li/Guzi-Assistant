@@ -1,6 +1,6 @@
 // 专注插件（主进程）：番茄钟会话的落库与统计。
 //
-// 计时不在主进程跑——渲染层按 wall clock 算剩余，主进程只在开始 / 暂停 / 恢复 / 结束时各写一次。
+// 渲染层按 wall clock 显示剩余，主进程统一结算和衔接下一阶段。
 // 这样休眠、关窗、重启都不会让计时器和数据库对不上：没写 end_at 的会话就是没走完的，
 // pausedAt 非空就是停在那儿的。
 import { randomUUID } from 'crypto'
@@ -9,7 +9,7 @@ import { getDb } from '../../db/connection.ts'
 import { readPluginSetting, writePluginSetting } from '../../db/plugins.ts'
 import { applyExternalPetReaction, applyExternalPetSay } from '../../pet/controller'
 import { emitPluginEvent } from '../index.ts'
-import { getProfile, listAppSwitchesSince, listWorkRecords } from '../../db'
+import { getProfile, getTask, listAppSwitchesSince, listWorkRecords } from '../../db'
 import { callModel } from '../../parser'
 import { localNowSec } from '@shared/parsing'
 import { dayKey } from '@shared/work-report'
@@ -29,6 +29,8 @@ import {
   remainingSeconds,
   type PomodoroKind,
   type PomodoroPrefs,
+  type PomodoroPhase,
+  type PomodoroRuntime,
   type DailyGoal,
   type PomodoroSession,
   type StatsRange
@@ -123,6 +125,31 @@ function dailySeries(
  * 这里按 wall clock 排一个定时器，到点由主进程收尾并播报。
  */
 let roundTimer: ReturnType<typeof setTimeout> | null = null
+let pendingNext: PomodoroPhase | null = null
+interface FocusContext {
+  blockId: string | null
+  taskId: string | null
+  taskTitle: string | null
+}
+let pendingFocusContext: FocusContext | null = null
+const CONTINUATION_KEY = 'continuation'
+
+function clearContinuation(): void {
+  getDb().prepare('DELETE FROM settings WHERE key = ?').run(`plugin:pomodoro:${CONTINUATION_KEY}`)
+}
+
+function continuationFor(breakSessionId: string): FocusContext | null {
+  const raw = readPluginSetting('pomodoro', CONTINUATION_KEY)
+  if (!raw) return null
+  let context: FocusContext & { breakSessionId: string }
+  try { context = JSON.parse(raw) } catch { return null }
+  if (!context || context.breakSessionId !== breakSessionId) return null
+  const taskId = context.taskId && getTask(context.taskId) ? context.taskId : null
+  const hasBlocks = context.blockId && getDb().prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'p_timeblock_block'").get()
+  const blockId = hasBlocks && getDb().prepare('SELECT id FROM p_timeblock_block WHERE id = ?').get(context.blockId)
+    ? context.blockId : null
+  return { blockId, taskId, taskTitle: context.taskId && !taskId ? null : context.taskTitle }
+}
 
 function clearRoundTimer(): void {
   if (roundTimer) clearTimeout(roundTimer)
@@ -133,6 +160,33 @@ function runningRow(): SessionRow | undefined {
   return getDb()
     .prepare('SELECT * FROM p_pomodoro_session WHERE end_at IS NULL ORDER BY start_at DESC LIMIT 1')
     .get() as SessionRow | undefined
+}
+
+function startSession(
+  kind: PomodoroKind,
+  minutes: number,
+  blockId?: string | null,
+  taskId?: string | null,
+  taskTitle?: string | null
+): PomodoroSession {
+  const running = runningRow()
+  if (running) return toSession(running)
+  const continuation = kind === 'break' && pendingNext?.kind === 'break' ? pendingFocusContext : null
+  const id = randomUUID()
+  getDb().prepare(`INSERT INTO p_pomodoro_session
+    (id, start_at, end_at, minutes, kind, completed, paused_ms, paused_at, block_id, task_id, task_title, note)
+    VALUES (?, ?, NULL, ?, ?, 0, 0, NULL, ?, ?, ?, NULL)`)
+    .run(id, localNowSec(), Math.max(1, Math.round(minutes)), kind,
+      kind === 'focus' ? blockId ?? null : null,
+      kind === 'focus' ? taskId ?? null : null,
+      kind === 'focus' ? taskTitle ?? null : null)
+  if (continuation) {
+    writePluginSetting('pomodoro', CONTINUATION_KEY, JSON.stringify({ breakSessionId: id, ...continuation }))
+  } else clearContinuation()
+  pendingNext = null
+  pendingFocusContext = null
+  scheduleRoundEnd()
+  return getSession(id)!
 }
 
 /** 给当前在跑的这一轮排定时器；暂停中或没有在跑的就不排。 */
@@ -149,22 +203,42 @@ function scheduleRoundEnd(): void {
 
 /** 到点收尾：落库 → 桌宠播报 → 发插件事件 → 通知渲染层。 */
 function completeRound(id: string): void {
-  clearRoundTimer()
   const s = getSession(id)
   if (!s || s.endAt) return // 渲染层可能已经结算过，别记两次
-  if (remainingSeconds(s, Date.now()) > 0) return scheduleRoundEnd() // 被恢复/改过，重排
+  if (s.pausedAt || remainingSeconds(s, Date.now()) > 0) return scheduleRoundEnd() // 被恢复/改过，重排
 
-  const endedAt = Date.now()
+  // 重启或休眠恢复可能晚于截止，离线等待不计入实际专注。
+  const endedAt = new Date(s.startAt).getTime() + s.minutes * 60_000 + Math.max(0, s.pausedMs)
+  finishRound(s, true, endedAt)
+}
+
+function finishRound(s: PomodoroSession, completed: boolean, endedAt: number): void {
+  clearRoundTimer()
+  const endDate = new Date(endedAt)
+  const endAt = `${dayKey(endDate)}T${endDate.toTimeString().slice(0, 8)}`
   getDb()
-    .prepare('UPDATE p_pomodoro_session SET end_at = ?, completed = 1, paused_ms = ?, paused_at = NULL WHERE id = ?')
-    .run(localNowSec(), pausedMsAfterResume(s, endedAt), id)
+    .prepare('UPDATE p_pomodoro_session SET end_at = ?, completed = ?, paused_ms = ?, paused_at = NULL WHERE id = ?')
+    .run(endAt, completed ? 1 : 0, pausedMsAfterResume(s, endedAt), s.id)
+
+  if (!completed) {
+    pendingNext = null
+    pendingFocusContext = null
+    clearContinuation()
+    return
+  }
 
   const prefs = readPrefs()
   const today = dayKey(new Date(s.startAt))
   const stats = dayStats(listSince(today), today, prefs.dailyGoal)
+  const next = nextPhase(s.kind, stats.rounds, prefs)
+  const context: FocusContext | null = s.kind === 'focus'
+    ? { blockId: s.blockId, taskId: s.taskId, taskTitle: s.taskTitle }
+    : continuationFor(s.id)
+  pendingNext = next
+  pendingFocusContext = context
+  if (prefs.autoStart) startSession(next.kind, next.minutes, context?.blockId, context?.taskId, context?.taskTitle)
 
   if (s.kind === 'focus') {
-    const next = nextPhase('focus', stats.rounds, prefs)
     applyExternalPetReaction('success', { showMessage: false })
     applyExternalPetSay(
       s.taskTitle
@@ -185,7 +259,7 @@ function completeRound(id: string): void {
       date: today
     })
   } else {
-    applyExternalPetSay('休息结束，接着来一轮？', 'waiting', { durationMs: 12_000 })
+    applyExternalPetSay(prefs.autoStart ? `休息结束，开始下一轮专注 ${next.minutes} 分钟` : '休息结束，接着来一轮？', 'waiting', { durationMs: 12_000 })
     emitPluginEvent('pomodoro', 'break-completed', { sessionId: s.id, date: today })
   }
 }
@@ -222,7 +296,11 @@ const pomodoro: PluginMainModule = {
 
   // 启动或启用时重挂定时器：应用重启后那一轮还在跑，到点照样会响
   init: () => scheduleRoundEnd(),
-  dispose: () => clearRoundTimer(),
+  dispose: () => {
+    clearRoundTimer()
+    pendingNext = null
+    pendingFocusContext = null
+  },
 
   handlers: {
     prefs: () => readPrefs(),
@@ -233,32 +311,18 @@ const pomodoro: PluginMainModule = {
       return next
     },
 
-    start: (
-      kind: PomodoroKind,
-      minutes: number,
-      blockId?: string | null,
-      taskId?: string | null,
-      taskTitle?: string | null
-    ) => {
-      const id = randomUUID()
-      const startAt = localNowSec()
-      getDb()
-        .prepare(
-          `INSERT INTO p_pomodoro_session
-             (id, start_at, end_at, minutes, kind, completed, paused_ms, paused_at, block_id, task_id, task_title, note)
-           VALUES (?, ?, NULL, ?, ?, 0, 0, NULL, ?, ?, ?, NULL)`
-        )
-        .run(
-          id,
-          startAt,
-          Math.max(1, Math.round(minutes)),
-          kind,
-          blockId ?? null,
-          taskId ?? null,
-          taskTitle ?? null
-        )
-      scheduleRoundEnd()
-      return getSession(id)
+    start: startSession,
+
+    runtime: (): PomodoroRuntime => {
+      const row = runningRow()
+      return { running: row ? toSession(row) : null, next: pendingNext }
+    },
+
+    'dismiss-next': () => {
+      pendingNext = null
+      pendingFocusContext = null
+      clearContinuation()
+      return true
     },
 
     pause: (id: string) => {
@@ -282,24 +346,7 @@ const pomodoro: PluginMainModule = {
     finish: (id: string, completed: boolean) => {
       const s = getSession(id)
       if (!s) return false
-      // 中途放弃时把暂停时长结算掉，否则「实际投入」会把发呆的时间也算进去
-      getDb()
-        .prepare('UPDATE p_pomodoro_session SET end_at = ?, completed = ?, paused_ms = ?, paused_at = NULL WHERE id = ?')
-        .run(localNowSec(), completed ? 1 : 0, pausedMsAfterResume(s, Date.now()), id)
-      clearRoundTimer()
-      // 渲染层手动结束的这一轮也要发事件，否则「作息」只在自动到点时才收到回写
-      if (completed && s.kind === 'focus') {
-        emitPluginEvent('pomodoro', 'round-completed', {
-          sessionId: s.id,
-          blockId: s.blockId,
-          taskId: s.taskId,
-          taskTitle: s.taskTitle,
-          minutes: s.minutes,
-          actualMinutes: actualMinutes(s, Date.now()),
-          startAt: s.startAt,
-          date: dayKey(new Date(s.startAt))
-        })
-      }
+      if (!s.endAt) finishRound(s, completed, Date.now())
       return true
     },
 
@@ -446,15 +493,7 @@ const pomodoro: PluginMainModule = {
         .get() as { id: string } | undefined
       if (running) return { ok: false, message: '已经有一轮在跑了，先停掉或等它走完' }
 
-      const id = randomUUID()
-      getDb()
-        .prepare(
-          `INSERT INTO p_pomodoro_session
-             (id, start_at, end_at, minutes, kind, completed, paused_ms, paused_at, block_id, task_id, task_title, note)
-           VALUES (?, ?, NULL, ?, 'focus', 0, 0, NULL, NULL, NULL, ?, NULL)`
-        )
-        .run(id, localNowSec(), minutes, task || null)
-      scheduleRoundEnd()
+      startSession('focus', minutes, null, null, task || null)
       return { ok: true, message: task ? `开始专注 ${minutes} 分钟：${task}` : `开始专注 ${minutes} 分钟` }
     },
 
@@ -487,10 +526,7 @@ const pomodoro: PluginMainModule = {
         .get() as SessionRow | undefined
       if (!row) return { ok: false, message: '现在没有在跑的专注' }
       const s = toSession(row)
-      getDb()
-        .prepare('UPDATE p_pomodoro_session SET end_at = ?, completed = 0, paused_ms = ?, paused_at = NULL WHERE id = ?')
-        .run(localNowSec(), pausedMsAfterResume(s, Date.now()), row.id)
-      clearRoundTimer()
+      finishRound(s, false, Date.now())
       return { ok: true, message: '已停下这一轮' }
     }
   },

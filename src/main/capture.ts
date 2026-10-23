@@ -16,6 +16,7 @@ import { createTaskFromItem, scheduledStatus } from './task-ingest'
 import { parseToItems, type ParsedItem } from './parser'
 import { broadcast, showPreview } from './windows'
 import { applyExternalPetReaction } from './pet/controller'
+import { assertContentEpoch, captureContentEpoch, isContentEpochCurrent, isContentResetting } from './content-lifecycle.ts'
 import type { ParseSummary, PendingCapture, SourceType, TaskStatus } from '@shared/types'
 
 interface PendingPayload {
@@ -59,6 +60,7 @@ function register(payload: PendingPayload, view: Omit<PendingCapture, 'captureId
 // ---------- 读取剪切板（仅在用户触发时调用，CAP-04） ----------
 
 export function readClipboardPending(): PendingCapture | { error: string } {
+  captureContentEpoch()
   const img = clipboard.readImage()
   if (!img.isEmpty()) {
     return register(
@@ -122,12 +124,14 @@ export function clearPendings(): void {
 // ---------- 截图（macOS screencapture 框选） ----------
 
 export async function takeScreenshot(): Promise<string | null> {
+  const epoch = captureContentEpoch()
   const file = join(app.getPath('temp'), `guzi-assistant-shot-${Date.now()}.png`)
-  await new Promise<void>((resolve, reject) => {
-    execFile('screencapture', ['-i', '-x', file], (err) => (err ? reject(err) : resolve()))
-  })
-  if (!existsSync(file)) return null // 用户按 Esc 取消了框选
   try {
+    await new Promise<void>((resolve, reject) => {
+      execFile('screencapture', ['-i', '-x', file], (err) => (err ? reject(err) : resolve()))
+    })
+    assertContentEpoch(epoch)
+    if (!existsSync(file)) return null // 用户按 Esc 取消了框选
     return toJpegDataUrl(nativeImage.createFromPath(file), 1600)
   } finally {
     // 即使 JPEG 编码抛错也要删掉临时 PNG，避免残留 temp 目录
@@ -276,9 +280,10 @@ function createTasksFromItems(
   return { related, autoAdded, duplicates }
 }
 
-async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
+async function parseAndStore(payload: PendingPayload, epoch = captureContentEpoch()): Promise<ParseSummary> {
   let source: ReturnType<typeof createSource> | null = null
   try {
+    assertContentEpoch(epoch)
     let text = payload.text
     let imageDataUrl = payload.imageDataUrl
     // 文件抽取失败（不支持的格式/文件已删除/扫描件 PDF）也要走到 error summary，不能让 IPC reject
@@ -288,6 +293,7 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
       imageDataUrl = extracted.imageDataUrl
     }
 
+    assertContentEpoch(epoch)
     source = createSource({
       type: payload.type,
       excerpt: text ? excerptOf(text) : payload.filePath ? `文件：${basename(payload.filePath)}` : '[图片]',
@@ -301,6 +307,7 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
       imageDataUrl,
       hint: HINTS[payload.type] ?? HINTS.text_input
     })
+    assertContentEpoch(epoch)
     const { related, autoAdded, duplicates } = createTasksFromItems(source.id, items)
     // 没有任何任务引用的来源在 UI 上不可见也删不掉，不留库
     if (related === 0) deleteSourceRow(source.id)
@@ -308,7 +315,7 @@ async function parseAndStore(payload: PendingPayload): Promise<ParseSummary> {
     return { sourceId: related ? source.id : '', total: items.length, related, autoAdded, duplicates, error: null }
   } catch (e) {
     // 解析失败的来源没有任何任务引用，UI 上不可见也删不掉，必须当场清理
-    if (source) deleteSourceRow(source.id)
+    if (source && isContentEpochCurrent(epoch)) deleteSourceRow(source.id)
     return emptyParseSummary(e instanceof Error ? e.message : String(e))
   }
 }
@@ -334,10 +341,13 @@ export async function submitFeishu(input: {
 
 /** 托盘拖拽 / 右键快速操作的入口：用预览卡反馈进度和结果 */
 export async function submitExternalFiles(paths: string[]): Promise<void> {
+  if (isContentResetting()) return
+  const epoch = captureContentEpoch()
   showPreview({
     busy: paths.length === 1 ? `正在解析 ${basename(paths[0])}…` : `正在解析 ${paths.length} 个文件…`
   })
   const results = await submitFiles(paths)
+  if (!isContentEpochCurrent(epoch)) return
   const merged: ParseSummary = {
     sourceId: '',
     total: results.reduce((n, r) => n + r.total, 0),
@@ -356,11 +366,13 @@ export async function submitExternalFiles(paths: string[]): Promise<void> {
 const MAX_FILES_PER_SUBMIT = 20
 
 export async function submitFiles(paths: string[]): Promise<ParseSummary[]> {
+  const epoch = captureContentEpoch()
   const results: ParseSummary[] = []
   const capped = paths.slice(0, MAX_FILES_PER_SUBMIT)
   for (const p of capped) {
+    if (!isContentEpochCurrent(epoch)) break
     try {
-      results.push(await parseAndStore({ type: 'file', filePath: p }))
+      results.push(await parseAndStore({ type: 'file', filePath: p }, epoch))
     } catch (e) {
       results.push(emptyParseSummary(`${basename(p)}：${e instanceof Error ? e.message : String(e)}`))
     }

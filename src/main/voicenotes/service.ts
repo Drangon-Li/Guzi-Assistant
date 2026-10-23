@@ -23,6 +23,7 @@ import { localNow } from '@shared/parsing'
 import { meetingAppKind, type PcmSegment, type VoiceSessionRecord } from '@shared/voicenotes'
 import { pcmToWav, transcribeSegment } from './transcribe'
 import { parseVoiceTranscript } from './parse'
+import { assertContentEpoch, captureContentEpoch, isContentEpochCurrent, isContentResetting } from '../content-lifecycle'
 
 /** 会议应用离开前台多久算散会。开会时切去别的窗口查资料很常见，别一切走就收尾。 */
 const LEAVE_GRACE_MS = 90_000
@@ -37,6 +38,8 @@ let current: VoiceSessionRecord | null = null
 let nextSeq = 0
 /** 已派出去还没回来的转录请求数，收尾时要等它们落完 */
 let pendingTranscriptions = 0
+const transcriptionAborts = new Set<AbortController>()
+const audioWrites = new Set<Promise<void>>()
 
 export function currentVoiceSession(): VoiceSessionRecord | null {
   return current
@@ -48,6 +51,7 @@ function emitState(): void {
 
 /** 开一场。app 为触发录制的应用名，手动起录时传 null。 */
 export function startVoiceSession(appName: string | null): VoiceSessionRecord {
+  captureContentEpoch()
   if (current) return current
   current = createVoiceSession(appName)
   nextSeq = 0
@@ -62,6 +66,7 @@ export function startVoiceSession(appName: string | null): VoiceSessionRecord {
  * 解析是异步的，收尾函数不等它，UI 靠 voice:state 看 finalizing → done。
  */
 export async function stopVoiceSession(): Promise<void> {
+  const epoch = captureContentEpoch()
   const session = current
   if (!session) return
   current = null
@@ -74,7 +79,10 @@ export async function stopVoiceSession(): Promise<void> {
   const deadline = Date.now() + 60_000
   while (pendingTranscriptions > 0 && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 300))
+    if (!isContentEpochCurrent(epoch)) return
   }
+
+  if (!isContentEpochCurrent(epoch)) return
 
   const transcript = sessionTranscript(session.id)
   updateVoiceSession(session.id, { transcript })
@@ -86,9 +94,11 @@ export async function stopVoiceSession(): Promise<void> {
   }
   try {
     const count = await parseVoiceTranscript(transcript, session.app)
+    assertContentEpoch(epoch)
     updateVoiceSession(session.id, { status: 'done', taskCount: count })
     debugEvent('voice', `解析完成：${count} 条任务待确认`)
   } catch (e) {
+    if (!isContentEpochCurrent(epoch)) return
     updateVoiceSession(session.id, { status: 'failed' })
     debugEvent('voice', `解析失败：${e instanceof Error ? e.message : String(e)}`)
   }
@@ -102,11 +112,15 @@ export async function stopVoiceSession(): Promise<void> {
  * 前面的内容已经转好了，UI 上能实时看到文字在长出来。
  */
 export async function ingestSegment(segment: PcmSegment): Promise<void> {
+  if (isContentResetting()) return
+  const epoch = captureContentEpoch()
   const session = current
   if (!session || session.id !== segment.sessionId) return
   const seq = nextSeq
   nextSeq += 1
   pendingTranscriptions += 1
+  const controller = new AbortController()
+  transcriptionAborts.add(controller)
   const wav = pcmToWav(Buffer.from(segment.pcmBase64, 'base64'))
   let audioPath: string | null = null
   try {
@@ -114,13 +128,22 @@ export async function ingestSegment(segment: PcmSegment): Promise<void> {
       // 留存是 opt-in：默认整场录音都不落盘，只有这一段的字节在内存里过一趟
       const dir = join(app.getPath('userData'), 'voice-notes')
       audioPath = join(dir, `${session.id}-${seq}.wav`)
-      await mkdir(dir, { recursive: true })
-        .then(() => writeFile(audioPath as string, wav))
-        .catch(() => {
-          audioPath = null
-        })
+      const write = mkdir(dir, { recursive: true }).then(() => {
+        assertContentEpoch(epoch)
+        return writeFile(audioPath as string, wav)
+      })
+      audioWrites.add(write)
+      try {
+        await write
+      } catch {
+        audioPath = null
+      } finally {
+        audioWrites.delete(write)
+      }
     }
-    const { text } = await transcribeSegment(wav)
+    assertContentEpoch(epoch)
+    const { text } = await transcribeSegment(wav, controller.signal)
+    assertContentEpoch(epoch)
     if (text) {
       addVoiceSegment({ sessionId: session.id, seq, durationMs: segment.durationMs, text })
       const transcript = sessionTranscript(session.id)
@@ -129,16 +152,20 @@ export async function ingestSegment(segment: PcmSegment): Promise<void> {
     }
   } catch (e) {
     // 单段失败不该毁掉整场：记一笔，继续录下一段
-    debugEvent('voice', `分段 ${seq} 转录失败：${e instanceof Error ? e.message : String(e)}`)
+    if (isContentEpochCurrent(epoch))
+      debugEvent('voice', `分段 ${seq} 转录失败：${e instanceof Error ? e.message : String(e)}`)
   } finally {
-    pendingTranscriptions -= 1
-    if (audioPath && !getSettings().voiceKeepAudio) await unlink(audioPath).catch(() => {})
+    transcriptionAborts.delete(controller)
+    if (isContentEpochCurrent(epoch)) pendingTranscriptions -= 1
+    if (audioPath && (!isContentEpochCurrent(epoch) || !getSettings().voiceKeepAudio))
+      await unlink(audioPath).catch(() => {})
   }
 }
 
 /** 一轮前台检查：会议应用来了就起录，走了超过宽限期就收尾。 */
 async function tick(): Promise<void> {
-  if (ticking) return
+  if (ticking || isContentResetting()) return
+  const epoch = captureContentEpoch()
   ticking = true
   try {
     const { voiceNotesEnabled, voiceAutoStart } = getSettings()
@@ -149,6 +176,7 @@ async function tick(): Promise<void> {
     if (!voiceAutoStart) return // 只允许手动起录
 
     const context = await getFrontmostContext()
+    assertContentEpoch(epoch)
     if (!context?.name) return // 拿不到前台上下文就什么都不做，绝不盲录
 
     // 排除名单/私密窗口一样要挡住：用户把某个应用列进排除名单，是不希望谷子在那里工作
@@ -167,7 +195,8 @@ async function tick(): Promise<void> {
     if (leftMeetingAt === null) leftMeetingAt = Date.now()
     else if (Date.now() - leftMeetingAt >= LEAVE_GRACE_MS) await stopVoiceSession()
   } catch (e) {
-    debugEvent('voice', `轮询异常：${e instanceof Error ? e.message : String(e)}`)
+    if (isContentEpochCurrent(epoch))
+      debugEvent('voice', `轮询异常：${e instanceof Error ? e.message : String(e)}`)
   } finally {
     ticking = false
   }
@@ -182,6 +211,19 @@ export function startVoiceWatch(): void {
 export function stopVoiceWatch(): void {
   if (timer) clearInterval(timer)
   timer = null
+}
+
+/** 清空不走正常停止的解析收尾；只取消录制和在途工作。 */
+export async function resetVoiceContent(): Promise<void> {
+  stopVoiceWatch()
+  current = null
+  leftMeetingAt = null
+  nextSeq = 0
+  pendingTranscriptions = 0
+  for (const controller of transcriptionAborts) controller.abort()
+  transcriptionAborts.clear()
+  emitState()
+  await Promise.allSettled([...audioWrites])
 }
 
 /** 设置变更后重新对齐：开关关掉要立刻收尾，打开要把轮询拉起来。 */

@@ -2,12 +2,10 @@
 import { useEffect, useState } from 'react'
 import {
   DEFAULT_GOAL,
-  DEFAULT_PREFS,
   focusLabel,
   formatCountdown,
   remainingSeconds,
   type DayStats,
-  type PomodoroPrefs,
   type PomodoroSession
 } from '@shared/pomodoro'
 import { api } from '../../api'
@@ -22,14 +20,33 @@ export default function PomodoroTodayCard(): React.JSX.Element {
     remainingToGoal: DEFAULT_GOAL.value,
     goalProgress: 0
   })
-  const [prefs, setPrefs] = useState<PomodoroPrefs>(DEFAULT_PREFS)
   const [running, setRunning] = useState<PomodoroSession | null>(null)
   const [remaining, setRemaining] = useState(0)
 
   useEffect(() => {
-    void api.plugin<{ stats: DayStats }>('pomodoro', 'today').then((r) => setStats(r.stats))
-    void api.plugin<PomodoroPrefs>('pomodoro', 'prefs').then(setPrefs)
-    void api.plugin<PomodoroSession | null>('pomodoro', 'running').then(setRunning)
+    let request = 0
+    let disposed = false
+    const refresh = async (): Promise<void> => {
+      const current = ++request
+      const [today, session] = await Promise.all([
+        api.plugin<{ stats: DayStats }>('pomodoro', 'today'),
+        api.plugin<PomodoroSession | null>('pomodoro', 'running')
+      ])
+      if (disposed || current !== request) return
+      setStats(today.stats)
+      setRunning(session)
+    }
+    const off = api.on('guzi-assistant:plugin-event', (payload) => {
+      const { event } = payload as { event?: string }
+      if (event === 'pomodoro:round-completed' || event === 'pomodoro:break-completed') {
+        void refresh()
+      }
+    })
+    void refresh()
+    return () => {
+      disposed = true
+      off()
+    }
   }, [])
 
   useEffect(() => {

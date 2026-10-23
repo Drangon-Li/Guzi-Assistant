@@ -26,6 +26,7 @@ import {
 import type { PluginActionOutcome } from '@shared/parsing'
 import type { TaskStatus } from '@shared/types'
 import { assistantActions, assistantContext, runAssistantAction } from './plugins/index.ts'
+import { assertContentEpoch, captureContentEpoch } from './content-lifecycle.ts'
 
 function excerptOf(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 80)
@@ -36,6 +37,7 @@ function addCandidates(
   sourceTexts: { previous: string; current: string },
   picks: AddPick[]
 ): AddedInfo[] {
+  captureContentEpoch()
   const added = picks.map(({ item, candidate, force, source: candidateSource }) => {
     const sourceText = sourceTexts[candidateSource]
     const time = item.due_time ?? item.start_time
@@ -120,6 +122,7 @@ export async function assistantChat(payload: {
   history: ChatHistoryItem[]
   candidates: CandidateContext | null
 }): Promise<AssistantTurnResult> {
+  const epoch = captureContentEpoch()
   const profile = getProfile()
   if (!profile)
     return { reply: '', candidates: null, added: [], ops: [], actions: [], error: '尚未完成用户档案设置' }
@@ -155,6 +158,7 @@ export async function assistantChat(payload: {
       input,
       'chat' // 网关据此保留自然采样；此前默认走 parse_text 的 temperature 0，对话会发僵
     )
+    assertContentEpoch(epoch)
     const env = parseAssistantOutput(output)
 
     // 来源与序号一起定位候选，缺少来源的歧义信封不执行添加。
