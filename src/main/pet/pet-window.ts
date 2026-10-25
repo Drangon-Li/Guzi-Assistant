@@ -103,7 +103,12 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
   installIpc()
 
   win.webContents.on('did-finish-load', () => {
-    if (!win.isDestroyed()) win.setIgnoreMouseEvents(true, { forward: true })
+    if (!win.isDestroyed()) {
+      win.setIgnoreMouseEvents(true, { forward: true })
+      lastInteractiveWant = null
+      stopCursorPoll()
+      if (win.isVisible()) startCursorPoll()
+    }
   })
   win.on('closed', () => {
     if (currentPet === win) currentPet = null

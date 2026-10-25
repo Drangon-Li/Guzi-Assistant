@@ -1,6 +1,6 @@
 import { app, clipboard, nativeImage } from 'electron'
 import type { NativeImage } from 'electron'
-import { execFile } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
 import { existsSync, readFileSync, unlinkSync } from 'fs'
 import { basename, extname, join } from 'path'
 import { randomUUID } from 'crypto'
@@ -77,9 +77,20 @@ export function readClipboardPending(): PendingCapture | { error: string } {
     )
   }
 
-  const fileUrl = process.platform === 'darwin' ? clipboard.read('public.file-url') : ''
-  if (fileUrl.startsWith('file://')) {
-    const filePath = decodeURIComponent(fileUrl.replace('file://', ''))
+  let filePath: string | undefined
+  if (process.platform === 'darwin') {
+    const fileUrl = clipboard.read('public.file-url')
+    if (fileUrl.startsWith('file://')) filePath = decodeURIComponent(fileUrl.replace('file://', ''))
+  } else if (process.platform === 'win32') {
+    try {
+      const helper = join(app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'build'), 'native', 'GuziWindowsHelper.exe')
+      const paths: unknown = JSON.parse(execFileSync(helper, ['clipboard-files'], {
+        encoding: 'utf8', timeout: 3_000, windowsHide: true, maxBuffer: 1024 * 1024
+      }))
+      if (Array.isArray(paths) && typeof paths[0] === 'string') filePath = paths[0]
+    } catch { return { error: '无法读取剪切板文件，请重试或直接拖入文件' } }
+  }
+  if (filePath) {
     return register(
       { type: 'clipboard_file', filePath },
       {
@@ -125,6 +136,12 @@ export function clearPendings(): void {
 
 export async function takeScreenshot(): Promise<string | null> {
   const epoch = captureContentEpoch()
+  if (process.platform === 'win32') {
+    const { takeWindowsScreenshot } = await import('./platform/windows-capture')
+    const image = await takeWindowsScreenshot(epoch)
+    assertContentEpoch(epoch)
+    return image ? toJpegDataUrl(image, 1600) : null
+  }
   const file = join(app.getPath('temp'), `guzi-assistant-shot-${Date.now()}.png`)
   try {
     await new Promise<void>((resolve, reject) => {
@@ -141,25 +158,39 @@ export async function takeScreenshot(): Promise<string | null> {
 
 /** Capture the verified foreground window; the caller owns the returned temporary PNG. */
 export async function captureScreenSilently(snapshot: ScreenSnapshot | null, signal?: AbortSignal): Promise<string | null> {
-  return captureVerifiedWindow({
-    initial: snapshot, signal,
-    readSnapshot: () => getScreenSnapshot(signal),
-    privacyReason: (next) => getCollectorCaptureSafety(next).reason || (privacyForContext(snapshotContext(next)).suppressed ? '当前窗口处于隐私抑制状态，已暂停截图' : null),
-    capture: async (windowId, captureSignal) => {
-      const file = join(app.getPath('temp'), `guzi-assistant-screen-${randomUUID()}.png`)
-      try {
-        await new Promise<void>((resolve, reject) => {
-          execFile('/usr/sbin/screencapture', [`-l${windowId}`, '-o', '-x', file],
-            { timeout: 10_000, signal: captureSignal }, (err) => err ? reject(err) : resolve())
-        })
-        return existsSync(file) ? file : null
-      } catch (error) {
-        if (existsSync(file)) unlinkSync(file)
-        throw error
-      }
-    },
-    remove: async (file) => { if (existsSync(file)) unlinkSync(file) }
-  })
+  const epoch = captureContentEpoch()
+  let captured: string | null = null
+  try {
+    captured = await captureVerifiedWindow({
+      initial: snapshot, signal,
+      readSnapshot: () => getScreenSnapshot(signal),
+      privacyReason: (next) => getCollectorCaptureSafety(next).reason || (privacyForContext(snapshotContext(next)).suppressed ? '当前窗口处于隐私抑制状态，已暂停截图' : null),
+      capture: async (windowId, captureSignal) => {
+        const file = join(app.getPath('temp'), `guzi-assistant-screen-${randomUUID()}.png`)
+        try {
+          assertContentEpoch(epoch)
+          if (process.platform === 'win32') {
+            const { captureWindowsWindow } = await import('./platform/windows-capture')
+            return await captureWindowsWindow(windowId, file, captureSignal)
+          }
+          await new Promise<void>((resolve, reject) => {
+            execFile('/usr/sbin/screencapture', [`-l${windowId}`, '-o', '-x', file],
+              { timeout: 10_000, signal: captureSignal }, (err) => err ? reject(err) : resolve())
+          })
+          return existsSync(file) ? file : null
+        } catch (error) {
+          if (existsSync(file)) unlinkSync(file)
+          throw error
+        }
+      },
+      remove: async (file) => { if (existsSync(file)) unlinkSync(file) }
+    })
+    assertContentEpoch(epoch)
+    return captured
+  } catch (error) {
+    if (captured && existsSync(captured)) unlinkSync(captured)
+    throw error
+  }
 }
 
 // ---------- 文件文本抽取 ----------

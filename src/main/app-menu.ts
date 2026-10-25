@@ -25,10 +25,12 @@ export function installAppMenu(): void {
         { type: 'separator' },
         { label: '设置…', accelerator: 'CmdOrCtrl+,', click: () => focusMain('settings') },
         { type: 'separator' },
-        { role: 'hide', label: '隐藏 谷子助手' },
-        { role: 'hideOthers', label: '隐藏其他' },
-        { role: 'unhide', label: '全部显示' },
-        { type: 'separator' },
+        ...(process.platform === 'darwin' ? [
+          { role: 'hide', label: '隐藏 谷子助手' },
+          { role: 'hideOthers', label: '隐藏其他' },
+          { role: 'unhide', label: '全部显示' },
+          { type: 'separator' }
+        ] satisfies MenuItemConstructorOptions[] : []),
         { role: 'quit', label: '退出 谷子助手' }
       ]
     },

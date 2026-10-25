@@ -89,6 +89,7 @@ export const api = {
   openScreenSettings: () => inv<void>('permissions:open-screen-settings'),
   quickActionStatus: () => inv<boolean>('quickaction:status'),
   installQuickAction: () => inv<boolean>('quickaction:install'),
+  uninstallQuickAction: () => inv<boolean>('quickaction:uninstall'),
   feishuStatus: () => inv<FeishuStatus>('feishu:status'),
 
   screenScan: () => inv<ScanResult>('screen:scan'),

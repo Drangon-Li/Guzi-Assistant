@@ -1,3 +1,4 @@
+import { floatingPanelOptions } from './platform/window-options'
 // 任务提醒卡窗：独立置顶窗，不自动消失，用户必须处理才收。
 //
 // 为什么不复用 windows.ts 的 preview 窗（两个理由都是硬约束）：
@@ -38,10 +39,7 @@ function getReminderWindow(): BrowserWindow {
     // 阴影被窗口边缘裁掉，看着就是一道硬边（用户反馈「阴影效果不好」）。
     // visualEffectState 必须钉成 active：提醒窗用 showInactive() 弹出、从不获焦，
     // 否则磨砂会一直渲染成失活的灰调。做法与 quickbar.ts 一致。
-    vibrancy: 'menu',
-    visualEffectState: 'active',
-    backgroundColor: '#00000000',
-    roundedCorners: true,
+    ...floatingPanelOptions(),
     // 同 preview 窗：不获焦窗口默认会被降到极低帧率，动画会跳帧。
     webPreferences: { preload, backgroundThrottling: false }
   })

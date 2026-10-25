@@ -1,3 +1,4 @@
+import { primaryModifier } from '../../platform'
 // 笔记编辑器：所见即所得，磁盘上存的是 Markdown。
 //
 // 编辑区是非受控的 contentEditable——只在切换笔记时灌一次 innerHTML，之后完全交给 DOM，
@@ -44,8 +45,8 @@ interface Props {
 }
 
 const ACTIONS: { kind: InlineFormat; label: string; title: string }[] = [
-  { kind: 'bold', label: 'B', title: '加粗（⌘B）' },
-  { kind: 'italic', label: 'I', title: '斜体（⌘I）' },
+  { kind: 'bold', label: 'B', title: `加粗（${primaryModifier}B）` },
+  { kind: 'italic', label: 'I', title: `斜体（${primaryModifier}I）` },
   { kind: 'strike', label: 'S', title: '删除线' },
   { kind: 'code', label: '</>', title: '行内代码' },
   { kind: 'link', label: '链接', title: '添加链接' }

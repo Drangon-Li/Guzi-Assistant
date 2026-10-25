@@ -12,7 +12,7 @@ function load(name, mocks = {}, fallback) {
   ).outputText)
   const exports = {}
   vm.runInNewContext(compiled.get(name), {
-    exports, console: { ...console, warn() {} },
+    exports, process: { platform: process.platform }, console: { ...console, warn() {} },
     require: (id) => {
       if (id in mocks) return mocks[id]
       assert.ok(fallback, `Unexpected ${name} dependency: ${id}`)
@@ -133,7 +133,8 @@ function fixture() {
     const r = renderer()
     load('preload/index', {
       electron: r.electron, '../shared/ipc-channels': channels,
-      '../shared/plugin-manifest': manifest, '../shared/plugin-registry': registry
+      '../shared/plugin-manifest': manifest, '../shared/plugin-registry': registry,
+      '../shared/platform': load('shared/platform')
     })
     return { ...r, api: r.api() }
   }

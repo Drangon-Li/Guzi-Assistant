@@ -1,3 +1,4 @@
+import { isMac } from './platform'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { shouldRemindRenew } from '@shared/subscription'
@@ -99,7 +100,7 @@ function MainApp(): React.JSX.Element | null {
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [hotkeyLabel, setHotkeyLabel] = useState('⌥ C')
+  const [hotkeyLabel, setHotkeyLabel] = useState(formatHotkey('Alt+C'))
   const [enabledPlugins, setEnabledPlugins] = useState<string[]>([])
   const toastTimer = useRef<number | undefined>(undefined)
   const dragDepth = useRef(0)
@@ -295,7 +296,7 @@ function MainApp(): React.JSX.Element | null {
         <div className="size-6 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" />
       </div>
     )
-  if (screenPerm !== 'granted' && !screenGateSkipped)
+  if (isMac && screenPerm !== 'granted' && !screenGateSkipped)
     return <ScreenPermissionGate onDone={() => setScreenGateSkipped(true)} />
 
   // 非核心页 = 插件页。停用后 PLUGIN_UI 里仍有条目，所以还要看它在不在已启用集合里。

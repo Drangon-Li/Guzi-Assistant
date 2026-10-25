@@ -1,4 +1,7 @@
+import type { DesktopPlatform } from '../shared/platform'
+
 export interface GuziAssistantApi {
+  readonly platform: DesktopPlatform
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, cb: (payload: unknown) => void) => () => void
   pathForFile: (file: File) => string

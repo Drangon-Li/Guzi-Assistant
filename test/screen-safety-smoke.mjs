@@ -292,7 +292,7 @@ const adapter = { current: snapshot(), directory: captureDirectory, calls: [], s
 globalThis.__captureAdapter = adapter
 const captureMocks = {
   electron: `export const app={getPath:()=>a.directory},clipboard={},nativeImage={};`,
-  child_process: `import{writeFileSync}from'node:fs'; export function execFile(command,args,options,callback){a.calls.push({command,args,options});writeFileSync(args.at(-1),'fake-pixels');if(a.switchDuringCapture)a.current={...a.current,windowId:901};callback(a.fail?Error('timed out'):null)}`,
+  child_process: `import{writeFileSync}from'node:fs'; export function execFileSync(){throw Error('unexpected synchronous capture')} export function execFile(command,args,options,callback){a.calls.push({command,args,options});writeFileSync(args.at(-1),'fake-pixels');if(a.switchDuringCapture)a.current={...a.current,windowId:901};callback(a.fail?Error('timed out'):null)}`,
   'pdf-parse': 'export default ()=>{};', mammoth: 'export default {};',
   '@shared/sensitive': 'export const detectSensitive=()=>[],redactSensitive=text=>({text,hits:[]});',
   './db': 'export const createSource=()=>{},deleteSourceRow=()=>{},findDuplicateTitle=()=>{},getProfile=()=>{};',
@@ -315,7 +315,9 @@ const captureHook = registerHooks({
       source: 'const a=globalThis.__captureAdapter;'+captureMocks[decodeURIComponent(url.slice(13))] }
     if (url.endsWith('/src/main/capture.ts')) {
       const loaded = next(url, context)
-      return { format: 'module', shortCircuit: true, source: ts.transpileModule(String(loaded.source), {
+      // This fixture exercises the macOS command; Windows has its own native adapter fixture.
+      const source = String(loaded.source).replace(/\bprocess\.platform\b/g, "'darwin'")
+      return { format: 'module', shortCircuit: true, source: ts.transpileModule(source, {
         compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext }
       }).outputText }
     }

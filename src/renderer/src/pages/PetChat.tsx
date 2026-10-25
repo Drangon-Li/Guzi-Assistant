@@ -1,3 +1,4 @@
+import { primaryModifier } from '../platform'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Profile, TaskRecord } from '@shared/types'
 import { api } from '../api'
@@ -8,7 +9,7 @@ import AssistantChat from '../components/AssistantChat'
 export default function PetChat(): React.JSX.Element {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
   const [tasks, setTasks] = useState<TaskRecord[]>([])
-  const [hotkeyLabel, setHotkeyLabel] = useState('⌥ C')
+  const [hotkeyLabel, setHotkeyLabel] = useState(formatHotkey('Alt+C'))
   const [clearNonce, setClearNonce] = useState(0)
   // 桌宠拖入文件 → 主进程推来「总结+找日程」请求，注入对话
   const [injected, setInjected] = useState<{ content: string; display: string; nonce: number } | null>(null)
@@ -59,7 +60,7 @@ export default function PetChat(): React.JSX.Element {
         <header className="flex shrink-0 items-center justify-between px-2 pt-1.5">
           <button
             onClick={() => setClearNonce((n) => n + 1)}
-            title="清屏（⌘K）"
+            title={`清屏（${primaryModifier}K）`}
             className="rounded-lg px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700"
           >
             清屏

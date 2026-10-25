@@ -57,7 +57,7 @@ import { assistantAdd, assistantChat, notifyQuickChatResult } from './assistant'
 import { exportTaskIcs } from './export'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
 import { setHotkey, setNamedHotkey, setScreenshotHotkey } from './hotkey'
-import { installQuickAction, quickActionInstalled } from './quickaction'
+import { installQuickAction, quickActionInstalled, uninstallQuickAction } from './quickaction'
 import { ensureFeishu, feishuStatus } from './feishu'
 import { applyScreenSenseSettings, resetScreenRecognitionRetry, scanOnce, screenActivityStatus } from './screenwatch'
 import {
@@ -182,7 +182,7 @@ let renewReminded = false
 // 开机自启的真值只存在系统登录项里（macOS 13+ 走 SMAppService），settings 表不留副本——
 // 用户随时可能在「系统设置 → 通用 → 登录项」里手动增删，那边不会回调应用，留副本必然对不上。
 function readLaunchAtLogin(): LaunchAtLoginState {
-  const s = app.getLoginItemSettings()
+  const s = app.getLoginItemSettings(process.platform === 'win32' ? { path: process.execPath, args: ['--hidden'] } : undefined)
   return {
     supported: app.isPackaged,
     enabled: s.openAtLogin,
@@ -399,7 +399,10 @@ export function registerIpc(): void {
   ipcMain.handle('app:check-update', () => checkForUpdates(true))
   ipcMain.handle('app:launch-at-login', () => readLaunchAtLogin())
   ipcMain.handle('app:set-launch-at-login', (_e, enabled: boolean) => {
-    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: enabled })
+    if (app.isPackaged) app.setLoginItemSettings({
+      openAtLogin: enabled,
+      ...(process.platform === 'win32' ? { path: process.execPath, args: ['--hidden'] } : {})
+    })
     return readLaunchAtLogin()
   })
   ipcMain.handle('quickbar:hide', () => hideQuickBar())
@@ -433,11 +436,11 @@ export function registerIpc(): void {
     const settings = getSettings()
     return {
       screen:
-        process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'granted',
+        process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'unknown',
       microphone:
-        process.platform === 'darwin'
+        process.platform === 'darwin' || process.platform === 'win32'
           ? systemPreferences.getMediaAccessStatus('microphone')
-          : 'granted',
+          : 'unknown',
       apiConfigured: !!(settings.apiBase && settings.apiKey)
     }
   })
@@ -448,10 +451,12 @@ export function registerIpc(): void {
       void shell.openExternal(
         'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
       )
+    if (process.platform === 'win32') void shell.openExternal('ms-settings:privacy-screencapture')
   })
 
   ipcMain.handle('quickaction:status', () => quickActionInstalled())
   ipcMain.handle('quickaction:install', () => installQuickAction())
+  ipcMain.handle('quickaction:uninstall', () => uninstallQuickAction())
   ipcMain.handle('feishu:status', () => feishuStatus())
   ipcMain.handle('screen:scan', () => scanOnce())
   ipcMain.handle('screen:activity-status', () => screenActivityStatus())

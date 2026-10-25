@@ -1,3 +1,4 @@
+import { primaryModifier } from '../platform'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CandidateContext, ParsedItem } from '@shared/parsing'
 import type { TaskStatus } from '@shared/types'
@@ -325,8 +326,8 @@ export default function QuickBar(): React.JSX.Element {
             {busy
               ? '处理中…可直接关闭，完成后悬浮球会告诉你'
               : msgs.length
-                ? '⏎ 发送 · ⌘⏎ 换行 · ⌘K 清空 · Esc 退出'
-                : '⏎ 问助手或记日程 · ⌘⏎ 换行 · Esc 关闭'}
+                ? `⏎ 发送 · ${primaryModifier}⏎ 换行 · ${primaryModifier}K 清空 · Esc 退出`
+                : `⏎ 问助手或记日程 · ${primaryModifier}⏎ 换行 · Esc 关闭`}
           </div>
         </div>
         </div>

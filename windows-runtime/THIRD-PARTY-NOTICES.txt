@@ -1,0 +1,10 @@
+Windows offline OCR uses Guten OCR (@gutenye/ocr-node), licensed under MIT.
+Source: https://github.com/gutenye/ocr
+The installed runtime contains the dependency licenses alongside each package.
+
+The bundled PP-OCRv4 models and ppocr_keys_v1.txt dictionary originate from
+PaddlePaddle/PaddleOCR, licensed under Apache License 2.0. Model conversion to
+ONNX does not change the model license. See PADDLEOCR-LICENSE.txt.
+Source: https://github.com/PaddlePaddle/PaddleOCR
+ONNX assets are distributed in the locked @gutenye/ocr-models 1.4.2 npm package.
+Asset hashes: scripts/windows-ocr-assets.json in the source repository.

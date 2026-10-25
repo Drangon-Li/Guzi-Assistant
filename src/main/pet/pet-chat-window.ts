@@ -3,6 +3,7 @@
 import { BrowserWindow, ipcMain, screen } from 'electron'
 import { anchorWindowNearPet, appState, load, preload } from '../windows'
 import { extractPetDropText, submitExternalFiles } from '../capture'
+import { floatingPanelOptions } from '../platform/window-options'
 import { captureContentEpoch, isContentEpochCurrent } from '../content-lifecycle'
 
 const CHAT_W = 380
@@ -21,7 +22,7 @@ function ensureWindow(): BrowserWindow {
     width: CHAT_W,
     height: CHAT_H,
     frame: false,
-    transparent: true,
+    ...(process.platform === 'darwin' ? { transparent: true } : floatingPanelOptions()),
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,

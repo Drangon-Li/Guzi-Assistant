@@ -1,3 +1,4 @@
+import { isMac } from '../../platform'
 // 设置页的快捷键工具：录制用的键位映射与 accelerator 转换，父组件与「快捷键」分区共用。
 
 export type HotkeyField =
@@ -42,7 +43,7 @@ const CODE_KEYS: Record<string, string> = {
 /** KeyboardEvent → Electron accelerator；组合不完整时返回 null（继续等待按键） */
 export function eventToAccelerator(e: KeyboardEvent): string | null {
   const mods: string[] = []
-  if (e.metaKey) mods.push('Command')
+  if (e.metaKey) mods.push(isMac ? 'Command' : 'Super')
   if (e.ctrlKey) mods.push('Control')
   if (e.altKey) mods.push('Alt')
   if (e.shiftKey) mods.push('Shift')

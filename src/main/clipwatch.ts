@@ -77,6 +77,8 @@ function binDir(): string {
 let ensured: Promise<string> | null = null
 
 async function ensureHelperBinary(): Promise<string> {
+  if (process.platform === 'win32') return (await import('./platform/windows-helper.ts')).windowsHelperPath()
+  if (process.platform !== 'darwin') throw new Error('Unsupported desktop platform')
   return ensureNativeHelperBinary({
     directory: binDir(),
     binaryName: 'clipboard-detect-v1',
@@ -112,8 +114,18 @@ let parseAbort: AbortController | null = null
 function parseLine(line: string): ClipHelperEvent | null {
   if (!line) return null
   try {
-    const value = JSON.parse(line) as ClipHelperEvent
-    return value && typeof value.type === 'string' ? value : null
+    const value = JSON.parse(line) as Partial<Omit<ClipHelperHit, 'type'>> & { type?: unknown; reason?: unknown }
+    if (!value || typeof value !== 'object') return null
+    if (value.type === 'ready' || value.type === 'unsupported') return { type: value.type }
+    if (value.type === 'skip' && typeof value.reason === 'string') return { type: 'skip', reason: value.reason.slice(0, 80) }
+    if (value.type !== 'hit' || typeof value.text !== 'string' || !value.text || value.text.length > PIPE_MAX_CHARS ||
+        typeof value.app !== 'string' || typeof value.bundleId !== 'string') return null
+    return {
+      type: 'hit', text: value.text, app: value.app.slice(0, 160), bundleId: value.bundleId.slice(0, 160),
+      startIso: typeof value.startIso === 'string' ? value.startIso.slice(0, 32) : undefined,
+      endIso: typeof value.endIso === 'string' ? value.endIso.slice(0, 32) : undefined,
+      allDay: typeof value.allDay === 'boolean' ? value.allDay : undefined
+    }
   } catch {
     return null
   }
@@ -252,7 +264,6 @@ function presentCards(
 function scheduleRestart(reason: string, generation: number): void {
   if (stopped || generation !== lifecycleGeneration || restartTimer) return
   if (child) {
-    child.removeAllListeners()
     child = null
   }
   restartAttempts += 1
@@ -279,7 +290,10 @@ async function launch(): Promise<void> {
     const bin = await ensured
     if (stopped || generation !== lifecycleGeneration || child) return
 
-    const proc = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const proc = process.platform === 'win32'
+      ? (await import('./platform/windows-helper.ts')).spawnWindowsHelper('clipboard-watch')
+      : spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+    if (stopped || generation !== lifecycleGeneration || child) { proc.kill(); return }
     child = proc
     const current = (): boolean => !stopped && generation === lifecycleGeneration && child === proc
     let buffer = ''
@@ -287,6 +301,7 @@ async function launch(): Promise<void> {
     proc.stdout.on('data', (chunk: string) => {
       if (!current()) return
       buffer += chunk
+      if (buffer.length > 256 * 1024) { proc.kill(); scheduleRestart('output overflow', generation); return }
       const lines = buffer.split(/\r?\n/)
       buffer = lines.pop() ?? ''
       for (const line of lines) {
@@ -296,7 +311,7 @@ async function launch(): Promise<void> {
           // macOS < 15.4 没有 detectPatterns。绝不退化成「直接轮询读正文」——
           // 那会把这条链路的隐私优势全部丢掉。
           unsupported = true
-          debugEvent('clip', '系统低于 macOS 15.4，剪贴板自动捕获不可用')
+          debugEvent('clip', process.platform === 'win32' ? 'Windows 剪贴板检测不可用' : '系统低于 macOS 15.4，剪贴板自动捕获不可用')
           stopClipWatch()
           return
         }
@@ -329,7 +344,7 @@ async function launch(): Promise<void> {
 }
 
 export function startClipWatch(): void {
-  if (process.platform !== 'darwin' || unsupported) return
+  if ((process.platform !== 'darwin' && process.platform !== 'win32') || unsupported) return
   if (!stopped) return
   stopped = false
   void launch()
@@ -343,7 +358,6 @@ export function stopClipWatch(): void {
   if (restartTimer) clearTimeout(restartTimer)
   restartTimer = null
   if (child) {
-    child.removeAllListeners()
     child.kill()
     child = null
   }

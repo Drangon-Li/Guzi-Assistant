@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { posix, dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -120,7 +120,7 @@ function compile(name) {
   assert.equal(code.diagnostics?.filter((d) => d.category === ts.DiagnosticCategory.Error).length, 0, `cannot transpile ${name}`)
   code = code.outputText.replace(/((?:from\s*|import\s*\(\s*)['"])([^'"]+)(['"])/g, (whole, before, spec, after) => {
     if (spec !== 'electron' && !spec.startsWith('.') && !spec.startsWith('@shared/')) return whole
-    let target = spec === 'electron' ? 'electron' : spec.startsWith('@shared/') ? `src/shared/${spec.slice(8)}` : resolve('/', dirname(name), spec).slice(1)
+    let target = spec === 'electron' ? 'electron' : spec.startsWith('@shared/') ? `src/shared/${spec.slice(8)}` : posix.resolve('/', posix.dirname(name), spec).slice(1)
     if (target !== 'electron' && !target.endsWith('.ts')) target += '.ts'
     compile(target)
     return before + pathToFileURL(dest(target)).href + after

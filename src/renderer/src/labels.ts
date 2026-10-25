@@ -1,3 +1,5 @@
+import { formatAccelerator, type DesktopPlatform } from '../../shared/platform.ts'
+import { platform } from './platform.ts'
 import type {
   ItemType,
   ParseSummary,
@@ -145,20 +147,9 @@ export function countdownLabel(t: string): string {
   return `还有 ${n} 天`
 }
 
-const ACC_SYMBOLS: Record<string, string> = {
-  Command: '⌘',
-  CommandOrControl: '⌘',
-  Control: '⌃',
-  Alt: '⌥',
-  Shift: '⇧'
-}
-
-/** Electron accelerator → macOS 风格展示，如 "Command+Shift+K" → "⌘ ⇧ K" */
-export function formatHotkey(acc: string): string {
-  return acc
-    .split('+')
-    .map((t) => ACC_SYMBOLS[t] ?? t)
-    .join(' ')
+/** Electron accelerator → 当前平台的键位名称。 */
+export function formatHotkey(acc: string, target: DesktopPlatform = platform): string {
+  return formatAccelerator(acc, target)
 }
 
 export function summaryToast(s: ParseSummary): string {

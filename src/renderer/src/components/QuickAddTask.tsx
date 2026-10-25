@@ -1,3 +1,4 @@
+import { primaryModifier } from '../platform'
 import { useState } from 'react'
 import type { ItemType } from '@shared/types'
 import type { ParsedItem } from '@shared/parsing'
@@ -143,7 +144,7 @@ export default function QuickAddTask({ onAdded }: { onAdded: (msg: string) => vo
                   />
                   {err && <p className="text-xs text-red-500">{err}</p>}
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-slate-400">可一次写多条，⌘+回车 提交</span>
+                    <span className="text-[11px] text-slate-400">可一次写多条，{primaryModifier}+回车 提交</span>
                     <button
                       className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-40"
                       disabled={busy || !text.trim()}

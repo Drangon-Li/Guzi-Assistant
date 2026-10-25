@@ -19,7 +19,11 @@
     "test:demo": "node test/run.mjs task-chain-demo screen-safety activity-timeline usage-sampler semantic-work-privacy history-boundary-demo history-service-demo activity-tracker-privacy",
     "test:parser": "node test/run.mjs parser",
     "pack:mac": "electron-vite build && electron-builder --mac",
-    "pack:dir": "electron-vite build && electron-builder --mac --dir"
+    "pack:dir": "electron-vite build && electron-builder --mac --dir",
+    "prepare:win": "node scripts/prepare-windows.mjs",
+    "pack:win": "npm run prepare:win && electron-vite build && electron-builder --win --x64 --publish never",
+    "pack:win:dir": "npm run prepare:win && electron-vite build && electron-builder --win --x64 --dir --publish never",
+    "test:packaged:win": "node scripts/test-windows-package.mjs"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.66.1",

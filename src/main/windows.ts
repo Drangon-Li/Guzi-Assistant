@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeTheme, screen } from 'electron'
 import { appendFileSync } from 'fs'
 import { join } from 'path'
 import { getPetBadgeBounds } from './pet/pet-window'
+import { floatingPanelOptions } from './platform/window-options'
 import { isContentResetting } from './content-lifecycle'
 
 export const appState = { quitting: false }
@@ -12,6 +13,13 @@ let previewWin: BrowserWindow | null = null
 export const preload = join(__dirname, '../preload/index.js')
 
 export function load(win: BrowserWindow, hash: string): void {
+  if (process.platform !== 'darwin') {
+    const updateBackground = (): void => {
+      if (!win.isDestroyed()) win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#202126' : '#ffffff')
+    }
+    nativeTheme.on('updated', updateBackground)
+    win.once('closed', () => nativeTheme.removeListener('updated', updateBackground))
+  }
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (!app.isPackaged && devUrl) win.loadURL(`${devUrl}#${hash}`)
   else win.loadFile(join(__dirname, '../renderer/index.html'), { hash })
@@ -28,8 +36,7 @@ export function createMainWindow(showOnReady = true): BrowserWindow {
     title: '谷子助手',
     show: false,
     // 现代 macOS 风格：隐藏标题栏，红黄绿交通灯浮在侧栏上方（与设计稿一致）
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 18, y: 18 },
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 18, y: 18 } } : { autoHideMenuBar: true }),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#161719' : '#ffffff',
     webPreferences: { preload }
   })
@@ -49,6 +56,7 @@ export function createMainWindow(showOnReady = true): BrowserWindow {
 
 export function focusMain(route?: string): void {
   const win = createMainWindow()
+  if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
   if (route) win.webContents.send('guzi-assistant:navigate', route)
@@ -78,9 +86,10 @@ export function hideMainForCapture(): (() => void) | null {
 /** 切换主窗口显隐：已显示 → 隐藏；隐藏/最小化 → 显示并获焦。供双击桌宠调用。 */
 export function toggleMainWindow(): void {
   const win = createMainWindow()
-  if (win.isVisible()) {
+  if (win.isVisible() && !win.isMinimized()) {
     win.hide()
   } else {
+    if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
   }
@@ -108,10 +117,7 @@ export function getPreviewWindow(): BrowserWindow {
     show: false,
     // 原生磨砂 + 原生圆角/阴影（与 QuickBar/提醒窗同款）：transparent 窗拿不到原生阴影，
     // CSS 阴影会被窗口边缘裁切出硬边。'menu' 材质透亮；从不获焦故 visualEffectState 固定 active。
-    vibrancy: 'menu',
-    visualEffectState: 'active',
-    backgroundColor: '#00000000',
-    roundedCorners: true,
+    ...floatingPanelOptions(),
     // 预览卡是常驻置顶、从不获焦的通知窗（showInactive）。默认后台节流会把不获焦窗口降到极低帧率，
     // 导致定时器驱动的倒计时进度条跳帧。关掉节流保证动画完整。
     webPreferences: { preload, backgroundThrottling: false }

@@ -71,6 +71,10 @@ async function ensureOcrBinary(): Promise<string> {
 /** 对 png 做本地 Apple Vision OCR，返回每行文字 + 归一化 box 坐标。 */
 export async function ocrImageDetailed(pngPath: string, signal?: AbortSignal): Promise<TextBox[]> {
   signal?.throwIfAborted()
+  if (process.platform === 'win32') {
+    const { windowsOcrImageDetailed } = await import('./platform/windows-ocr')
+    return windowsOcrImageDetailed(pngPath, signal)
+  }
   // 已缓存的二进制若被删除（升级覆盖 userData / 清理工具），重置缓存触发重新编译
   if (ensured && !existsSync(await ensured.catch(() => ''))) ensured = null
   // 编译失败时重置，下次重试；成功后缓存 Promise 避免重复编译
