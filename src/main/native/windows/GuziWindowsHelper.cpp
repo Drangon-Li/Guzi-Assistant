@@ -53,7 +53,7 @@ std::string utf8(const std::wstring& value) {
   return result;
 }
 
-std::string quoted(const std::wstring& value) { return guzi::jsonString(utf8(value)); }
+std::string jsonWideString(const std::wstring& value) { return guzi::jsonString(utf8(value)); }
 void emit(const std::string& value) {
   if (fwrite(value.data(), 1, value.size(), stdout) != value.size() || fputc('\n', stdout) == EOF || fflush(stdout) != 0) {
     if (stopEvent) SetEvent(stopEvent);
@@ -300,11 +300,11 @@ Snapshot snapshot(IUIAutomation* uia) {
 
 std::string snapshotJson(const Snapshot& s) {
   return "{\"observedAtMs\":" + std::to_string(s.observed) + ",\"pid\":" + std::to_string(s.pid) +
-    ",\"windowId\":" + std::to_string(reinterpret_cast<uintptr_t>(s.window)) + ",\"name\":" + quoted(s.name) +
-    ",\"bundleId\":" + quoted(s.bundle) + ",\"windowTitle\":" + quoted(s.title) +
+    ",\"windowId\":" + std::to_string(reinterpret_cast<uintptr_t>(s.window)) + ",\"name\":" + jsonWideString(s.name) +
+    ",\"bundleId\":" + jsonWideString(s.bundle) + ",\"windowTitle\":" + jsonWideString(s.title) +
     ",\"accessibility\":" + guzi::jsonString(s.accessible ? "available" : "unavailable") +
-    ",\"focusedRole\":" + (s.role.empty() ? "null" : quoted(s.role)) +
-    ",\"focusedSubrole\":" + (s.focusId.empty() ? "null" : quoted(L"UIA:" + s.focusId)) +
+    ",\"focusedRole\":" + (s.role.empty() ? "null" : jsonWideString(s.role)) +
+    ",\"focusedSubrole\":" + (s.focusId.empty() ? "null" : jsonWideString(L"UIA:" + s.focusId)) +
     ",\"secureInput\":" + (s.secureKnown ? (s.secure ? "true" : "false") : "null") + "}";
 }
 
@@ -392,7 +392,7 @@ int captureWindow(IUIAutomation* uia, const std::wstring& handle, const std::wst
             DWORD written = 0;
             const bool saved = WriteFile(file, png, static_cast<DWORD>(stat.cbSize.QuadPart), &written, nullptr) && written == stat.cbSize.QuadPart;
             CloseHandle(file);
-            if (saved) { emit("{\"path\":" + quoted(path) + "}"); result = 0; }
+            if (saved) { emit("{\"path\":" + jsonWideString(path) + "}"); result = 0; }
             else DeleteFileW(path.c_str());
           }
           GlobalUnlock(encoded);
@@ -485,17 +485,17 @@ void CALLBACK selectionEvent(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG, DWOR
 
 void emitCollector(const std::string& type, const Snapshot& s, const std::string& command = "", unsigned count = 0) {
   const bool listener = keyboardHook && mouseHook;
-  std::string value = "{\"type\":" + guzi::jsonString(type) + ",\"appName\":" + quoted(s.name) + ",\"bundleId\":" + quoted(s.bundle) +
-    ",\"windowTitle\":" + quoted(s.title) + ",\"windowId\":" + std::to_string(reinterpret_cast<uintptr_t>(s.window)) +
+  std::string value = "{\"type\":" + guzi::jsonString(type) + ",\"appName\":" + jsonWideString(s.name) + ",\"bundleId\":" + jsonWideString(s.bundle) +
+    ",\"windowTitle\":" + jsonWideString(s.title) + ",\"windowId\":" + std::to_string(reinterpret_cast<uintptr_t>(s.window)) +
     ",\"occurredAtMs\":" + std::to_string(nowMs()) + ",\"accessibility\":" + guzi::jsonString(s.accessible ? "available" : "unavailable") +
     ",\"privacyState\":" + guzi::jsonString(s.privacy) + ",\"secureInput\":" + (s.secure ? "true" : "false") +
     ",\"inputMonitoring\":" + guzi::jsonString(!listener ? "unavailable" : inputObserved ? "available" : "unknown") +
     ",\"inputMonitoringPermission\":" + guzi::jsonString(listener ? "available" : "unavailable") +
     ",\"inputMonitoringListener\":" + guzi::jsonString(listener ? "active" : "inactive") +
     ",\"lastInputEventAtMs\":" + (lastInputAt ? std::to_string(lastInputAt) : "null");
-  if (!s.role.empty()) value += ",\"focusedRole\":" + quoted(s.role);
-  if (!s.focusId.empty()) value += ",\"focusedSubrole\":" + quoted(L"UIA:" + s.focusId);
-  if (!s.host.empty()) value += ",\"urlHost\":" + quoted(s.host);
+  if (!s.role.empty()) value += ",\"focusedRole\":" + jsonWideString(s.role);
+  if (!s.focusId.empty()) value += ",\"focusedSubrole\":" + jsonWideString(L"UIA:" + s.focusId);
+  if (!s.host.empty()) value += ",\"urlHost\":" + jsonWideString(s.host);
   if (!command.empty()) value += ",\"command\":" + guzi::jsonString(command);
   if (!s.detail.empty()) value += ",\"detail\":" + guzi::jsonString(s.detail);
   if (count) value += ",\"inputLength\":" + std::to_string(count);
@@ -607,7 +607,7 @@ void inspectClipboard(IUIAutomation* uia, DWORD sequence) {
   if (!guzi::calendarPattern(text)) { clear(); clipSkip("nopattern"); return; }
   const auto verified = snapshot(uia);
   if (!sameFocus(context, verified) || verified.privacy != "normal" || GetClipboardSequenceNumber() != sequence) { clear(); clipSkip("raced"); return; }
-  emit("{\"type\":\"hit\",\"text\":" + quoted(text) + ",\"app\":" + quoted(context.name) + ",\"bundleId\":" + quoted(context.bundle) + "}");
+  emit("{\"type\":\"hit\",\"text\":" + jsonWideString(text) + ",\"app\":" + jsonWideString(context.name) + ",\"bundleId\":" + jsonWideString(context.bundle) + "}");
   clear();
 }
 
@@ -639,7 +639,7 @@ int clipboardFiles() {
     std::vector<wchar_t> path(static_cast<size_t>(length) + 1);
     if (DragQueryFileW(drop, i, path.data(), length + 1) != length) return 3;
     if (i) result += ",";
-    result += quoted(std::wstring(path.data(), length));
+    result += jsonWideString(std::wstring(path.data(), length));
   }
   if (GetClipboardSequenceNumber() != sequence) return 3;
   emit(result + "]");
@@ -719,7 +719,7 @@ int wmain(int argc, wchar_t** argv) {
       if (argc != 3) return 2;
       const auto path = canonicalPath(argv[2]);
       if (path.empty() || guzi::executableName(path).size() < 5 || guzi::executableName(path).substr(guzi::executableName(path).size() - 4) != L".exe") return 3;
-      emit("{\"bundleId\":" + quoted(guzi::identity(path)) + ",\"name\":" + quoted(appName(path)) + ",\"path\":" + quoted(path) + "}");
+      emit("{\"bundleId\":" + jsonWideString(guzi::identity(path)) + ",\"name\":" + jsonWideString(appName(path)) + ",\"path\":" + jsonWideString(path) + "}");
       return 0;
     }
     if (command == L"clipboard-files") return clipboardFiles();
