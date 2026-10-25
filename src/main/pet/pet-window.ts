@@ -23,6 +23,8 @@ type PetRecord = {
 const records = new WeakMap<BrowserWindow, PetRecord>()
 
 let currentPet: BrowserWindow | null = null
+let firstFrameReady = false
+let wantsVisible = false
 let onClickHandler: (() => void) | null = null
 let onDblClickHandler: (() => void) | null = null
 let onLongPressStartHandler: (() => void) | null = null
@@ -99,11 +101,28 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   currentPet = win
+  firstFrameReady = process.platform !== 'win32'
+  wantsVisible = prefs.enabled
   records.set(win, { reaction: 'idle', bubbleText: null })
   installIpc()
 
+  if (process.platform === 'win32') {
+    // Keep the transparent Windows window hidden until Electron has rendered its first frame.
+    win.once('ready-to-show', () => {
+      if (currentPet !== win || win.isDestroyed()) return
+      firstFrameReady = true
+      console.info('[pet-window] ready-to-show', { windowId: win.id, wantsVisible, visible: win.isVisible() })
+      if (wantsVisible && !win.isVisible()) win.showInactive()
+    })
+    win.webContents.on('did-fail-load', (_event, errorCode, _errorDescription, _validatedURL, isMainFrame) => {
+      console.warn('[pet-window] did-fail-load', { windowId: win.id, errorCode, isMainFrame })
+    })
+    win.webContents.on('render-process-gone', (_event, details) => {
+      console.warn('[pet-window] render-process-gone', { windowId: win.id, reason: details.reason, exitCode: details.exitCode })
+    })
+  }
   win.webContents.on('did-finish-load', () => {
-    if (!win.isDestroyed()) {
+    if (currentPet === win && !win.isDestroyed()) {
       win.setIgnoreMouseEvents(true, { forward: true })
       lastInteractiveWant = null
       stopCursorPoll()
@@ -111,18 +130,21 @@ export function createPetWindow(opts: CreatePetOptions): BrowserWindow {
     }
   })
   win.on('closed', () => {
-    if (currentPet === win) currentPet = null
+    if (currentPet !== win) return
+    currentPet = null
+    firstFrameReady = false
+    wantsVisible = false
     stopCursorPoll()
   })
   // 只在桌宠真的挂在屏幕上时轮询光标。挂到窗口事件而不是 showPet/hidePet 调用点，
   // 因为 showInactive() 也会走 'show'，新增显隐入口不必记得来这里补一刀。
-  win.on('show', startCursorPoll)
-  win.on('hide', stopCursorPoll)
+  win.on('show', () => { if (currentPet === win) startCursorPoll() })
+  win.on('hide', () => { if (currentPet === win) stopCursorPoll() })
   if (win.isVisible()) startCursorPoll()
   renderInto(win)
   // 上次退出时处于吸附态：按当前屏幕重算吸附几何（也顺带矫正旧版本存的贴边坐标）
   if (prefs.dock) applyDockGeometry(win, prefs.dock)
-  if (prefs.enabled) win.showInactive() // 暂停态仍显示（变暗），仅 enabled 控制显隐
+  if (wantsVisible && firstFrameReady && !win.isVisible()) win.showInactive() // 暂停态仍显示（变暗），仅 enabled 控制显隐
   return win
 }
 
@@ -132,10 +154,13 @@ export function getPetWindow(): BrowserWindow | null {
 
 export function showPet(): void {
   const win = accessor()
-  if (win && !win.isVisible()) win.showInactive()
+  if (!win) return
+  wantsVisible = true
+  if (firstFrameReady && !win.isVisible()) win.showInactive()
 }
 export function hidePet(): void {
   const win = accessor()
+  wantsVisible = false
   if (win && win.isVisible()) win.hide()
 }
 export function isPetVisible(): boolean {
@@ -385,9 +410,12 @@ function renderInto(win: BrowserWindow): void {
     mkdirSync(dir, { recursive: true })
     const file = join(dir, 'pet.html')
     writeFileSync(file, html, 'utf8')
-    void win.loadFile(file)
+    void win.loadFile(file).catch(() => {
+      if (process.platform === 'win32') console.warn('[pet-window] loadFile rejected', { windowId: win.id })
+    })
   } catch {
     // 写盘/加载失败：桌宠不致命，保持上次内容。
+    if (process.platform === 'win32') console.warn('[pet-window] render failed', { windowId: win.id })
   }
 }
 
