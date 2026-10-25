@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { posix, dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import ts from 'typescript'
@@ -60,7 +60,7 @@ function compile(name,source){
   code=code.replace(/(from\s*['"])([^'"]+)(['"])/g,(_,before,spec,after)=>{
     if(spec==='electron')return before+pathToFileURL(destination(spec)).href+after
     if(!spec.startsWith('.')&&!spec.startsWith('@shared/'))return before+spec+after
-    let target=spec.startsWith('@shared/')?`src/shared/${spec.slice(8)}`:resolve('/',dirname(name),spec).slice(1)
+    let target=spec.startsWith('@shared/')?`src/shared/${spec.slice(8)}`:posix.resolve('/',posix.dirname(name),spec).slice(1)
     if(!target.endsWith('.ts'))target+='.ts'
     assert.ok(paths.has(target),`unexpected service dependency: ${name} -> ${spec}`)
     return before+pathToFileURL(destination(target)).href+after

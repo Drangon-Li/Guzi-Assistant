@@ -1,0 +1,9 @@
+{
+  "name": "guzi-assistant-windows-runtime",
+  "version": "0.11.1",
+  "private": true,
+  "dependencies": {
+    "@gutenye/ocr-node": "1.4.9",
+    "@gutenye/ocr-models": "1.4.2"
+  }
+}

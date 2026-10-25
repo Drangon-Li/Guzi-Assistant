@@ -1,3 +1,4 @@
+import { floatingPanelOptions } from './platform/window-options'
 // 快捷提问框 —— 全局快捷键唤起的聚焦搜索式悬浮输入条（仿 macOS Spotlight / ChatGPT 桌面版）。
 // Spotlight 式半透明：原生 vibrancy 磨砂 + 原生圆角与窗口阴影（transparent 窗两样都拿不到，
 // CSS 阴影在深浅背景上会显得突兀）；进出用窗口透明度渐变，贴近聚焦搜索的观感。
@@ -37,10 +38,7 @@ function ensureWindow(): BrowserWindow {
     skipTaskbar: true,
     show: false,
     // 'menu' 一族材质透亮（聚焦搜索观感）；'under-window' 偏灰闷，背景几乎透不出来
-    vibrancy: 'menu',
-    visualEffectState: 'active',
-    backgroundColor: '#00000000',
-    roundedCorners: true,
+    ...floatingPanelOptions(),
     webPreferences: { preload, backgroundThrottling: false }
   })
   win.setAlwaysOnTop(true, 'screen-saver')

@@ -8,7 +8,7 @@ function check(name, ok) {
 }
 
 const HOME = '/Users/test'
-const ok = (p) => isSafeDropPath(p, HOME)
+const ok = (p) => isSafeDropPath(p, HOME, 'darwin')
 
 check('~/Desktop 普通文件 → 放行', ok('/Users/test/Desktop/notes.pdf'))
 check('~/Documents 普通文件 → 放行', ok('/Users/test/Documents/作业.docx'))

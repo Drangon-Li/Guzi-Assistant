@@ -35,15 +35,20 @@ const BROWSER_BUNDLES = new Set([
   'com.brave.browser',
   'company.thebrowser.browser'
 ])
+
+export function isBrowserIdentity(bundleId: string | null | undefined): boolean {
+  const identity = (bundleId ?? '').trim().toLowerCase()
+  return BROWSER_BUNDLES.has(identity) || /^win32:(?:chrome|msedge|firefox|brave|vivaldi|opera|arc|chromium)\.exe:[0-9a-f]{16}$/.test(identity)
+}
 const PRIVATE_TITLE =
   /private browsing|private window|incognito|inprivate|无痕|無痕|私密浏览|私密瀏覽|シークレット|プライベート|시크릿|프라이빗/i
 
-/** 私密浏览检测的唯一实现：主流浏览器 Bundle + 私密窗口标题特征。 */
+/** Shared title safeguard; native collectors also inspect platform browser controls. */
 export function isPrivateBrowserWindow(
   bundleId: string | null | undefined,
   windowTitle: string | null | undefined
 ): boolean {
-  return !!bundleId && BROWSER_BUNDLES.has(bundleId.toLowerCase()) && PRIVATE_TITLE.test(windowTitle ?? '')
+  return isBrowserIdentity(bundleId) && PRIVATE_TITLE.test(windowTitle ?? '')
 }
 
 function includesApp(appName: string | null | undefined, candidates: string[]): boolean {
@@ -83,6 +88,7 @@ function matchesHostList(host: string, candidates: string[]): boolean {
 
 /** Pure privacy gate shared by persistence and fixture tests. */
 export function decideHistoryPrivacy(input: HistoryPrivacyInput): HistoryPrivacyDecision {
+  const executable = /^win32:([^:]+\.exe):[0-9a-f]{16}$/i.exec(input.bundleId ?? '')?.[1]
   const role = `${input.focusedRole ?? ''} ${input.focusedSubrole ?? ''} ${input.targetRole ?? ''} ${input.targetSubrole ?? ''}`
   if (input.secureInput || /secure|password|secret/i.test(role))
     return { state: 'secure', persist: false, reason: 'secure_input' }
@@ -90,18 +96,18 @@ export function decideHistoryPrivacy(input: HistoryPrivacyInput): HistoryPrivacy
     return { state: 'own', persist: false, reason: 'own_app' }
   if (isBundleIdExcluded(input.bundleId, input.excludedBundleIds ?? []))
     return { state: 'excluded', persist: false, reason: 'excluded_app' }
-  if (isAppExcluded(input.appName, input.excludedApps ?? []))
+  if (isAppExcluded(input.appName, input.excludedApps ?? []) || isAppExcluded(executable, input.excludedApps ?? []))
     return { state: 'excluded', persist: false, reason: 'excluded_app' }
   if (isPrivateBrowserWindow(input.bundleId, input.windowTitle))
     return { state: 'private', persist: false, reason: 'private_browser' }
-  if (!isAppIncluded(input.appName, input.includedApps ?? []))
+  if (!isAppIncluded(input.appName, input.includedApps ?? []) && !isAppIncluded(executable, input.includedApps ?? []))
     return { state: 'excluded', persist: false, reason: 'not_included_app' }
   if (input.suppressed) return { state: 'excluded', persist: false, reason: 'suppressed' }
 
   const rawHost = typeof input.urlHost === 'string' ? input.urlHost.trim() : ''
   const host = rawHost ? normalizeHistoryHost(rawHost) : null
   if (rawHost && !host) return { state: 'excluded', persist: false, reason: 'invalid_url_host' }
-  if (!host && BROWSER_BUNDLES.has((input.bundleId ?? '').toLowerCase()) &&
+  if (!host && isBrowserIdentity(input.bundleId) &&
     ((input.excludedHosts?.length ?? 0) > 0 || (input.includedHosts?.length ?? 0) > 0))
     return { state: 'excluded', persist: false, reason: 'unknown_browser_host' }
   if (host && matchesHostList(host, input.excludedHosts ?? []))

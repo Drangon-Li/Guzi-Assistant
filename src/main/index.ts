@@ -1,4 +1,4 @@
-import { app, Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions } from 'electron'
+import { app, dialog, Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions } from 'electron'
 import { applyVoiceSettings, recoverStaleVoiceSession } from './voicenotes/service'
 import { initDb, getSettings } from './db'
 import { registerIpc, triggerClipboardCapture, triggerScreenshotCapture } from './ipc'
@@ -43,8 +43,11 @@ import { startWellnessReminder, stopWellnessReminder } from './wellness-reminder
 import { applyTaskReminderSchedule, stopTaskReminder } from './task-reminder'
 import { applyClipWatchSettings, stopClipWatch } from './clipwatch'
 import { installAppMenu } from './app-menu'
-import { cpSync, existsSync, readFileSync } from 'fs'
-import { dirname, join } from 'path'
+import { cpSync, existsSync, readFileSync, realpathSync, statSync } from 'fs'
+import { dirname, extname, join } from 'path'
+import { isSafeDropPath } from '@shared/safe-path'
+import { explorerFilesFromArgv, windowsSecondInstanceArgv, EXPLORER_EXTENSIONS, EXPLORER_FILE_FLAG } from './platform/windows-integration'
+import windowsTrayIcon from '../../resources/trayWindows.png?asset'
 import trayIcon from '../../resources/trayTemplate.png?asset'
 import trayIcon2x from '../../resources/trayTemplate@2x.png?asset'
 
@@ -58,6 +61,7 @@ if (userDataOverride) {
 
 // productName 改名会切换 userData；按新到旧顺序迁移历史目录，只复制不删以保留回滚路径。
 function migrateLegacyUserData(): void {
+  if (userDataOverride) return
   const dir = app.getPath('userData')
   if (existsSync(join(dir, 'eshell.db'))) return
   for (const name of ['Gooz', 'EShell', '谷子助手']) {
@@ -125,11 +129,14 @@ function buildTrayMenu(): void {
 }
 
 function createTray(): void {
-  const icon = nativeImage.createFromPath(trayIcon)
-  icon.addRepresentation({ scaleFactor: 2, buffer: readFileSync(trayIcon2x) })
-  icon.setTemplateImage(true) // 单色剪影，由 macOS 按菜单栏明暗自动着色（深色栏白/浅色栏黑）
+  const icon = nativeImage.createFromPath(process.platform === 'darwin' ? trayIcon : windowsTrayIcon)
+  if (process.platform === 'darwin') {
+    icon.addRepresentation({ scaleFactor: 2, buffer: readFileSync(trayIcon2x) })
+    icon.setTemplateImage(true) // macOS 根据菜单栏深浅自动着色
+  }
   tray = new Tray(icon)
-  tray.setToolTip('谷子助手（可把文件拖到这里提交解析）')
+  tray.setToolTip(process.platform === 'darwin' ? '谷子助手（可把文件拖到这里提交解析）' : '谷子助手')
+  if (process.platform !== 'darwin') tray.on('click', () => focusMain())
   // macOS：文件拖到菜单栏图标上直接提交解析
   tray.on('drop-files', (_e, files) => {
     if (files.length) void submitExternalFiles(files)
@@ -137,12 +144,38 @@ function createTray(): void {
   buildTrayMenu()
 }
 
+async function handleExternalFileArgs(argv: string[]): Promise<boolean> {
+  if (process.platform !== 'win32' || !argv.includes(EXPLORER_FILE_FLAG)) return false
+  const paths = explorerFilesFromArgv(argv)
+  const valid = paths.filter((file) => {
+    try {
+      return isSafeDropPath(file) && isSafeDropPath(realpathSync(file)) &&
+        EXPLORER_EXTENSIONS.includes(extname(file).toLowerCase()) && statSync(file).isFile()
+    } catch { return false }
+  })
+  if (valid.length !== paths.length || !valid.length) {
+    await dialog.showMessageBox({ type: 'warning', title: '无法提交文件', message: '请选择用户目录中的受支持文件。', detail: '支持图片、PDF、Word 文档和文本文件；系统目录、应用数据和隐藏文件不会被提交。' })
+    return true
+  }
+  await submitExternalFiles(valid)
+  return true
+}
+
 migrateLegacyUserData()
 
-if (!app.requestSingleInstanceLock()) {
+// Electron may reorder or inject second-instance argv; preserve the Windows Explorer command verbatim.
+const hasSingleInstanceLock = process.platform === 'win32'
+  ? app.requestSingleInstanceLock({ argv: process.argv })
+  : app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => focusMain())
+  app.on('second-instance', (_event, argv, _workingDirectory, additionalData: unknown) => {
+    const fileArgs = process.platform === 'win32' ? windowsSecondInstanceArgv(additionalData) : argv
+    void app.whenReady().then(async () => {
+      if (!await handleExternalFileArgs(fileArgs)) focusMain()
+    })
+  })
 
   app.whenReady().then(() => {
     // 实测进程会以配件(UIElement)策略登记——不占菜单栏、无 Dock 图标，应用菜单永远显示不出来。
@@ -151,12 +184,15 @@ if (!app.requestSingleInstanceLock()) {
       app.setActivationPolicy('regular')
       void app.dock?.show()
     }
+    if (process.platform === 'win32') app.setAppUserModelId('cn.shilong.gooz')
     initDb()
     nativeTheme.themeSource = getSettings().theme // 应用主题设置：驱动渲染层 prefers-color-scheme + 桌宠/窗口深浅色
     installAppMenu()
     registerIpc()
     // 开机自启拉起的这次不弹主窗：桌宠和托盘照常在，用户要用时自己叫出来
-    createMainWindow(!app.getLoginItemSettings().wasOpenedAtLogin)
+    const openedAtLogin = process.platform === 'win32' ? process.argv.includes('--hidden') : app.getLoginItemSettings().wasOpenedAtLogin
+    const externalFileStartup = process.platform === 'win32' && process.argv.includes(EXPLORER_FILE_FLAG)
+    createMainWindow(!openedAtLogin && !externalFileStartup)
     createPetWindow({
       onClick: () => togglePetChat(),
       onDblClick: () => toggleMainWindow(),
@@ -168,6 +204,7 @@ if (!app.requestSingleInstanceLock()) {
     createPetChatWindow() // 预创建桌宠对话窗口（隐藏），点击/拖文件即时可用
     createQuickBar() // 预创建快捷提问框（隐藏），按快捷键秒开
     createTray()
+    void handleExternalFileArgs(process.argv)
     setTrayRefresh(buildTrayMenu) // 监控启停/暂停时刷新托盘菜单
     initHotkey(getSettings().hotkey, triggerClipboardCapture)
     initScreenshotHotkey(getSettings().screenshotHotkey, triggerScreenshotCapture)

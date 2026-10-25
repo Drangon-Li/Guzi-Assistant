@@ -1,4 +1,4 @@
-# 打包配置（macOS）：ad-hoc 签名的 dmg/zip，尚未进行 Apple 公证。
+# macOS 保持原有 arm64 发布配置；Windows 构建在 x64 Windows runner 完成。
 # 外部品牌统一使用中文；afterPack 会把 Electron helper 的内部路径恢复为 GuziAssistant。
 # appId 暂保留旧值，维持 macOS 权限与升级身份连续性。
 appId: cn.shilong.gooz
@@ -15,6 +15,7 @@ files:
   # electron-vite 的 ?asset 导入在产物里解析为 join(__dirname,'../../resources/...')，
   # 即 app.asar/resources/**——源资源目录必须原样进包
   - resources/**
+  - '!resources/capture/**'
 # 桌宠 preload（原始 .cjs，不进构建产物）：拷到 Contents/Resources/pet，petPreloadPath() 按 resourcesPath 解析
 extraResources:
   - from: resources/pet
@@ -40,3 +41,32 @@ mac:
     # 语音纪要要录麦克风；缺这条 macOS 会在首次 getUserMedia 时直接终止进程，而不是弹授权框
     NSMicrophoneUsageDescription: 谷子助手需要麦克风权限来记录会议内容并转成文字纪要（仅在你开启语音纪要时录制）。
 npmRebuild: true
+win:
+  executableName: GuziAssistant
+  icon: build/icon.png
+  artifactName: 'GuziAssistant-${version}-win-${arch}.${ext}'
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  extraResources:
+    - from: build/native/GuziWindowsHelper.exe
+      to: native/GuziWindowsHelper.exe
+    - from: build/windows-ocr
+      to: ocr
+    - from: windows-runtime
+      to: windows-runtime
+      filter: ['package.json', '*.txt']
+    - from: windows-runtime/node_modules
+      to: windows-runtime/node_modules
+      filter: ['**/*', '!.cache/**', '!.bin/**']
+    - from: resources/capture
+      to: capture
+nsis:
+  include: build/windows-installer.nsh
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  shortcutName: 谷子助手

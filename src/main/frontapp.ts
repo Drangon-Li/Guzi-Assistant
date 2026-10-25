@@ -69,6 +69,7 @@ export interface CollectorEvent {
   lastInputEventAtMs?: number | null
   occurredAtMs: number
   accessibility: 'available' | 'unavailable'
+  detail?: string
 }
 
 export interface CollectorHealth {
@@ -95,6 +96,8 @@ let ensured: Promise<string> | null = null
 let collectorEnsured: Promise<string> | null = null
 
 async function ensureBinary(): Promise<string> {
+  if (process.platform === 'win32') return (await import('./platform/windows-helper.ts')).windowsHelperPath()
+  if (process.platform !== 'darwin') throw new Error('Unsupported desktop platform')
   return ensureNativeHelperBinary({
     directory: binDir(), binaryName: 'frontmost-context-v3-oneshot', source: oneshotObjcSrc,
     compile: async (src, bin) => {
@@ -107,6 +110,8 @@ async function ensureBinary(): Promise<string> {
 }
 
 async function ensureCollectorBinary(): Promise<string> {
+  if (process.platform === 'win32') return (await import('./platform/windows-helper.ts')).windowsHelperPath()
+  if (process.platform !== 'darwin') throw new Error('Unsupported desktop platform')
   return ensureNativeHelperBinary({
     directory: binDir(),
     binaryName: 'frontmost-context-v4-ax',
@@ -228,7 +233,8 @@ function parseCollectorLine(line: string): CollectorEvent | null {
             ? raw.lastInputEventAtMs
             : undefined,
       occurredAtMs: raw.occurredAtMs,
-      accessibility: raw.accessibility
+      accessibility: raw.accessibility,
+      detail: typeof raw.detail === 'string' ? raw.detail.slice(0, 160) : undefined
     }
   } catch {
     return null
@@ -292,7 +298,10 @@ export function startFrontmostCollector(
       if (!collectorEnsured) collectorEnsured = ensureCollectorBinary()
       const bin = await collectorEnsured
       if (stopped) return
-      const proc = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+      const proc = process.platform === 'win32'
+        ? (await import('./platform/windows-helper.ts')).spawnWindowsHelper('collect')
+        : spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+      if (stopped) { proc.kill(); return }
       child = proc
       launchStartedAtMs = Date.now()
       lastHeartbeatAtMs = null
@@ -302,6 +311,7 @@ export function startFrontmostCollector(
       proc.stdout.on('data', (chunk: string) => {
         if (stopped || child !== proc) return
         buffer += chunk
+        if (buffer.length > 256 * 1024) { proc.kill(); scheduleRestart('collector output overflow'); return }
         const lines = buffer.split(/\r?\n/)
         buffer = lines.pop() ?? ''
         for (const line of lines) {
@@ -313,9 +323,9 @@ export function startFrontmostCollector(
           if (event.inputMonitoringPermission) inputMonitoringPermission = event.inputMonitoringPermission
           if (event.inputMonitoringListener) inputMonitoringListener = event.inputMonitoringListener
           if (event.lastInputEventAtMs !== undefined) lastInputEventAtMs = event.lastInputEventAtMs
-          const detail = accessibility === 'unavailable' ? 'Accessibility unavailable'
+          const detail = event.detail || (accessibility === 'unavailable' ? 'Accessibility unavailable'
             : inputMonitoringPermission === 'unavailable' ? 'Input Monitoring permission unavailable'
-              : inputMonitoringListener === 'inactive' ? 'Input listener unavailable' : null
+              : inputMonitoringListener === 'inactive' ? 'Input listener unavailable' : null)
           report(detail ? 'degraded' : 'healthy', detail)
           onEvent(event)
         }
@@ -370,7 +380,9 @@ export async function getScreenSnapshot(signal?: AbortSignal): Promise<ScreenSna
     if (!ensured) ensured = ensureBinary().catch((e) => { ensured = null; throw e })
     const bin = await ensured
     signal?.throwIfAborted()
-    const { stdout } = await execFileAsync(bin, [], { timeout: 3000, signal })
+    const stdout = process.platform === 'win32'
+      ? await (await import('./platform/windows-helper.ts')).execWindowsHelper(['snapshot'], { timeout: 3000, signal })
+      : (await execFileAsync(bin, [], { timeout: 3000, signal })).stdout
     return parseScreenSnapshot(JSON.parse(stdout.trim()))
   } catch {
     signal?.throwIfAborted()
@@ -381,7 +393,11 @@ export async function getScreenSnapshot(signal?: AbortSignal): Promise<ScreenSna
 /** Compatibility context for read-only callers; screenshot callers use the full snapshot. */
 export async function getFrontmostContext(): Promise<FrontmostContext | null> {
   const snapshot = await getScreenSnapshot()
-  return snapshot ? snapshotContext(snapshot) : null
+  if (!snapshot) return null
+  const context = snapshotContext(snapshot)
+  if (process.platform === 'win32' && (snapshot.accessibility !== 'available' || snapshot.secureInput !== false))
+    return { ...context, secureInput: true }
+  return context
 }
 
 /** 当前前台 App 的本地化名称；兼容现有排除和切换检测调用方。 */

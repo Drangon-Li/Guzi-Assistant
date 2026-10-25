@@ -95,7 +95,8 @@ export function getSettings(): AppSettings {
     useCustomModel: map.useCustomModel === 'true',
     modelVision: map.modelVision ?? '',
     modelChat: map.modelChat ?? '',
-    clipWatchEnabled: map.clipWatchEnabled !== 'false',
+    // Windows must read text to match patterns; require opt-in before the first read.
+    clipWatchEnabled: process.platform === 'win32' ? map.clipWatchEnabled === 'true' : map.clipWatchEnabled !== 'false',
     todoScanEnabled: map.todoScanEnabled !== 'false',
     todoScanIntervalSec:
       map.todoScanIntervalSec != null

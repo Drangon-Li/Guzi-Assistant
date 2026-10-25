@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { PassThrough } from 'node:stream'
 import {
@@ -36,6 +37,10 @@ const hook = registerHooks({
     return next(specifier, context)
   },
   load(url, context, next) {
+    if (url.endsWith('/src/main/frontapp.ts')) {
+      const loaded = next(url, context)
+      return { ...loaded, source: readFileSync(new URL(url), 'utf8').replaceAll('process.platform', "'darwin'") }
+    }
     if (url.startsWith('input-fixture:')) return {
       format: 'module', shortCircuit: true,
       source: mocks[decodeURIComponent(url.slice('input-fixture:'.length))] ?? 'export default "fixture";'

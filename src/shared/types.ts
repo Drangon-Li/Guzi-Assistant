@@ -165,7 +165,7 @@ export interface ParseSummary {
 
 export interface PermissionStatus {
   screen: string
-  /** macOS 麦克风授权状态；非 macOS 恒为 granted。语音纪要要用 */
+  /** 平台能查询时返回实际状态，否则为 unknown；录音请求仍需处理系统拒绝。 */
   microphone: string
   apiConfigured: boolean
 }

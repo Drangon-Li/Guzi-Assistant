@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 import { firstNonBlank } from '@shared/env-value'
+import { installWindowsIntegration, windowsIntegrationInstalled, uninstallWindowsIntegration } from './platform/windows-integration'
 import { shouldUpgradeQuickAction } from '@shared/quickaction-migration'
 
 const WORKFLOW_NAME = '发送到 谷子助手.workflow'
@@ -265,7 +266,9 @@ function bundlePath(): string {
   return join(servicesDir(), WORKFLOW_NAME)
 }
 
-export function quickActionInstalled(): boolean {
+export function quickActionInstalled(): boolean | Promise<boolean> {
+  if (process.platform === 'win32') return app.isPackaged ? windowsIntegrationInstalled(process.execPath) : false
+  if (process.platform !== 'darwin') return false
   const document = join(bundlePath(), 'Contents', 'document.wflow')
   if (!existsSync(document)) return false
   try {
@@ -277,15 +280,18 @@ export function quickActionInstalled(): boolean {
 
 /** 已安装但仍指向旧 Gooz dropbox 时原位升级；从未安装过则不主动新增。 */
 export function upgradeQuickActionIfNeeded(): void {
+  if (process.platform !== 'darwin') return
   const document = join(bundlePath(), 'Contents', 'document.wflow')
   const legacyDocument = join(servicesDir(), LEGACY_WORKFLOW_NAME, 'Contents', 'document.wflow')
-  if (shouldUpgradeQuickAction(existsSync(document), quickActionInstalled(), existsSync(legacyDocument))) {
+  if (shouldUpgradeQuickAction(existsSync(document), quickActionInstalled() === true, existsSync(legacyDocument))) {
     installQuickAction()
   }
 }
 
 /** 直接生成 .workflow bundle 写入 ~/Library/Services，免打包免签名 */
-export function installQuickAction(): boolean {
+export function installQuickAction(): boolean | Promise<boolean> {
+  if (process.platform === 'win32') return app.isPackaged ? installWindowsIntegration(process.execPath) : false
+  if (process.platform !== 'darwin') return false
   try {
     // 改名遗留：旧「发送到 纸壳助手」workflow 指向已迁移的旧 dropbox 目录，装新版时顺手清掉
     const legacy = join(servicesDir(), LEGACY_WORKFLOW_NAME)
@@ -301,4 +307,14 @@ export function installQuickAction(): boolean {
     console.warn('[quickaction] 安装失败：', e instanceof Error ? e.message : e)
     return false
   }
+}
+
+export function uninstallQuickAction(): boolean | Promise<boolean> {
+  if (process.platform === 'win32') return app.isPackaged ? uninstallWindowsIntegration() : false
+  if (process.platform !== 'darwin') return false
+  try {
+    rmSync(bundlePath(), { recursive: true, force: true })
+    execFile('/System/Library/CoreServices/pbs', ['-update'], () => {})
+    return true
+  } catch { return false }
 }

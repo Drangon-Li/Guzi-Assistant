@@ -45,6 +45,7 @@ export const INVOKE_CHANNELS = [
   'permissions:open-screen-settings',
   'quickaction:status',
   'quickaction:install',
+  'quickaction:uninstall',
   'feishu:status',
   'screen:scan',
   'screen:activity-status',

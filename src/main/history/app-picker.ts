@@ -21,6 +21,18 @@ async function plistValue(infoPath: string, key: string): Promise<string> {
 }
 
 async function readApplication(path: string): Promise<HistoryAppSelection | null> {
+  if (process.platform === 'win32') {
+    if (!path.toLowerCase().endsWith('.exe') || !existsSync(path)) return null
+    try {
+      const { execWindowsHelper } = await import('../platform/windows-helper.ts')
+      const raw = JSON.parse(await execWindowsHelper(['app-info', path])) as Partial<HistoryAppSelection>
+      if (typeof raw.bundleId !== 'string' || !/^win32:[^:]+\.exe:[0-9a-f]{16}$/.test(raw.bundleId) ||
+          typeof raw.name !== 'string' || !raw.name || typeof raw.path !== 'string') return null
+      return { bundleId: raw.bundleId, name: raw.name, path: raw.path }
+    } catch {
+      return null
+    }
+  }
   if (!path.toLowerCase().endsWith('.app')) return null
   const infoPath = join(path, 'Contents', 'Info.plist')
   if (!existsSync(infoPath)) return null
@@ -33,15 +45,15 @@ async function readApplication(path: string): Promise<HistoryAppSelection | null
   return { bundleId, name, path }
 }
 
-/** Open the native macOS application chooser and return stable app identities. */
+/** Return the same application identity used by the platform collector. */
 export async function pickHistoryApps(): Promise<HistoryAppSelection[] | null> {
   const result = await dialog.showOpenDialog({
     title: '选择要排除的 App',
     message: '选中的 App 不会写入历史记录',
-    defaultPath: existsSync('/Applications') ? '/Applications' : undefined,
+    defaultPath: process.platform === 'darwin' && existsSync('/Applications') ? '/Applications' : undefined,
     buttonLabel: '加入黑名单',
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: '应用程序', extensions: ['app'] }]
+    filters: [{ name: '应用程序', extensions: process.platform === 'win32' ? ['exe'] : ['app'] }]
   })
   if (result.canceled) return null
 

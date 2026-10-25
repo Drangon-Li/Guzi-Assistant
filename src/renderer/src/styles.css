@@ -301,3 +301,5 @@ textarea {
 /* 点一下换回 $…$ 源码编辑，给个手势提示 */
 .note-body [data-tex] { cursor: pointer; border-radius: 0.25em; }
 .note-body [data-tex]:hover { background: var(--color-elevated); }
+
+html:not([data-platform="darwin"]) .titlebar-pad { padding-top: 16px; -webkit-app-region: no-drag; }

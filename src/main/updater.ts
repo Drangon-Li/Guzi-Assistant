@@ -6,33 +6,14 @@ import { app, dialog, shell } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { firstNonBlank } from '@shared/env-value'
+import { isNewerVersion, parseUpdateManifest, updateFeed } from '../shared/update-manifest.ts'
 
-const FEED_URL =
-  firstNonBlank(process.env.GUZI_ASSISTANT_UPDATE_FEED, process.env.ESHELL_UPDATE_FEED) ||
-  'https://rtgypddrknuylecqejmp.supabase.co/storage/v1/object/public/releases/latest-mac.json'
 const CHECK_INTERVAL_MS = 24 * 3600 * 1000
-
-interface Manifest {
-  version?: string
-  notes?: string
-  url?: string
-}
 
 export interface UpdateCheckResult {
   status: 'update' | 'latest' | 'error'
   version?: string
   message?: string
-}
-
-function newer(remote: string, local: string): boolean {
-  const ra = remote.split('.').map(Number)
-  const la = local.split('.').map(Number)
-  for (let i = 0; i < 3; i++) {
-    const a = ra[i] || 0
-    const b = la[i] || 0
-    if (a !== b) return a > b
-  }
-  return false
 }
 
 function stampFile(): string {
@@ -42,17 +23,23 @@ function stampFile(): string {
 /** 检查更新。manual=true 时「已是最新/检查失败」也弹框反馈；启动静默检查只在有新版时打扰。 */
 export async function checkForUpdates(manual: boolean): Promise<UpdateCheckResult> {
   try {
-    const res = await fetch(FEED_URL, { headers: { 'cache-control': 'no-cache' } })
+    const configured = firstNonBlank(
+      process.platform === 'win32' ? process.env.GUZI_ASSISTANT_WINDOWS_UPDATE_FEED : undefined,
+      process.env.GUZI_ASSISTANT_UPDATE_FEED, process.env.ESHELL_UPDATE_FEED
+    )
+    const res = await fetch(updateFeed(process.platform, process.arch, configured), {
+      headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(15_000)
+    })
+    if (process.platform === 'win32' && res.status === 404) throw new Error('Windows 更新源尚未就绪，请稍后重试')
     if (!res.ok) throw new Error(`版本清单拉取失败（HTTP ${res.status}）`)
-    const m = (await res.json()) as Manifest
-    const remote = typeof m.version === 'string' ? m.version.replace(/^v/, '') : ''
-    if (!remote) throw new Error('版本清单缺少 version 字段')
+    const m = parseUpdateManifest(await res.json(), process.platform, process.arch)
+    const remote = m.version
     try {
       writeFileSync(stampFile(), JSON.stringify({ last: Date.now() }))
     } catch {
       // 戳记写失败不致命，下次启动多查一次而已
     }
-    if (!newer(remote, app.getVersion())) {
+    if (!isNewerVersion(remote, app.getVersion())) {
       if (manual)
         void dialog.showMessageBox({
           type: 'info',

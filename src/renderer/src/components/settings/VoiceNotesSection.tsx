@@ -1,3 +1,5 @@
+import { permissionLabel } from '../../../../shared/platform'
+import { isMac } from '../../platform'
 // 设置页「语音纪要」分区。状态由 pages/Settings.tsx 持有，这里只负责这一段的渲染与保存。
 import { useEffect, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
@@ -168,7 +170,7 @@ export default function VoiceNotesSection({
               )}
               {perms && perms.microphone !== 'granted' && (
                 <p className="mt-2 text-xs text-amber-600">
-                  麦克风未授权（{perms.microphone}），录制会失败。请到 系统设置 → 隐私与安全性 → 麦克风 中允许 谷子助手。
+                  麦克风：{permissionLabel(perms.microphone)}。{isMac ? '可在「系统设置 → 隐私与安全性 → 麦克风」中检查。' : '请在 Windows「设置 → 隐私和安全性 → 麦克风」允许桌面应用访问；录音结果会进一步确认可用性。'}
                 </p>
               )}
             </div>

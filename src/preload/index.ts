@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 // preload 构建无 @shared 别名，走相对路径
 import { INVOKE_CHANNELS, EVENT_CHANNELS, CONTENT_EPOCH_CHANNEL } from '../shared/ipc-channels'
 import { parsePluginChannel } from '../shared/plugin-manifest'
+import { desktopPlatform } from '../shared/platform'
 import { PLUGINS } from '../shared/plugin-registry'
 
 // 通道白名单：渲染层即便被注入，也只能触达登记过的通道，挡掉任意 invoke（如 data:wipe / capture:files 滥用）
@@ -20,7 +21,8 @@ function isAllowedInvoke(channel: string): boolean {
   return !!parsed && PLUGIN_IDS.has(parsed.id)
 }
 
-const api = {
+const api = Object.freeze({
+  platform: desktopPlatform(process.platform),
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
     if (!isAllowedInvoke(channel)) {
       return Promise.reject(new Error(`未授权的 IPC 通道: ${channel}`))
@@ -37,7 +39,7 @@ const api = {
     return () => ipcRenderer.removeListener(channel, listener)
   },
   pathForFile: (file: File): string => webUtils.getPathForFile(file)
-}
+})
 
 contextBridge.exposeInMainWorld('guziAssistant', api)
 

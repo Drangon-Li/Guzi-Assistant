@@ -2,6 +2,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { AppSettings } from '@shared/types'
 import { formatHotkey } from '../../labels'
+import { isMac, primaryModifier } from '../../platform'
 import { Section } from '../ui'
 import { HOTKEY_ROWS, type HotkeyField } from './shared'
 
@@ -36,8 +37,8 @@ export default function HotkeySection({
           ))}
         </div>
         <p className="mt-2 text-xs leading-5 text-slate-400">
-          点击按键框后直接按下想要的组合：需包含至少一个修饰键（⌘ ⌥ ⌃ ⇧），F1–F12
-          可单独使用。注册失败说明该组合被系统或其他应用占用。「整屏感知扫描」需先在「屏幕感知」里开启本地智能检测才会生效。「快捷提问框」在任意应用里唤起：回车问助手，⌘回车直接记日程。
+          点击按键框后直接按下想要的组合：需包含至少一个修饰键（{isMac ? '⌘ ⌥ ⌃ ⇧' : 'Ctrl Alt Shift Win'}），F1–F12
+          可单独使用。注册失败说明该组合被系统或其他应用占用。「整屏感知扫描」需先在「屏幕感知」里开启本地智能检测才会生效。「快捷提问框」在任意应用里唤起：回车问助手，{primaryModifier}回车换行。
         </p>
       </Section>
     </>

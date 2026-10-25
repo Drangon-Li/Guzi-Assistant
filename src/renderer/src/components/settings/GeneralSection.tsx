@@ -3,6 +3,7 @@ import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import type { AppSettings, LaunchAtLoginState, Profile } from '@shared/types'
 import { api } from '../../api'
 import { CONFIRM_MODES, formatHotkey } from '../../labels'
+import { isMac } from '../../platform'
 import { Section, Toggle } from '../ui'
 
 interface Props {
@@ -116,13 +117,13 @@ export default function GeneralSection({
         </div>
       </Section>
 
-      <Section title="剪贴板自动捕获" desc="复制到疑似日程的内容时主动提示。前三道门都不读正文：只在系统判定「像日程」时才第一次读取，密码管理器打了标记的内容一个字都不碰。">
+      <Section title="剪贴板自动捕获" desc={isMac ? '复制到疑似日程的内容时主动提示。前三道门都不读正文：只在系统判定「像日程」时才第一次读取，密码管理器打了标记的内容一个字都不碰。' : '在本机检查剪贴板的敏感标记与日程时间模式，仅匹配内容进入识别；敏感标记和排除应用的内容会跳过。'}>
         <div className="flex flex-col gap-3">
           <label className="flex items-center justify-between gap-4 text-sm">
             <span>
               自动感知剪贴板
               <span className="ml-2 text-xs text-slate-400">
-                需要 macOS 15.4 及以上；{formatHotkey(settings.hotkey)} 手动捕获始终可用
+                {isMac ? '需要 macOS 15.4 及以上；' : '本地检测会读取文本；'}{formatHotkey(settings.hotkey)} 手动捕获始终可用
               </span>
             </span>
             <Toggle

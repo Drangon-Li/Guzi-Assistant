@@ -2,6 +2,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { AppSettings, FeishuStatus } from '@shared/types'
 import { api } from '../../api'
+import { isMac } from '../../platform'
 import { Section, Toggle } from '../ui'
 
 /** 生成 MCP Bearer token：48 位十六进制随机串（浏览器安全随机源） */
@@ -34,9 +35,9 @@ export default function IntegrationSection({
               <div className="flex flex-col gap-3 text-sm">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <div>访达右键快速操作</div>
+                    <div>{isMac ? '访达右键快速操作' : '资源管理器右键菜单'}</div>
                     <div className="mt-0.5 text-xs leading-5 text-slate-400">
-                      安装后在访达中选中文件 → 右键 → 快速操作 → 「发送到 谷子助手」，文件会直接进入解析流程（应用未运行时会在下次启动时补处理）。
+                      {isMac ? '安装后在访达中选中文件 → 右键 → 快速操作 → 「发送到 谷子助手」，文件会直接进入解析流程（应用未运行时会在下次启动时补处理）。' : '安装后右键单个图片、PDF、Word 或文本文件 → 「发送到 谷子助手」。Windows 11 可能需要先点「显示更多选项」。仅打包版可安装；应用未运行时会自动启动并处理。'}
                     </div>
                   </div>
                   <button
@@ -48,16 +49,23 @@ export default function IntegrationSection({
                     onClick={async () => {
                       const ok = await api.installQuickAction()
                       setQaInstalled(ok)
-                      flash(ok ? '已安装到 访达 右键菜单' : '安装失败，请重试')
+                      flash(ok ? `已安装到${isMac ? '访达' : '资源管理器'}右键菜单` : isMac ? '安装失败，请重试' : '安装失败，请确认使用已安装的正式版')
                     }}
                   >
                     {qaInstalled ? '已安装（点击重装）' : '安装'}
                   </button>
                 </div>
+                {qaInstalled && (
+                  <button className="self-end text-xs text-slate-500 hover:text-slate-700" onClick={async () => {
+                    const ok = await api.uninstallQuickAction()
+                    if (ok) setQaInstalled(false)
+                    flash(ok ? '已移除右键菜单' : '移除失败，请重试')
+                  }}>移除右键菜单</button>
+                )}
                 <div>
-                  <div>托盘拖拽</div>
+                  <div>{isMac ? '托盘拖拽' : '托盘与文件拖拽'}</div>
                   <div className="mt-0.5 text-xs leading-5 text-slate-400">
-                    把文件直接拖到菜单栏的 谷子助手 图标上即可提交解析，无需安装。
+                    {isMac ? '把文件直接拖到菜单栏的 谷子助手 图标上即可提交解析，无需安装。' : '单击任务栏通知区域中的谷子助手图标可打开主界面；文件可拖到悬浮球或主界面提交解析。'}
                   </div>
                 </div>
               </div>

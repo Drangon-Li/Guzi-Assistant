@@ -3,6 +3,8 @@ import type { Dispatch, SetStateAction } from 'react'
 import type { AppSettings, PermissionStatus, ScreenActivityStatus } from '@shared/types'
 import type { HistoryStatus } from '@shared/history'
 import { api } from '../../api'
+import { permissionLabel } from '../../../../shared/platform'
+import { isMac } from '../../platform'
 import { Section, Toggle } from '../ui'
 import HistoryDataSection from './HistoryDataSection'
 
@@ -84,7 +86,7 @@ export default function ScreenSenseSection({
                     Collector：{activityStatus.collector === 'healthy' ? '正常' : activityStatus.collector === 'degraded' ? '降级' : activityStatus.collector === 'starting' ? '启动中' : '已停止'}
                   </span>
                   <span>
-                    Accessibility：{activityStatus.accessibility === 'available' ? '可用' : activityStatus.accessibility === 'unavailable' ? '未授权（不影响基础事件）' : '未知'}
+                    Accessibility：{activityStatus.accessibility === 'available' ? '可用' : activityStatus.accessibility === 'unavailable' ? '不可用（不影响基础事件）' : '未知'}
                   </span>
                   <span>语义覆盖率：{activityStatus.semanticCoverage}%</span>
                   <span>OCR fallback：{activityStatus.ocrFallbackCount} 次</span>
@@ -241,7 +243,7 @@ export default function ScreenSenseSection({
               {settings.screenSenseContinuous && (
                 <div className="mt-3 flex flex-col gap-2">
                   <p className="text-xs leading-5 text-slate-400">
-                    连续 60 秒没有键鼠操作、锁屏或睡眠时都不会采集。可在菜单栏随时暂停，暂停会取消尚未完成的云端解析。
+                    连续 60 秒没有键鼠操作、锁屏或睡眠时都不会采集。可在托盘菜单随时暂停，暂停会取消尚未完成的云端解析。
                   </p>
 
                   <div className="mt-2 border-t border-slate-100 pt-3">
@@ -290,9 +292,9 @@ export default function ScreenSenseSection({
               )}
             </div>
 
-            {perms && perms.screen !== 'granted' && (
+            {perms && ['denied', 'restricted'].includes(perms.screen) && (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
-                屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 谷子助手。
+                {isMac ? '屏幕录制权限未授权，扫描会失败。请到 系统设置 → 隐私与安全性 → 屏幕录制 中允许 谷子助手。' : '屏幕捕获受到系统限制，请检查 Windows 隐私设置和组织策略。'}
               </div>
             )}
           </div>
@@ -445,11 +447,11 @@ export default function ScreenSenseSection({
         {perms && (
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex items-center justify-between">
-              <span>屏幕录制（截图捕获其他应用内容需要）</span>
+              <span>{isMac ? '屏幕录制（截图捕获其他应用内容需要）' : '屏幕捕获状态'}</span>
               <span
                 className={`text-xs ${perms.screen === 'granted' ? 'text-emerald-600' : 'text-amber-600'}`}
               >
-                {perms.screen === 'granted' ? '已授权' : `未授权（${perms.screen}）`}
+                {permissionLabel(perms.screen)}
               </span>
             </div>
             <button
