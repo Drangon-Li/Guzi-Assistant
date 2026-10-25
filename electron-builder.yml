@@ -57,7 +57,10 @@ win:
       to: ocr
     - from: windows-runtime
       to: windows-runtime
-      filter: ['package.json', '*.txt', 'node_modules/**', '!node_modules/.cache/**', '!node_modules/.bin/**']
+      filter: ['package.json', '*.txt']
+    - from: windows-runtime/node_modules
+      to: windows-runtime/node_modules
+      filter: ['**/*', '!.cache/**', '!.bin/**']
     - from: resources/capture
       to: capture
 nsis:
