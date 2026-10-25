@@ -46,7 +46,7 @@ import { installAppMenu } from './app-menu'
 import { cpSync, existsSync, readFileSync, realpathSync, statSync } from 'fs'
 import { dirname, extname, join } from 'path'
 import { isSafeDropPath } from '@shared/safe-path'
-import { explorerFilesFromArgv, EXPLORER_EXTENSIONS, EXPLORER_FILE_FLAG } from './platform/windows-integration'
+import { explorerFilesFromArgv, windowsSecondInstanceArgv, EXPLORER_EXTENSIONS, EXPLORER_FILE_FLAG } from './platform/windows-integration'
 import windowsTrayIcon from '../../resources/trayWindows.png?asset'
 import trayIcon from '../../resources/trayTemplate.png?asset'
 import trayIcon2x from '../../resources/trayTemplate@2x.png?asset'
@@ -163,12 +163,17 @@ async function handleExternalFileArgs(argv: string[]): Promise<boolean> {
 
 migrateLegacyUserData()
 
-if (!app.requestSingleInstanceLock()) {
+// Electron may reorder or inject second-instance argv; preserve the Windows Explorer command verbatim.
+const hasSingleInstanceLock = process.platform === 'win32'
+  ? app.requestSingleInstanceLock({ argv: process.argv })
+  : app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
   app.quit()
 } else {
-  app.on('second-instance', (_event, argv) => {
+  app.on('second-instance', (_event, argv, _workingDirectory, additionalData: unknown) => {
+    const fileArgs = process.platform === 'win32' ? windowsSecondInstanceArgv(additionalData) : argv
     void app.whenReady().then(async () => {
-      if (!await handleExternalFileArgs(argv)) focusMain()
+      if (!await handleExternalFileArgs(fileArgs)) focusMain()
     })
   })
 

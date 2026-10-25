@@ -19,6 +19,12 @@ export function explorerFilesFromArgv(argv: string[]): string[] {
   return index >= 0 && index === argv.length - 2 && argv[index + 1] ? [argv[index + 1]] : []
 }
 
+export function windowsSecondInstanceArgv(additionalData: unknown): string[] {
+  if (!additionalData || typeof additionalData !== 'object' || Array.isArray(additionalData) || !('argv' in additionalData)) return []
+  const { argv } = additionalData
+  return Array.isArray(argv) && Array.from(argv).every((arg) => typeof arg === 'string') ? argv : []
+}
+
 export async function windowsIntegrationInstalled(executable: string): Promise<boolean> {
   const command = explorerCommand(executable)
   try {

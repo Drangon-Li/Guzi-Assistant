@@ -67,6 +67,10 @@ assert.throws(() => integration.explorerCommand('C:\\bad"name.exe'))
 assert.deepEqual(Array.from(integration.explorerFilesFromArgv(['app.exe', '--guzi-capture-file', 'C:\\A B\\a.txt'])), ['C:\\A B\\a.txt'])
 assert.equal(integration.explorerFilesFromArgv(['app.exe', 'C:\\a.txt']).length, 0)
 assert.equal(integration.explorerFilesFromArgv(['app.exe', '--guzi-capture-file', 'C:\\a.txt', '--extra']).length, 0)
+for (const invalid of [undefined, null, true, 7, 'argv', [], {}, { argv: null }, { argv: 'app.exe' }, { argv: [exe, 7] }, { argv: [exe, null] }, { argv: new Array(3) }]) {
+  assert.equal(integration.windowsSecondInstanceArgv(invalid).length, 0, 'second-instance payload must contain only string arguments')
+}
+assert.deepEqual(Array.from(integration.windowsSecondInstanceArgv({ argv: [exe, '--guzi-capture-file', 'C:\\a.txt'] })), [exe, '--guzi-capture-file', 'C:\\a.txt'])
 assert.equal(await integration.windowsIntegrationInstalled(exe), false)
 assert.equal(await integration.installWindowsIntegration(exe), true)
 assert.equal(await integration.windowsIntegrationInstalled(exe), true)
@@ -79,6 +83,99 @@ assert.equal(await integration.uninstallWindowsIntegration(), true)
 assert.equal(registry.size, 1)
 assert.equal(registry.get('HKCU\\Unrelated|'), 'keep')
 assert.equal(await integration.windowsIntegrationInstalled(exe), false)
+
+function mainModule(platform, argv, lockGranted = true) {
+  const source = ts.createSourceFile('index.ts', readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8'), ts.ScriptTarget.ES2022)
+  const dependencies = {}
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue
+    const exports = dependencies[statement.moduleSpecifier.text] = {}
+    const bindings = statement.importClause?.namedBindings
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const binding of bindings.elements) exports[(binding.propertyName ?? binding.name).text] = () => {}
+    }
+  }
+  const ready = []
+  const lockCalls = []
+  const submissions = []
+  const warnings = []
+  const realPaths = new Map()
+  let focused = 0
+  let quit = 0
+  const app = Object.assign(new EventEmitter(), {
+    isPackaged: true,
+    setPath() {}, getPath: () => 'C:\\Users\\A', setAppUserModelId() {},
+    requestSingleInstanceLock: (...args) => { lockCalls.push(args); return lockGranted },
+    quit() { quit++ },
+    whenReady: () => ({ then(callback) { ready.push(callback) } })
+  })
+  class Tray extends EventEmitter {
+    setToolTip() {}
+    setContextMenu() {}
+  }
+  Object.assign(dependencies, {
+    electron: { app, dialog: { async showMessageBox(options) { warnings.push(options) } }, Menu: { buildFromTemplate() {} }, Tray, nativeTheme: {}, nativeImage: { createFromPath: () => ({}) } },
+    fs: { existsSync: () => true, realpathSync: (file) => realPaths.get(file) ?? file, statSync: () => ({ isFile: () => true }) },
+    path: platform === 'win32' ? win32 : posix,
+    '@shared/safe-path': loadTs('../src/shared/safe-path.ts', { os: { homedir: () => 'C:\\Users\\A' } }, platform),
+    './platform/windows-integration': integration,
+    './db': { initDb() {}, getSettings: () => ({ theme: 'system' }) },
+    './capture': { async submitExternalFiles(files) { submissions.push(Array.from(files)) } },
+    './windows': { appState: {}, createMainWindow() {}, focusMain() { focused++ } }
+  })
+  loadTs('../src/main/index.ts', dependencies, platform, { process: { platform, argv, env: {} } })
+  return {
+    app, lockCalls, submissions, warnings, realPaths,
+    get focused() { return focused }, get quit() { return quit },
+    async start() { await ready.shift()() },
+    async secondInstance(rewrittenArgv, additionalData) {
+      app.emit('second-instance', {}, rewrittenArgv, 'C:\\Users\\A', additionalData)
+      await ready.pop()()
+    }
+  }
+}
+
+const file = 'C:\\Users\\A\\Downloads\\GuziWinTest-file-notice.txt'
+const rawArgv = [exe, '--guzi-capture-file', file]
+const rewrittenArgv = [exe, '--guzi-capture-file', '--allow-file-access-from-files', file]
+assert.equal(integration.explorerFilesFromArgv(rewrittenArgv).length, 0, 'Chromium-injected arguments must not loosen the file parser')
+const primary = mainModule('win32', [exe])
+await primary.start()
+await primary.secondInstance(rewrittenArgv, { argv: rawArgv })
+assert.deepEqual(primary.submissions, [[file]], 'second-instance must submit the original argv despite Chromium argument injection')
+assert.equal(primary.warnings.length, 0)
+assert.equal(primary.focused, 0)
+
+for (const invalid of [undefined, null, {}, { argv: 'app.exe' }, { argv: [exe, '--guzi-capture-file', file, 7] }]) {
+  await primary.secondInstance(rawArgv, invalid)
+}
+assert.deepEqual(primary.submissions, [[file]], 'invalid or missing payloads must never fall back to Electron argv')
+assert.equal(primary.warnings.length, 0)
+assert.equal(primary.focused, 5)
+for (const args of [[...rawArgv, '--extra'], rewrittenArgv]) {
+  await primary.secondInstance(rawArgv, { argv: args })
+}
+assert.deepEqual(primary.submissions, [[file]], 'extra arguments in the original argv must still be rejected')
+assert.equal(primary.warnings.length, 2)
+
+await primary.secondInstance(rewrittenArgv, { argv: [exe, '--guzi-capture-file', 'C:\\Users\\A\\AppData\\secret.txt'] })
+primary.realPaths.set(file, 'C:\\Windows\\secret.txt')
+await primary.secondInstance(rewrittenArgv, { argv: rawArgv })
+assert.deepEqual(primary.submissions, [[file]], 'payload handoff must preserve both original and resolved path checks')
+assert.equal(primary.warnings.length, 4)
+
+const firstFileStartup = mainModule('win32', rawArgv)
+assert.deepEqual(firstFileStartup.lockCalls.map((args) => ({ argv: Array.from(args[0].argv) })), [{ argv: rawArgv }])
+await firstFileStartup.start()
+assert.deepEqual(firstFileStartup.submissions, [[file]], 'first startup must continue to use process.argv')
+const secondary = mainModule('win32', rawArgv, false)
+assert.deepEqual(secondary.lockCalls.map((args) => ({ argv: Array.from(args[0].argv) })), [{ argv: rawArgv }])
+assert.equal(secondary.quit, 1, 'the second process must quit after handing off its argv')
+const macMain = mainModule('darwin', [exe])
+assert.deepEqual(macMain.lockCalls, [[]], 'macOS must retain its existing lock call')
+await macMain.secondInstance(rawArgv, { argv: rawArgv })
+assert.equal(macMain.focused, 1)
+assert.equal(macMain.submissions.length, 0)
 
 function windowsModule(platform) {
   const nativeTheme = Object.assign(new EventEmitter(), { shouldUseDarkColors: false })
