@@ -5,6 +5,7 @@
 #define WINVER 0x0A00
 #endif
 #include <windows.h>
+#include <ole2.h>
 #include <UIAutomation.h>
 #include <winver.h>
 #include <wincodec.h>
