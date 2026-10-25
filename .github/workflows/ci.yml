@@ -6,25 +6,38 @@ on:
     branches: [main]
   push:
     branches: [main, 'codex/windows-*']
+  release:
+    types: [published]
 
-# 同一分支/PR 的旧任务自动取消，省额度
+permissions:
+  contents: read
+
+# 普通 CI 取消同分支旧任务；Release 使用独立分组且不中断。
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'release' && format('ci-release-{0}', github.event.release.id) || format('ci-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
 
 jobs:
   build:
     name: Typecheck & Build
+    if: github.event_name != 'release' || (github.event.release.draft == false && github.event.release.prerelease == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
           # 项目要求 Node ≥ 22.6（README）；22.18+ 原生 strip-types 才能直接 node 跑 .ts 测试
           node-version: 22
           cache: npm
+
+      - name: Verify release tag and package version
+        if: github.event_name == 'release'
+        run: node scripts/verify-windows-release.mjs --tag-only
 
       # better-sqlite3 原生模块在 postinstall 走 electron-rebuild，
       # Linux 下需要这些库（puppeteer/electron 依赖）
@@ -53,14 +66,21 @@ jobs:
 
   mac-regression:
     name: macOS regression
+    if: github.event_name != 'release' || (github.event.release.draft == false && github.event.release.prerelease == false)
     runs-on: macos-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - name: Verify release tag and package version
+        if: github.event_name == 'release'
+        run: node scripts/verify-windows-release.mjs --tag-only
       - run: npm ci
       - run: npm rebuild better-sqlite3
       - run: npm run typecheck
@@ -69,12 +89,16 @@ jobs:
 
   windows:
     name: Windows x64 package
+    if: github.event_name != 'release' || (github.event.release.draft == false && github.event.release.prerelease == false)
     runs-on: windows-2022
     timeout-minutes: 40
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -82,6 +106,9 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             windows-runtime/package-lock.json
+      - name: Verify release tag and package version
+        if: github.event_name == 'release'
+        run: node scripts/verify-windows-release.mjs --tag-only
       - name: Install dependencies
         run: npm ci
       - name: Prepare SQLite for Node tests
@@ -122,3 +149,43 @@ jobs:
           name: windows-package-diagnostics
           if-no-files-found: ignore
           path: release/windows-smoke.log
+
+  publish-windows:
+    name: Publish Windows release assets
+    if: github.event_name == 'release' && github.event.release.draft == false && github.event.release.prerelease == false
+    needs: [build, mac-regression, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: GuziAssistant-windows-x64
+          path: release
+      - name: Read current release assets
+        run: gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease,assets > release-metadata.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Verify Windows release assets and reject existing attachments
+        run: node scripts/verify-windows-release.mjs
+      - name: Upload verified Windows assets
+        run: |
+          version=$(node --print "require('./package.json').version")
+          gh release upload "$RELEASE_TAG" \
+            "release/GuziAssistant-${version}-win-x64.exe" \
+            "release/GuziAssistant-${version}-win-x64.zip" \
+            release/latest-win-x64.json \
+            release/windows-SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
