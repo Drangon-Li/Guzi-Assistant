@@ -87,15 +87,8 @@ try {
   assert.equal((await page.evaluate(() => window.guziAssistant.invoke('tasks:list'))).length, 0)
   await page.evaluate(() => [...document.querySelectorAll('aside button')].find((button) => button.textContent.trim() === '设置').click())
   await page.waitForFunction(() => document.querySelector('main')?.textContent.includes('设置'), { timeout: 10_000 })
-  const png = await page.evaluate(() => {
-    const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 200
-    const context = canvas.getContext('2d')
-    context.fillStyle = '#fff'; context.fillRect(0, 0, 1000, 200)
-    context.fillStyle = '#000'; context.font = '48px Microsoft YaHei, Arial'; context.fillText('谷子助手 Windows 12345', 30, 110)
-    return canvas.toDataURL('image/png').split(',')[1]
-  })
-  const image = join(temp, 'ocr.png')
-  await writeFile(image, Buffer.from(png, 'base64'))
+  // A fixed image keeps OCR verification independent of the runner's language packs.
+  const image = join(root, 'test/fixtures/windows-ocr.png')
   const result = await new Promise((accept, reject) => {
     worker = fork(workerPath, [image, join(resources, 'ocr'), join(resources, 'windows-runtime/package.json')], {
       execPath: exe, execArgv: [], env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'ignore', 'pipe', 'ipc']

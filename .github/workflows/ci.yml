@@ -90,6 +90,9 @@ jobs:
         run: npm run prepare:win
       - run: npm run typecheck
       - run: npm run test:unit
+      - name: Restore SQLite for Electron packaging
+        # npm rebuild above changes the binary without clearing electron-rebuild's marker.
+        run: npm run postinstall
       - name: Build Windows installers
         run: |
           npm run build

@@ -21,8 +21,8 @@
     "pack:mac": "electron-vite build && electron-builder --mac",
     "pack:dir": "electron-vite build && electron-builder --mac --dir",
     "prepare:win": "node scripts/prepare-windows.mjs",
-    "pack:win": "npm run prepare:win && electron-vite build && electron-builder --win --x64 --publish never",
-    "pack:win:dir": "npm run prepare:win && electron-vite build && electron-builder --win --x64 --dir --publish never",
+    "pack:win": "npm run prepare:win && electron-rebuild -f -w better-sqlite3 && electron-vite build && electron-builder --win --x64 --publish never",
+    "pack:win:dir": "npm run prepare:win && electron-rebuild -f -w better-sqlite3 && electron-vite build && electron-builder --win --x64 --dir --publish never",
     "test:packaged:win": "node scripts/test-windows-package.mjs"
   },
   "dependencies": {
