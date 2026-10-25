@@ -30,14 +30,14 @@ function cleanup() {
   return cleanupPromise ??= (async () => {
     if (worker && worker.exitCode === null && worker.signalCode === null) worker.kill()
     if (workerClosed) await Promise.race([workerClosed, delay(5_000)])
-    browser?.disconnect()
+    await browser?.disconnect()
     if (application?.pid && application.exitCode === null && application.signalCode === null) {
       // Terminate only the process tree created by this smoke test.
       spawnSync('taskkill.exe', ['/PID', String(application.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
       await Promise.race([applicationClosed, delay(5_000)])
     }
     await writeFile(join(root, 'release/windows-smoke.log'), log)
-    await rm(temp, { recursive: true, force: true })
+    await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   })()
 }
 const onSignal = (code) => { void cleanup().then(() => process.exit(code), (error) => { console.error(error); process.exit(code) }) }
@@ -49,6 +49,7 @@ try {
   const sqlite = spawnSync(exe, [probe], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000, windowsHide: true })
   assert.equal(sqlite.status, 0, sqlite.stderr || sqlite.stdout)
   assert.match(sqlite.stdout, /SQLITE_OK/)
+  console.log('Packaged Electron SQLite passed')
   application = spawn(exe, ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
   applicationClosed = new Promise((accept) => application.once('close', accept))
   application.stdout.on('data', (data) => { log += data })
@@ -64,6 +65,7 @@ try {
   }
   assert(endpoint, `No debugging endpoint after startup: ${log}`)
   browser = await puppeteer.connect({ browserWSEndpoint: endpoint })
+  console.log('Packaged application started; DevTools connected')
   let page
   for (let attempt = 0; attempt < 80; attempt++) {
     page = (await browser.pages()).find((candidate) => candidate.url().includes('index.html') && new URL(candidate.url()).hash === '#/main')
@@ -75,6 +77,7 @@ try {
   const version = await page.evaluate(() => window.guziAssistant.invoke('app:version'))
   assert.equal(version, JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version)
   assert.equal(await page.evaluate(async () => (await window.guziAssistant.invoke('settings:get')).clipWatchEnabled), false)
+  console.log('Main renderer, preload and settings passed')
   await page.evaluate(async () => {
     await window.guziAssistant.invoke('settings:save', { historyV2Enabled: false })
     await window.guziAssistant.invoke('profile:save', {
@@ -87,6 +90,7 @@ try {
   assert.equal((await page.evaluate(() => window.guziAssistant.invoke('tasks:list'))).length, 0)
   await page.evaluate(() => [...document.querySelectorAll('aside button')].find((button) => button.textContent.trim() === '设置').click())
   await page.waitForFunction(() => document.querySelector('main')?.textContent.includes('设置'), { timeout: 10_000 })
+  console.log('Profile, task database and settings navigation passed; starting offline OCR')
   // A fixed image keeps OCR verification independent of the runner's language packs.
   const image = join(root, 'test/fixtures/windows-ocr.png')
   const result = await new Promise((accept, reject) => {
@@ -110,6 +114,11 @@ try {
   assert.match(text, /谷子助手/)
   assert(result.resizedImageWidth > 0 && result.resizedImageHeight > 0)
   console.log(`Windows package verified: native helper, Electron SQLite, renderer, preload, offline Chinese/English OCR (${text})`)
+} catch (error) {
+  const detail = error?.stack || String(error)
+  log += `\nPackage smoke failure: ${detail}\n`
+  console.error(detail)
+  throw error
 } finally {
   await cleanup()
 }

@@ -93,14 +93,18 @@ jobs:
       - name: Restore SQLite for Electron packaging
         # npm rebuild above changes the binary without clearing electron-rebuild's marker.
         run: npm run postinstall
-      - name: Build Windows installers
+      - name: Build Windows application
         run: |
           npm run build
-          node node_modules/electron-builder/cli.js --win --x64 --publish never
+          node node_modules/electron-builder/cli.js --win --x64 --dir --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Verify packaged SQLite, UI and offline OCR
         run: npm run test:packaged:win
+      - name: Build installers from verified application
+        run: node node_modules/electron-builder/cli.js --win --x64 --prepackaged release/win-unpacked --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Prepare platform-specific update manifest
         run: node scripts/create-windows-update-manifest.mjs
       - uses: actions/upload-artifact@v4
