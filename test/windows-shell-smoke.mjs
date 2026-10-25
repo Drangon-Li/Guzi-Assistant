@@ -252,7 +252,7 @@ class PetWindow extends EventEmitter {
   setVisibleOnAllWorkspaces() {}
   setIgnoreMouseEvents(ignore) { this.ignoreCalls.push(ignore) }
   showInactive() { this.visible = true; this.emit('show') }
-  loadFile() { return Promise.resolve() }
+  loadFile() {}
 }
 const pet = loadTs('../src/main/pet/pet-window.ts', {
   electron: { BrowserWindow: PetWindow, ipcMain: new EventEmitter(), nativeTheme: Object.assign(new EventEmitter(), { shouldUseDarkColors: false }), screen: { getCursorScreenPoint: () => cursor } },
@@ -265,7 +265,6 @@ const pet = loadTs('../src/main/pet/pet-window.ts', {
   clearTimeout: (timer) => timers.delete(timer)
 })
 const petWin = pet.createPetWindow({ onClick() {}, onDblClick() {} })
-petWin.emit('ready-to-show')
 assert.equal(petWin.ignoreCalls.at(-1), true, 'outside badge should pass clicks through')
 cursor = { x: 270, y: 450 }
 const poll = [...timers][0]
