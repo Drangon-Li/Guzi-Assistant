@@ -67,6 +67,7 @@ async function buildBundle(version, publicKey, feedURL) {
   const strings = { CFBundleIdentifier: bundleId, CFBundleName: 'GuziSparkleTest', CFBundleVersion: version, CFBundleShortVersionString: `${version}.0.0`, SUFeedURL: feedURL, SUPublicEDKey: publicKey }
   for (const [key, value] of Object.entries(strings)) run('/usr/bin/plutil', ['-replace', key, '-string', value, plist])
   for (const key of ['SUEnableAutomaticChecks', 'SUAutomaticallyUpdate', 'SUAllowsAutomaticUpdates']) run('/usr/bin/plutil', ['-replace', key, '-bool', 'false', plist])
+  run('/usr/bin/plutil', ['-replace', 'SUVerifyUpdateBeforeExtraction', '-bool', 'true', plist])
   run('/usr/bin/plutil', ['-replace', 'NSAppTransportSecurity', '-json', '{"NSAllowsLocalNetworking":true,"NSAllowsArbitraryLoads":true}', plist])
   run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', target])
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', target])
@@ -161,8 +162,8 @@ try {
       assert.equal(new Set(launches.map((row) => row.detail.userData)).size, 1)
       assert.equal(new Set(launches.map((row) => row.pid)).size, 2)
     } else if (['wrong-signature', 'corrupt'].includes(name)) {
-      assert(states.some((state) => state.phase === 'error' && state.code === 4005))
-      assert(!states.some((state) => state.phase === 'ready'))
+      assert(states.some((state) => state.phase === 'error' && state.code === 4005), `${name}: expected signature rejection; observed ${JSON.stringify(states.map(({ phase, code, error }) => ({ phase, code, error })))}`)
+      assert(!states.some((state) => ['ready', 'installing'].includes(state.phase)), `${name}: rejected archive must never become installable`)
     } else if (name === 'latest') assert(states.some((state) => state.phase === 'latest'))
     else {
       const cancelled = rows.find((row) => ['terminal', 'quit-released'].includes(row.event))
