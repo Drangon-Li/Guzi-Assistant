@@ -23,7 +23,7 @@ import { localNow } from '@shared/parsing'
 import { meetingAppKind, type PcmSegment, type VoiceSessionRecord } from '@shared/voicenotes'
 import { pcmToWav, transcribeSegment } from './transcribe'
 import { parseVoiceTranscript } from './parse'
-import { assertContentEpoch, captureContentEpoch, isContentEpochCurrent, isContentResetting } from '../content-lifecycle'
+import { assertContentEpoch, captureContentEpoch, isContentEpochCurrent, isContentResetting, isExitPreparing } from '../content-lifecycle'
 
 /** 会议应用离开前台多久算散会。开会时切去别的窗口查资料很常见，别一切走就收尾。 */
 const LEAVE_GRACE_MS = 90_000
@@ -36,6 +36,28 @@ let leftMeetingAt: number | null = null
 /** 正在录的会话；null 表示没在录。渲染层靠 voice:state 事件跟这里对齐。 */
 let current: VoiceSessionRecord | null = null
 let nextSeq = 0
+const completedSegments = new Set<number>()
+let autoStartBlocked = false
+let retryFinalization: VoiceSessionRecord | null = null
+let stopping: Promise<void> | null = null
+let captureStop: { sessionId: string; promise: Promise<void>; resolve: () => void; reject: (error: Error) => void } | null = null
+
+export function acknowledgeVoiceCaptureStopped(sessionId: string): void {
+  if (captureStop?.sessionId === sessionId) captureStop.resolve()
+}
+
+function waitForCaptureStop(sessionId: string): Promise<void> {
+  let resolve!: () => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail })
+  const timeout = setTimeout(() => reject(new Error('录音窗口未确认停止，语音纪要尚未保存')), 180_000)
+  const pending = { sessionId, promise, resolve, reject }
+  captureStop = pending
+  return promise.finally(() => {
+    clearTimeout(timeout)
+    if (captureStop === pending) captureStop = null
+  })
+}
 /** 已派出去还没回来的转录请求数，收尾时要等它们落完 */
 let pendingTranscriptions = 0
 const transcriptionAborts = new Set<AbortController>()
@@ -55,6 +77,7 @@ export function startVoiceSession(appName: string | null): VoiceSessionRecord {
   if (current) return current
   current = createVoiceSession(appName)
   nextSeq = 0
+  completedSegments.clear()
   leftMeetingAt = null
   debugEvent('voice', `开始录制语音纪要${appName ? `（${appName}）` : '（手动）'}`)
   emitState()
@@ -62,14 +85,29 @@ export function startVoiceSession(appName: string | null): VoiceSessionRecord {
 }
 
 /**
- * 收一场：等在途的转录落完 → 拼全文 → 解析任务。
- * 解析是异步的，收尾函数不等它，UI 靠 voice:state 看 finalizing → done。
+ * 收一场：采集确认停止 → 等在途转录落完 → 拼全文 → 解析任务。
  */
-export async function stopVoiceSession(): Promise<void> {
+export function stopVoiceSession(): Promise<void> {
+  if (stopping) return stopping
+  const run = finishVoiceSession().finally(() => { if (stopping === run) stopping = null })
+  stopping = run
+  return run
+}
+
+async function finishVoiceSession(): Promise<void> {
   const epoch = captureContentEpoch()
-  const session = current
+  const session = current ?? retryFinalization
   if (!session) return
-  current = null
+  retryFinalization = session
+  autoStartBlocked = true
+  if (current) {
+    const stopped = waitForCaptureStop(session.id)
+    current = { ...session, status: 'finalizing' }
+    emitState()
+    await stopped
+    if (!isContentEpochCurrent(epoch)) return
+    current = null
+  }
   leftMeetingAt = null
   updateVoiceSession(session.id, { status: 'finalizing', endedAt: localNow() })
   emitState()
@@ -83,6 +121,7 @@ export async function stopVoiceSession(): Promise<void> {
   }
 
   if (!isContentEpochCurrent(epoch)) return
+  if (pendingTranscriptions > 0) throw new Error('语音转录尚未完成，请稍后重试')
 
   const transcript = sessionTranscript(session.id)
   updateVoiceSession(session.id, { transcript })
@@ -90,6 +129,7 @@ export async function stopVoiceSession(): Promise<void> {
     updateVoiceSession(session.id, { status: 'done', taskCount: 0 })
     debugEvent('voice', '这一场没有转录到内容')
     broadcast('guzi-assistant:voice-updated')
+    retryFinalization = null
     return
   }
   try {
@@ -101,7 +141,9 @@ export async function stopVoiceSession(): Promise<void> {
     if (!isContentEpochCurrent(epoch)) return
     updateVoiceSession(session.id, { status: 'failed' })
     debugEvent('voice', `解析失败：${e instanceof Error ? e.message : String(e)}`)
+    throw e
   }
+  retryFinalization = null
   broadcast('guzi-assistant:voice-updated')
   broadcast('guzi-assistant:tasks-updated')
 }
@@ -116,8 +158,12 @@ export async function ingestSegment(segment: PcmSegment): Promise<void> {
   const epoch = captureContentEpoch()
   const session = current
   if (!session || session.id !== segment.sessionId) return
-  const seq = nextSeq
-  nextSeq += 1
+  const seq = Number.isInteger(segment.seq) && segment.seq >= 0 ? segment.seq : nextSeq
+  nextSeq = Math.max(nextSeq, seq + 1)
+  if (completedSegments.has(seq)) {
+    updateVoiceSession(session.id, { transcript: sessionTranscript(session.id) })
+    return
+  }
   pendingTranscriptions += 1
   const controller = new AbortController()
   transcriptionAborts.add(controller)
@@ -135,8 +181,6 @@ export async function ingestSegment(segment: PcmSegment): Promise<void> {
       audioWrites.add(write)
       try {
         await write
-      } catch {
-        audioPath = null
       } finally {
         audioWrites.delete(write)
       }
@@ -146,14 +190,17 @@ export async function ingestSegment(segment: PcmSegment): Promise<void> {
     assertContentEpoch(epoch)
     if (text) {
       addVoiceSegment({ sessionId: session.id, seq, durationMs: segment.durationMs, text })
+      completedSegments.add(seq)
       const transcript = sessionTranscript(session.id)
       updateVoiceSession(session.id, { transcript })
       broadcast('guzi-assistant:voice-updated')
     }
   } catch (e) {
     // 单段失败不该毁掉整场：记一笔，继续录下一段
-    if (isContentEpochCurrent(epoch))
+    if (isContentEpochCurrent(epoch)) {
       debugEvent('voice', `分段 ${seq} 转录失败：${e instanceof Error ? e.message : String(e)}`)
+      throw e
+    }
   } finally {
     transcriptionAborts.delete(controller)
     if (isContentEpochCurrent(epoch)) pendingTranscriptions -= 1
@@ -164,7 +211,7 @@ export async function ingestSegment(segment: PcmSegment): Promise<void> {
 
 /** 一轮前台检查：会议应用来了就起录，走了超过宽限期就收尾。 */
 async function tick(): Promise<void> {
-  if (ticking || isContentResetting()) return
+  if (ticking || isContentResetting() || isExitPreparing()) return
   const epoch = captureContentEpoch()
   ticking = true
   try {
@@ -187,9 +234,10 @@ async function tick(): Promise<void> {
 
     if (kind) {
       leftMeetingAt = null
-      if (!current) startVoiceSession(context.name)
+      if (!current && !autoStartBlocked) startVoiceSession(context.name)
       return
     }
+    autoStartBlocked = false
     if (!current) return
     // 会议应用不在前台了：给一段宽限，开会时切去查资料是常事
     if (leftMeetingAt === null) leftMeetingAt = Date.now()
@@ -217,6 +265,11 @@ export function stopVoiceWatch(): void {
 export async function resetVoiceContent(): Promise<void> {
   stopVoiceWatch()
   current = null
+  retryFinalization = null
+  stopping = null
+  completedSegments.clear()
+  captureStop?.resolve()
+  captureStop = null
   leftMeetingAt = null
   nextSeq = 0
   pendingTranscriptions = 0

@@ -19,7 +19,7 @@ function track<T extends ChildProcess>(child: T): T {
   child.once('close', forget)
   if (!cleanupRegistered) {
     cleanupRegistered = true
-    app.once('before-quit', () => {
+    app.once('will-quit', () => {
       for (const proc of children) proc.kill()
       children.clear()
     })

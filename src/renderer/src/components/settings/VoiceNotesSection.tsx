@@ -10,6 +10,7 @@ import { Section, Toggle } from '../ui'
 
 interface Props {
   settings: AppSettings
+  saveSettings: (patch: Partial<AppSettings>) => Promise<boolean>
   setSettings: Dispatch<SetStateAction<AppSettings | null>>
   flash: (msg: string) => void
 }
@@ -18,7 +19,7 @@ const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none'
 
 export default function VoiceNotesSection({
-  settings,
+  settings, saveSettings,
   setSettings,
   flash
 }: Props): React.JSX.Element {
@@ -45,7 +46,7 @@ export default function VoiceNotesSection({
 
   const save = async (patch: Partial<AppSettings>): Promise<void> => {
     setSettings({ ...settings, ...patch })
-    await api.saveSettings(patch)
+    await saveSettings(patch)
   }
 
   const configured = !!settings.voiceApiBase && !!settings.voiceApiKey

@@ -1,4 +1,6 @@
 import type { PcmSegment, VoiceSessionRecord } from '@shared/voicenotes'
+import type { UpdateState } from '@shared/update-state'
+import type { ExitResponse } from '@shared/exit-lifecycle'
 import type {
   AppCategory,
   AppCategoryOverride,
@@ -98,6 +100,7 @@ export const api = {
   voiceProbe: () => inv<{ ok: boolean; message: string }>('voice:probe'),
   voiceStart: () => inv<VoiceSessionRecord>('voice:start'),
   voiceStop: () => inv<void>('voice:stop'),
+  voiceCaptureStopped: (sessionId: string) => inv<void>('voice:capture-stopped', sessionId),
   voiceState: () => inv<VoiceSessionRecord | null>('voice:state'),
   voiceSessions: () => inv<VoiceSessionRecord[]>('voice:sessions'),
   voiceSegment: (segment: PcmSegment) => inv<void>('voice:segment', segment),
@@ -191,8 +194,12 @@ export const api = {
   /** 正文不滚动的话窗口该多高；主进程夹进屏幕范围后调整 */
   petChatResize: (height: number) => inv<void>('pet:chat-resize', height),
   appVersion: () => inv<string>('app:version'),
-  /** 手动检查更新：结果通过系统对话框反馈，返回值供按钮态使用 */
-  checkUpdate: () => inv<{ status: 'update' | 'latest' | 'error'; version?: string }>('app:check-update'),
+  checkUpdate: () => inv<UpdateState | { status: 'update' | 'latest' | 'error'; version?: string }>('app:check-update'),
+  updateState: () => inv<UpdateState>('app:update-state'),
+  downloadUpdate: () => inv<UpdateState>('app:download-update'),
+  cancelUpdate: () => inv<void>('app:cancel-update'),
+  installUpdate: () => inv<UpdateState>('app:install-update'),
+  exitResponse: (response: ExitResponse) => inv<void>('app:exit-response', response),
   launchAtLogin: () => inv<LaunchAtLoginState>('app:launch-at-login'),
   /** 写完回读系统的实际状态：用户可能在系统设置里拦下（requires-approval） */
   setLaunchAtLogin: (enabled: boolean) =>

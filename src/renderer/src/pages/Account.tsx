@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Identity, Profile } from '@shared/types'
 import { api } from '../api'
+import { clearExitSaveError, trackExitSave, useExitParticipant } from '../exit-lifecycle'
 import { fillFromPlaceholder, IDENTITIES, IDENTITY_PROFILE_FIELDS } from '../labels'
 import AccountSection from '../components/AccountSection'
 import PersonalMemory from '../components/PersonalMemory'
@@ -34,11 +35,16 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
   const [accounts, setAccounts] = useState('')
   const [notMine, setNotMine] = useState('')
   const [note, setNote] = useState('')
+  const savedForm = useRef('')
+  const formSnapshot = (): string => JSON.stringify({ profile, nicknames, accounts, notMine })
+  const latestForm = useRef('')
+  latestForm.current = formSnapshot()
 
   useEffect(() => {
     void api.getProfile().then((p) => {
       setProfile(p)
       if (p) {
+        savedForm.current = JSON.stringify({ profile: p, nicknames: p.nicknames.join('、'), accounts: p.accounts.join('、'), notMine: (p.belongingNotMine ?? []).join('、') })
         setNicknames(p.nicknames.join('、'))
         setAccounts(p.accounts.join('、'))
         setNotMine((p.belongingNotMine ?? []).join('、'))
@@ -51,16 +57,9 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
     window.setTimeout(() => setNote(''), 2500)
   }
 
-  if (!profile) return <div className="p-8 text-sm text-slate-400">加载中…</div>
-
-  // 档案字段呈现随身份类型即时切换（学生→学校/课题组，职场→公司/部门，自由职业→客户/业务方向）
-  const fields = IDENTITY_PROFILE_FIELDS[profile.identity]
-
   const saveProfileForm = async (): Promise<void> => {
-    if (!profile.name.trim()) {
-      flash('称呼不能为空')
-      return
-    }
+    if (!profile) return
+    if (!profile.name.trim()) throw new Error('称呼不能为空')
     const next: Profile = {
       ...profile,
       name: profile.name.trim(),
@@ -68,11 +67,29 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
       accounts: splitList(accounts),
       belongingNotMine: splitList(notMine)
     }
-    setProfile(next)
-    await api.saveProfile(next)
+    const submitted = formSnapshot()
+    await trackExitSave(api.saveProfile(next), 'account-profile')
+    savedForm.current = JSON.stringify({ profile: next, nicknames, accounts, notMine })
+    if (latestForm.current === submitted) setProfile(next)
     onProfileChange(next)
     flash('档案已保存')
   }
+
+  const profileDirty = !!profile && formSnapshot() !== savedForm.current
+  useExitParticipant({
+    id: 'account-profile',
+    label: '用户档案',
+    isDirty: () => profileDirty,
+    alwaysPrepare: true,
+    prepare: async (decision) => {
+      if (decision === 'save' && profileDirty) await saveProfileForm()
+      else clearExitSaveError('account-profile')
+    }
+  })
+
+  if (!profile) return <div className="p-8 text-sm text-slate-400">加载中…</div>
+
+  const fields = IDENTITY_PROFILE_FIELDS[profile.identity]
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5 px-8 py-8 pb-16">
@@ -179,7 +196,7 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
         <div className="mt-4">
           <button
             className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark"
-            onClick={() => void saveProfileForm()}
+            onClick={() => void saveProfileForm().catch((error: unknown) => flash(error instanceof Error ? error.message : String(error)))}
           >
             保存档案
           </button>

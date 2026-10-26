@@ -19,6 +19,7 @@ import {
 } from '@shared/notebook'
 import 'katex/dist/katex.min.css' // 公式样式；记事本是懒加载页，不进首屏 chunk
 import { api } from '../../api'
+import { clearExitSaveError, registerExitParticipant, trackExitSave, useExitParticipant } from '../../exit-lifecycle'
 import ContextMenu, { type MenuEntry } from '../../components/ContextMenu'
 import NoteEditor from './NoteEditor'
 import NotebookSettings from './Settings'
@@ -31,6 +32,8 @@ interface Draft {
   parentId: string | null
   value: string
 }
+
+let recoverySequence = 0
 
 type NotePatch = { title?: string; content?: string; tags?: string[] }
 
@@ -182,28 +185,66 @@ export default function NotebookPage(): React.JSX.Element {
   const openRequest = useRef(0)
   const mounted = useRef(true)
 
-  const flushSaves = useCallback(async (): Promise<void> => {
+  const recoveryId = useRef(`notebook-recovery-${++recoverySequence}`)
+  const releaseRecovery = useRef<(() => void) | null>(null)
+  const saveTail = useRef<Promise<void>>(Promise.resolve())
+  const flushSaves = useCallback((): Promise<void> => {
     window.clearTimeout(saveTimer.current)
-    const pending = [...pendingSaves.current]
-    pendingSaves.current.clear()
-    await Promise.all(pending.map(async ([id, { patch, version }]) => {
-      await call('update', id, patch)
-      const saved = await call<NoteRecord | null>('get', id)
-      if (!saved || !mounted.current || editVersions.current.get(id) !== version) return
-      const { content: _content, ...summary } = saved
-      setNotes((prev) => prev.map((n) => n.id === id ? summary : n))
-      setActive((prev) => prev?.id === id ? {
-        ...prev, title: saved.title, tags: saved.tags, updatedAt: saved.updatedAt
-      } : prev)
-    }))
+    const run = saveTail.current.catch(() => {}).then(async () => {
+      while (pendingSaves.current.size) {
+        for (const [id, entry] of pendingSaves.current) {
+          await call('update', id, entry.patch)
+          if (pendingSaves.current.get(id) === entry) pendingSaves.current.delete(id)
+          const saved = await call<NoteRecord | null>('get', id)
+          if (!saved || !mounted.current || editVersions.current.get(id) !== entry.version) continue
+          const { content: _content, ...summary } = saved
+          setNotes((prev) => prev.map((n) => n.id === id ? summary : n))
+          setActive((prev) => prev?.id === id ? {
+            ...prev, title: saved.title, tags: saved.tags, updatedAt: saved.updatedAt
+          } : prev)
+        }
+      }
+      if (!mounted.current) { releaseRecovery.current?.(); releaseRecovery.current = null }
+    })
+    saveTail.current = run
+    return trackExitSave(run, 'notebook')
   }, [])
+
+  useExitParticipant({
+    id: 'notebook', label: '记事本有尚未保存的修改',
+    isDirty: () => { window.clearTimeout(saveTimer.current); return pendingSaves.current.size > 0 },
+    alwaysPrepare: true,
+    prepare: async (decision) => {
+      if (decision === 'discard') {
+        window.clearTimeout(saveTimer.current)
+        pendingSaves.current.clear()
+        await saveTail.current.catch(() => {})
+        clearExitSaveError('notebook')
+      } else await flushSaves()
+    }
+  })
 
   useEffect(() => {
     mounted.current = true
+    releaseRecovery.current?.()
+    releaseRecovery.current = null
     return () => {
       mounted.current = false
       openRequest.current++
-      void flushSaves()
+      if (pendingSaves.current.size) {
+        releaseRecovery.current = registerExitParticipant({
+          id: recoveryId.current, label: '此前编辑的笔记尚未保存', isDirty: () => pendingSaves.current.size > 0, alwaysPrepare: true,
+          prepare: async (decision) => {
+            if (decision === 'discard') {
+              pendingSaves.current.clear()
+              await saveTail.current.catch(() => {})
+              clearExitSaveError('notebook')
+              releaseRecovery.current?.()
+            } else await flushSaves()
+          }
+        })
+      }
+      void flushSaves().catch(console.error)
     }
   }, [flushSaves])
 
@@ -225,7 +266,7 @@ export default function NotebookPage(): React.JSX.Element {
   /** 偏好改一处就存一次：先乐观更新，UI 不等往返。 */
   const patchPrefs = useCallback((patch: Partial<NotebookPrefs>): void => {
     setPrefs((prev) => ({ ...prev, ...patch }))
-    void call<NotebookPrefs>('set-prefs', patch)
+    void trackExitSave(call<NotebookPrefs>('set-prefs', patch), 'notebook-prefs').catch(console.error)
   }, [])
 
   // ⌘+ / ⌘- 调正文字号、⌘0 复位。挂在 window 上而不是编辑器上——
@@ -244,7 +285,7 @@ export default function NotebookPage(): React.JSX.Element {
           ? 1
           : clampFontScale(prev.fontScale + (bigger ? FONT_SCALE_STEP : -FONT_SCALE_STEP))
         if (next === prev.fontScale) return prev
-        void call<NotebookPrefs>('set-prefs', { fontScale: next })
+        void trackExitSave(call<NotebookPrefs>('set-prefs', { fontScale: next }), 'notebook-prefs').catch(console.error)
         return { ...prev, fontScale: next }
       })
     }
@@ -321,7 +362,7 @@ export default function NotebookPage(): React.JSX.Element {
     })
     window.clearTimeout(saveTimer.current)
     saveTimer.current = window.setTimeout(() => {
-      void flushSaves()
+      void flushSaves().catch(console.error)
     }, 600)
   }
 
@@ -352,13 +393,19 @@ export default function NotebookPage(): React.JSX.Element {
 
   const commitDraft = async (): Promise<void> => {
     const d = draft
-    setDraft(null)
     const name = d?.value.trim()
     if (!d || !name) return
     if (d.id) await call('folder-rename', d.id, name)
     else await call('folder-create', name, d.parentId)
+    setDraft(null)
     await reload()
   }
+
+  useExitParticipant({
+    id: 'notebook-folder', label: '记事本分类名称尚未保存',
+    isDirty: () => !!draft?.value.trim(),
+    prepare: async (decision) => { if (decision === 'save') await commitDraft(); else setDraft(null) }
+  })
 
   const deleteFolder = async (node: FolderNode): Promise<void> => {
     if (!window.confirm(`删除分类「${node.name}」？里面的笔记会退回上一级，不会被删除。`)) return

@@ -16,6 +16,7 @@ import {
   type SegmentState
 } from '@shared/voicenotes'
 import { api } from './api'
+import { trackExitSave } from './exit-lifecycle'
 
 const FRAME_SIZE = 4096 // ScriptProcessor 的缓冲大小，@16kHz 约 256ms 一帧
 
@@ -24,9 +25,10 @@ interface Recorder {
 }
 
 let active: Recorder | null = null
+let starting: Promise<Recorder> | null = null
 
 export function isRecording(): boolean {
-  return active !== null
+  return active !== null || starting !== null
 }
 
 /** Float32 [-1,1] → 16bit LE PCM。 */
@@ -62,8 +64,14 @@ function toBase64(bytes: Uint8Array): string {
  * 失败（没授权、没设备）抛错，调用方负责提示——静默失败会让用户以为在录，
  * 开完会才发现什么都没有。
  */
-export async function startCapture(sessionId: string): Promise<Recorder> {
-  if (active) return active
+export function startCapture(sessionId: string): Promise<Recorder> {
+  if (active) return Promise.resolve(active)
+  if (starting) return starting
+  starting = createCapture(sessionId).finally(() => { starting = null })
+  return starting
+}
+
+async function createCapture(sessionId: string): Promise<Recorder> {
 
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
@@ -84,6 +92,17 @@ export async function startCapture(sessionId: string): Promise<Recorder> {
   let state: SegmentState = { durationMs: 0, silenceMs: 0, hasVoice: false }
   const frameMs = (FRAME_SIZE / SAMPLE_RATE) * 1000
 
+  let nextSequence = 0
+  const pending = new Set<PcmSegment>()
+  const sending = new Map<PcmSegment, Promise<void>>()
+  const send = (segment: PcmSegment): Promise<void> => {
+    const existing = sending.get(segment)
+    if (existing) return existing
+    const request = trackExitSave(api.voiceSegment(segment), 'voice-segments')
+    sending.set(segment, request)
+    void request.then(() => { pending.delete(segment); sending.delete(segment) }, () => { sending.delete(segment) })
+    return request
+  }
   const flush = (): void => {
     const chunks = buffer
     const { durationMs, hasVoice } = state
@@ -92,11 +111,12 @@ export async function startCapture(sessionId: string): Promise<Recorder> {
     if (!hasVoice || !chunks.length) return // 全静音的段不值得花一次转录调用
     const segment: PcmSegment = {
       sessionId,
-      seq: 0, // 真正的顺序由主进程按到达次序分配
+      seq: nextSequence++,
       durationMs: Math.round(durationMs),
       pcmBase64: toBase64(floatToPcm16(chunks))
     }
-    void api.voiceSegment(segment)
+    pending.add(segment)
+    void send(segment).catch(console.error)
   }
 
   processor.onaudioprocess = (e): void => {
@@ -119,21 +139,34 @@ export async function startCapture(sessionId: string): Promise<Recorder> {
   processor.connect(mute)
   mute.connect(ctx.destination)
 
+  let stopped = false
+  let stopping: Promise<void> | null = null
   const recorder: Recorder = {
-    stop: async () => {
-      flush() // 最后一段也要送出去，否则会议最后几句永远丢失
-      processor.disconnect()
-      mute.disconnect()
-      source.disconnect()
-      stream.getTracks().forEach((t) => t.stop())
-      await ctx.close().catch(() => {})
-      active = null
+    stop: () => {
+      if (stopping) return stopping
+      stopping = (async () => {
+        if (!stopped) {
+          stopped = true
+          processor.onaudioprocess = null
+          flush()
+          processor.disconnect()
+          mute.disconnect()
+          source.disconnect()
+          stream.getTracks().forEach((track) => track.stop())
+          await ctx.close()
+        }
+        await Promise.all([...pending].map(send))
+        if (active === recorder) active = null
+      })().finally(() => { stopping = null })
+      return stopping
     }
   }
+
   active = recorder
   return recorder
 }
 
 export async function stopCapture(): Promise<void> {
+  if (starting) await starting
   await active?.stop()
 }

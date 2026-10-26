@@ -102,9 +102,9 @@ function fixture({ keepAudio = false, holdAudio = false, holdTranscript = false,
     f.voice.startVoiceSession(null)
     let newStopFinished = false
     const newStop = f.voice.stopVoiceSession().then(() => { newStopFinished = true })
-    await Promise.resolve()
-    assert.ok(newStopFinished, '新录制不应等待已取消的旧转录')
+    f.voice.acknowledgeVoiceCaptureStopped(f.voice.currentVoiceSession().id)
     await newStop
+    assert.ok(newStopFinished, '新录制不应等待已取消的旧转录')
     f.clear()
     f.transcribe.resolve({ text: 'late private transcript' })
     await job
@@ -141,6 +141,8 @@ function fixture({ keepAudio = false, holdAudio = false, holdTranscript = false,
   try {
     await f.voice.ingestSegment(f.segment)
     const job = f.voice.stopVoiceSession()
+    f.voice.acknowledgeVoiceCaptureStopped(f.voice.currentVoiceSession().id)
+    await new Promise((resolve) => setImmediate(resolve))
     assert.equal(f.state.sources.length, 1)
     const release = f.life.beginContentReset()
     await f.voice.resetVoiceContent()
@@ -152,5 +154,25 @@ function fixture({ keepAudio = false, holdAudio = false, holdTranscript = false,
     assert.equal(f.state.sources.length, 0)
     assert.equal(f.state.updates.length, 0)
     console.log('✓ 已经进入语音任务解析的迟到模型结果，也无法恢复来源、任务或会话状态')
+  } finally { f.close() }
+}
+
+{
+  const f = fixture()
+  try {
+    await f.voice.ingestSegment({ ...f.segment, seq: 0 })
+    let stopped = false
+    const finishing = f.voice.stopVoiceSession().then(() => { stopped = true })
+    await Promise.resolve()
+    assert.equal(stopped, false)
+    assert.equal(f.voice.currentVoiceSession().status, 'finalizing')
+    await f.voice.ingestSegment({ ...f.segment, seq: 1 })
+    assert.equal(f.state.segments.length, 2, '停止ACK前仍接纳最后一段音频')
+    await f.voice.ingestSegment({ ...f.segment, seq: 1 })
+    assert.equal(f.state.segments.length, 2, '重试已成功的段不会重复落库')
+    f.voice.acknowledgeVoiceCaptureStopped(f.segment.sessionId)
+    await finishing
+    assert.equal(f.voice.currentVoiceSession(), null)
+    console.log('✓ 等待采集停止ACK并接纳最后音频段；同序号成功段重试不重复入库')
   } finally { f.close() }
 }

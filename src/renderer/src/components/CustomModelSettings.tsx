@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ModelProbeResult } from '@shared/model-configuration'
 import type { AppSettings } from '@shared/types'
 import { api } from '../api'
+import { trackExitSave, useExitParticipant } from '../exit-lifecycle'
 import { API_FORMATS, normalizeApiFormat, type ApiFormat } from '@shared/api-formats'
 import { Toggle } from './ui'
 
@@ -36,12 +37,14 @@ export default function CustomModelSettings(): React.JSX.Element {
   const generation = useRef(0)
   const probing = useRef(false)
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
+  const savedSettings = useRef<Partial<AppSettings>>({})
 
   useEffect(() => {
     mounted.current = true
     const current = ++generation.current
     void api.getSettings().then((s) => {
       if (!mounted.current || current !== generation.current) return
+      savedSettings.current = { useCustomModel: s.useCustomModel, apiFormat: normalizeApiFormat(s.apiFormat), apiBase: s.apiBase, apiKey: s.apiKey, model: s.model, modelVision: s.modelVision, modelChat: s.modelChat }
       setEnabled(s.useCustomModel)
       setApiFormat(normalizeApiFormat(s.apiFormat))
       setApiBase(s.apiBase)
@@ -73,9 +76,11 @@ export default function CustomModelSettings(): React.JSX.Element {
       if (isCurrent && !isCurrent()) return
       const saved = await api.saveSettings(patch)
       if (!saved) throw new Error('保存设置失败')
+      savedSettings.current = { ...savedSettings.current, ...patch }
     })
-    saveQueue.current = pending.catch(() => {})
-    return pending
+    const tracked = trackExitSave(pending, 'custom-model-settings')
+    saveQueue.current = tracked.catch(() => {})
+    return tracked
   }
 
   const save = (patch: Partial<AppSettings>): void => {
@@ -128,6 +133,24 @@ export default function CustomModelSettings(): React.JSX.Element {
       probing.current = false
     }
   }
+
+  const currentSettings = useRef<Partial<AppSettings>>({})
+  currentSettings.current = { useCustomModel: enabled, apiFormat, apiBase: apiBase.trim(), apiKey: apiKey.trim(), model: model.trim(), modelVision: modelVision.trim(), modelChat: modelChat.trim() }
+
+  useExitParticipant({
+    id: 'custom-model-settings',
+    label: '自定义模型设置',
+    isDirty: () => false,
+    alwaysPrepare: true,
+    prepare: async () => {
+      if (loading) return
+      await saveQueue.current
+      const next = currentSettings.current
+      if (Object.entries(next).some(([key, value]) => savedSettings.current[key as keyof AppSettings] !== value)) {
+        await savePatch(next)
+      }
+    }
+  })
 
   const tiers = [
     {

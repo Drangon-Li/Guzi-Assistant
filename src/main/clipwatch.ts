@@ -1,3 +1,4 @@
+import { isExitPreparing, trackContentWork } from './content-lifecycle.ts'
 // 剪贴板自动捕获：用户复制到疑似日程的内容 → 桌宠气泡 + 检测卡确认。
 //
 // 隐私是这条链路的第一约束（剪贴板里过的是密码、2FA、API key）。四道门，前三道**都不读正文**：
@@ -142,8 +143,12 @@ function excludedApp(appName: string, bundleId: string): boolean {
   })
 }
 
-async function handleHit(event: ClipHelperHit): Promise<void> {
-  if (stopped) return
+function handleHit(event: ClipHelperHit): Promise<void> {
+  return trackContentWork(handleHitInternal(event))
+}
+
+async function handleHitInternal(event: ClipHelperHit): Promise<void> {
+  if (stopped || isExitPreparing()) return
   // 这三条早退必须留痕：用户的感受是「复制了但毫无反应」，没有日志就无从判断卡在哪
   if (parseAbort) {
     debugEvent('clip', '上一条仍在解析，本条跳过')

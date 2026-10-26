@@ -3,6 +3,7 @@ import type { ParseSummary, PendingCapture } from '@shared/types'
 import type { ParsedItem } from '@shared/parsing'
 import type { LocalExtraction } from '@shared/types'
 import { api } from '../api'
+import { useExitParticipant } from '../exit-lifecycle'
 import { fmtTime, SOURCE_LABELS } from '../labels'
 import brandMark from '../assets/agent-avatar.png'
 
@@ -47,6 +48,8 @@ export default function PreviewCard(): React.JSX.Element | null {
   // 检测卡「备注」：快速反馈（不是我的/已完成/自由输入），存档并注入后续提示词帮模型学习
   const [noteOpen, setNoteOpen] = useState(false)
   const [noteText, setNoteText] = useState('')
+  useExitParticipant({ id: 'preview-note', label: '预览卡片中有尚未提交的备注', canSave: false,
+    isDirty: () => noteOpen && !!noteText.trim(), prepare: async () => { setNoteText(''); setNoteOpen(false) } })
   // 检测卡/建议卡倒计时自动忽略：进度条走满 = 拒绝（检测精度有限，沉默即否）；悬停/填备注时暂停
   const [hovering, setHovering] = useState(false)
   const [remainMs, setRemainMs] = useState<number | null>(null)

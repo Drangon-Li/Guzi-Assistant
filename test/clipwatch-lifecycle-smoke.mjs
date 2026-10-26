@@ -22,6 +22,7 @@ function fixture() {
   const state = { processes: [], requests: [], writes: 0, shows: 0, paused: false, timers: new Map() }
   class CooldownMap { sweep() {} untilMs() {} start() {} clear() {} }
   const mocks = {
+    './content-lifecycle.ts': { isExitPreparing: () => false, trackContentWork: (promise) => promise },
     child_process: {
       execFile: (_bin, _args, callback) => callback(null, ''),
       spawn: () => {

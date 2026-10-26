@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "applicationId": "cn.shilong.gooz",
+  "applicationName": "Guzi Assistant",
+  "sourceRepository": "Drangon-Li/Guzi-Assistant",
+  "algorithm": "Ed25519",
+  "identityVersion": 1,
+  "createdAt": "2026-10-26T01:40:49.378Z",
+  "publicKey": "69F8+2FxXMNiiAahs9zuN3p2TU25h8s9MY/30wY0ijA=",
+  "publicKeySha256": "91fb85d8907f214ed1ec13739426482881e1acb6f3fd86d21806e112f6eebbe6",
+  "publicKeyFile": "scripts/sparkle-public-key.txt",
+  "signingKeychainAccount": "cn.shilong.gooz.sparkle.production.v1",
+  "recovery": {
+    "encryptedFile": "signing/guzi-assistant-sparkle-production-v1.asc",
+    "sha256": "626417a5c18d5915816c4735380ad634fa1977e3f9a31cc03a9e013f2d49f581",
+    "format": "OpenPGP armored symmetric encryption, AES256, SHA256 iterated salted S2K; plaintext is Sparkle base64 32-byte seed",
+    "passphraseLocation": {
+      "store": "macOS login Keychain",
+      "service": "cn.shilong.gooz.sparkle.recovery",
+      "account": "production-v1",
+      "label": "Guzi Assistant Sparkle recovery passphrase (production v1)"
+    },
+    "tested": true,
+    "instructions": [
+      "Keep the encrypted backup and its decryption passphrase separately. Copy the passphrase to an independent password manager or offline storage before relying on recovery after loss of this Mac.",
+      "Obtain the passphrase through Keychain Access. Do not send it through chat, commit it, or put it in build logs.",
+      "Use umask 077 and gpg --output /secure/temporary/private-key --decrypt guzi-assistant-sparkle-production-v1.asc; enter the passphrase interactively.",
+      "Restore with Sparkle generate_keys --account cn.shilong.gooz.sparkle.production.v1 -f /secure/temporary/private-key, then use -p and compare with scripts/sparkle-public-key.txt.",
+      "Remove the temporary plaintext private-key export after restoration. Retain this identity for later versions."
+    ],
+    "remoteBackupUploadedAtKeySetup": false
+  },
+  "verification": {
+    "restoredPublicKeyMatches": true,
+    "officialSignAndVerifyPassed": true,
+    "independentEd25519VerificationPassed": true,
+    "damagedPayloadRejected": true,
+    "archiveSha256": "c89c2ae516c0757ea7032798e06a662a3219557d815c7a44ff53f9d73c2b8d03",
+    "signature": "DSSxXRBQcQUxrvKuPgJGExByTUbJqbOOg4UdtIfPZx9pym9Y85rYAIbR6ctFv9/ve2A1q+kQPbJYXJJ4QeyNBg=="
+  },
+  "github": {
+    "privateRepository": true,
+    "secretName": "SPARKLE_PRIVATE_KEY",
+    "variableName": "SPARKLE_PUBLIC_KEY",
+    "configured": true,
+    "secretConfigured": true,
+    "secretUpdatedAt": "2026-10-26T01:40:52Z",
+    "publicKeyVariableUpdatedAt": "2026-10-26T01:40:53Z",
+    "secretValueReadBack": false
+  },
+  "privateSeedExportRemoved": true,
+  "cleanup": {
+    "temporaryPlaintextDirectories": 0,
+    "temporaryGpgAgentProcesses": 0,
+    "backupFileMode": "600"
+  },
+  "gitOperationsAtKeySetup": {
+    "committed": false,
+    "pushed": false,
+    "merged": false,
+    "released": false
+  }
+}

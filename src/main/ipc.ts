@@ -88,6 +88,7 @@ import {
   broadcastExcept,
   broadcastTheme,
   focusMain,
+  getExitWindows,
   hidePreview,
   resizePreview,
   showPreview
@@ -120,12 +121,14 @@ import { applyMcpSettings } from './mcp-server'
 import { probeTranscription } from './voicenotes/transcribe'
 import {
   applyVoiceSettings,
+  acknowledgeVoiceCaptureStopped,
   currentVoiceSession,
   ingestSegment,
   startVoiceSession,
   stopVoiceSession
 } from './voicenotes/service'
-import { checkForUpdates } from './updater'
+import { checkForUpdates, getUpdateState, downloadMacUpdate, installMacUpdate, cancelPendingUpdate } from './updater'
+import { registerExitResponse, assertExitWorkAllowed, trackExitWork, isExitPreparing } from './exit-lifecycle'
 import type {
   AppSettings,
   LaunchAtLoginState,
@@ -141,9 +144,24 @@ import { assertContentEpoch, captureContentEpoch, isContentEpochCurrent, isConte
 import { withContentEpoch } from './content-ipc'
 import { resetAllUserContent } from './data-reset'
 
+const exitGuardedChannels = new Set([
+  'voice:start', 'tasks:quick-add', 'assistant:chat', 'assistant:quick-chat', 'reports:generate', 'history:summarize',
+  'capture:clipboard', 'capture:files', 'capture:screenshot', 'preview:submit'
+])
 const ipcMain = {
   handle: (channel: string, listener: Parameters<typeof rawIpcMain.handle>[1]): void => {
-    rawIpcMain.handle(channel, withContentEpoch(listener, channel === 'data:wipe'))
+    rawIpcMain.handle(channel, withContentEpoch((event, ...args) => {
+      if (channel.startsWith('app:') && (channel.includes('update') || channel === 'app:exit-response')) {
+        if (event.senderFrame !== event.sender.mainFrame || !getExitWindows().some((win) => win.webContents.id === event.sender.id)) {
+          throw new Error('无效的应用操作来源')
+        }
+      }
+      if (exitGuardedChannels.has(channel)) {
+        assertExitWorkAllowed()
+        return trackExitWork(Promise.resolve(listener(event, ...args)))
+      }
+      return listener(event, ...args)
+    }, channel === 'data:wipe'))
   }
 }
 
@@ -159,19 +177,19 @@ const STATUSES: TaskStatus[] = [
 
 /** 快捷键 / 托盘共用的剪切板捕获入口 */
 export function triggerClipboardCapture(): void {
-  if (isContentResetting()) return
+  if (isContentResetting() || isExitPreparing()) return
   showPreview(readClipboardPending())
 }
 
 /** 提交屏幕截图：交互框选截图 → 送解析。供全局快捷键调用。 */
 export function triggerScreenshotCapture(): void {
-  if (isContentResetting()) return
+  if (isContentResetting() || isExitPreparing()) return
   const epoch = captureContentEpoch()
-  void (async () => {
+  void trackExitWork((async () => {
     const dataUrl = await takeScreenshot()
     assertContentEpoch(epoch)
     if (dataUrl) await submitScreenshot(dataUrl)
-  })().catch((error) => {
+  })()).catch((error) => {
     if (isContentEpochCurrent(epoch)) showPreview({ error: error instanceof Error ? error.message : String(error) })
   })
 }
@@ -215,12 +233,10 @@ export function registerIpc(): void {
   ipcMain.handle('voice:probe', () => probeTranscription())
   ipcMain.handle('voice:start', () => startVoiceSession(null))
   ipcMain.handle('voice:stop', () => stopVoiceSession())
+  ipcMain.handle('voice:capture-stopped', (_e, id: string) => acknowledgeVoiceCaptureStopped(id))
   ipcMain.handle('voice:state', () => currentVoiceSession())
   ipcMain.handle('voice:sessions', () => listVoiceSessions())
-  // 分段是渲染层按停顿切好后送来的；转录耗时长，这里不 await，避免堵住录音那一侧
-  ipcMain.handle('voice:segment', (_e, segment: PcmSegment) => {
-    void ingestSegment(segment)
-  })
+  ipcMain.handle('voice:segment', (_e, segment: PcmSegment) => ingestSegment(segment))
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {
     let ok = true
     if (
@@ -397,6 +413,11 @@ export function registerIpc(): void {
   ipcMain.handle('pet:chat-hide', () => hidePetChat())
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('app:check-update', () => checkForUpdates(true))
+  ipcMain.handle('app:update-state', () => getUpdateState())
+  ipcMain.handle('app:download-update', () => downloadMacUpdate())
+  ipcMain.handle('app:cancel-update', () => cancelPendingUpdate())
+  ipcMain.handle('app:install-update', () => installMacUpdate())
+  ipcMain.handle('app:exit-response', (event, response: unknown) => registerExitResponse(event, response))
   ipcMain.handle('app:launch-at-login', () => readLaunchAtLogin())
   ipcMain.handle('app:set-launch-at-login', (_e, enabled: boolean) => {
     if (app.isPackaged) app.setLoginItemSettings({

@@ -3,7 +3,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import type { ParseSummary, Profile, TaskRecord } from '@shared/types'
 import { shouldRemindRenew } from '@shared/subscription'
 import { api } from './api'
-import { startCapture, stopCapture } from './voice-capture'
+import { isRecording, startCapture, stopCapture } from './voice-capture'
+import { isExitPreparing, useExitParticipant } from './exit-lifecycle'
 import type { VoiceSessionRecord } from '@shared/voicenotes'
 import { supabase, functionsBase } from './supabase'
 import { formatHotkey, summaryToast } from './labels'
@@ -175,17 +176,34 @@ function MainApp(): React.JSX.Element | null {
     void api.permissions().then((p) => setScreenPerm(p.screen))
   }, [])
 
+  const voiceNeedsFinalizing = useRef(false)
+  useExitParticipant({
+    id: 'voice-capture', label: '语音纪要正在录制，保存将停止录音并完成转录',
+    isDirty: () => isRecording() || voiceNeedsFinalizing.current,
+    canDiscard: false,
+    prepare: async () => {
+      voiceNeedsFinalizing.current = true
+      await stopCapture()
+      await api.voiceStop()
+      voiceNeedsFinalizing.current = false
+      showToast('语音纪要已停止并保存；本次退出若取消，录音不会自动恢复')
+    }
+  })
+
   // 语音纪要：录音只能在渲染层做，主进程判定「该不该录」，这里跟着它的会话状态开关麦克风。
   // 挂在主窗而不是某个页面里——切页面不该把正在开的会掐掉。
   useEffect(() => {
     const sync = (session: VoiceSessionRecord | null): void => {
       if (session && session.status === 'recording') {
+        if (isExitPreparing() || voiceNeedsFinalizing.current) return
         void startCapture(session.id).catch((e: unknown) => {
           showToast(`麦克风不可用：${e instanceof Error ? e.message : String(e)}`)
           void api.voiceStop()
         })
       } else {
-        void stopCapture()
+        void stopCapture().then(async () => {
+          if (session?.status === 'finalizing') await api.voiceCaptureStopped(session.id)
+        }).catch((error: unknown) => showToast(`语音尚未保存：${error instanceof Error ? error.message : String(error)}`))
       }
     }
     void api.voiceState().then(sync)

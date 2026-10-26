@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { ItemType } from '@shared/types'
 import type { ParsedItem } from '@shared/parsing'
 import { api } from '../api'
+import { useExitParticipant } from '../exit-lifecycle'
 import Modal from './Modal'
 import { Segmented } from './ui'
 
@@ -42,6 +43,10 @@ export default function QuickAddTask({ onAdded }: { onAdded: (msg: string) => vo
     setErr('')
     setBusy(false)
   }
+
+  useExitParticipant({ id: 'quick-add-task', label: '新建日程中有尚未提交的输入', canSave: false,
+    isDirty: () => open && !!(text.trim() || title.trim() || start || due || location.trim()),
+    prepare: async () => { reset() } })
 
   const submitNl = async (close: () => void): Promise<void> => {
     if (!text.trim() || busy) return

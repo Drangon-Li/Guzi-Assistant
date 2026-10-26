@@ -19,6 +19,7 @@ export const INVOKE_CHANNELS = [
   'voice:probe',
   'voice:start',
   'voice:stop',
+  'voice:capture-stopped',
   'voice:segment',
   'voice:state',
   'voice:sessions',
@@ -111,6 +112,11 @@ export const INVOKE_CHANNELS = [
   'quickbar:hide',
   'quickbar:resize',
   'app:check-update',
+  'app:update-state',
+  'app:download-update',
+  'app:cancel-update',
+  'app:install-update',
+  'app:exit-response',
   'app:version',
   'app:launch-at-login',
   'app:set-launch-at-login',
@@ -123,6 +129,8 @@ export const INVOKE_CHANNELS = [
 
 /** 主进程 → 渲染层的事件通道（对应 broadcast / webContents.send 与渲染层 on） */
 export const EVENT_CHANNELS = [
+  'guzi-assistant:update-state',
+  'guzi-assistant:exit-request',
   'guzi-assistant:navigate',
   'guzi-assistant:preview',
   'guzi-assistant:settings-updated',

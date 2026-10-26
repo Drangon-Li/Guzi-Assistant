@@ -1,3 +1,4 @@
+import { isExitPreparing, trackContentWork } from './content-lifecycle.ts'
 // 屏幕感知主线：手动扫描（scanOnce）与持续监控（watchTick）的门控、截图、OCR、云端解析编排。
 // 检测卡/接受流在 detection-cards.ts，工作记录在 work-records.ts，History v2 生命周期在
 // history/service.ts，前台采样在 usage-sampler.ts，隐私判定在 privacy.ts。
@@ -605,7 +606,7 @@ export function startWatch(intervalSec: number): void {
   resetWorkRecordThrottle()
   startSampler()
   const minInterval = getSettings().screenSenseEventDriven ? 5 : 1
-  watchTimer = setInterval(() => void watchTick(), Math.max(minInterval, intervalSec) * 1000)
+  watchTimer = setInterval(() => isExitPreparing() ? undefined : void trackContentWork(watchTick()), Math.max(minInterval, intervalSec) * 1000)
   trayRefresh?.()
 }
 export function stopWatch(): void {

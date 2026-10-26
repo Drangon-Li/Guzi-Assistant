@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -380,3 +380,34 @@ try {
 
 console.log(failed ? `\n${failed} history checks failed` : '\nAll history checks passed')
 process.exit(failed ? 1 : 0)
+
+// A disk write failure must cross the save barrier; closing still releases the lock.
+{
+  const root = await mkdtemp(join(tmpdir(), 'guzi-history-exit-'))
+  const rows = new Map()
+  const index = { upsert: (row) => rows.set(row.id, row), list: () => [...rows.values()],
+    get: (id) => rows.get(id), remove: (id) => rows.delete(id), count: () => rows.size }
+  const store = new HistorySegmentStore({ rootDir: root, index, now: () => NOW })
+  try {
+    store.append(event({ id: 'before-disk-failure' }))
+    await store.flush()
+    const path = join(root, [...rows.values()][0].eventsPath)
+    const original = await readFile(path)
+    await rm(path)
+    await mkdir(path)
+    store.append(event({ id: 'pending-disk-failure' }))
+    let rejected = false
+    try { await store.flush() } catch { rejected = true }
+    check('exit flush propagates disk write failure', rejected)
+    await rm(path, { recursive: true })
+    await writeFile(path, original)
+    await store.flush()
+    check('exit save retries the retained event after disk recovery', (await readFile(path, 'utf8')).includes('pending-disk-failure'))
+    await rm(path)
+    await mkdir(path)
+    store.append(event({ id: 'close-disk-failure' }))
+    rejected = false
+    try { await store.close() } catch { rejected = true }
+    check('close reports the flush failure and releases its lock', rejected && !await readFile(join(root, '.lock')).then(() => true, () => false))
+  } finally { await rm(root, { recursive: true, force: true }) }
+}

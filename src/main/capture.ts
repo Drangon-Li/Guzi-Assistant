@@ -16,7 +16,7 @@ import { createTaskFromItem, scheduledStatus } from './task-ingest'
 import { parseToItems, type ParsedItem } from './parser'
 import { broadcast, showPreview } from './windows'
 import { applyExternalPetReaction } from './pet/controller'
-import { assertContentEpoch, captureContentEpoch, isContentEpochCurrent, isContentResetting } from './content-lifecycle.ts'
+import { assertContentEpoch, captureContentEpoch, isContentEpochCurrent, isContentResetting, isExitPreparing, trackContentWork } from './content-lifecycle.ts'
 import type { ParseSummary, PendingCapture, SourceType, TaskStatus } from '@shared/types'
 
 interface PendingPayload {
@@ -311,7 +311,11 @@ function createTasksFromItems(
   return { related, autoAdded, duplicates }
 }
 
-async function parseAndStore(payload: PendingPayload, epoch = captureContentEpoch()): Promise<ParseSummary> {
+function parseAndStore(payload: PendingPayload, epoch = captureContentEpoch()): Promise<ParseSummary> {
+  return trackContentWork(parseAndStoreInternal(payload, epoch))
+}
+
+async function parseAndStoreInternal(payload: PendingPayload, epoch: number): Promise<ParseSummary> {
   let source: ReturnType<typeof createSource> | null = null
   try {
     assertContentEpoch(epoch)
@@ -352,6 +356,7 @@ async function parseAndStore(payload: PendingPayload, epoch = captureContentEpoc
 }
 
 export async function submitPending(captureId: string): Promise<ParseSummary> {
+  if (isExitPreparing()) return emptyParseSummary('正在保存并退出，请稍后重试')
   const payload = pendings.get(captureId)
   if (!payload) return emptyParseSummary('提交内容已失效，请重新捕获')
   pendings.delete(captureId)
@@ -359,6 +364,7 @@ export async function submitPending(captureId: string): Promise<ParseSummary> {
 }
 
 export async function submitScreenshot(dataUrl: string): Promise<ParseSummary> {
+  if (isExitPreparing()) return emptyParseSummary('正在保存并退出，请稍后重试')
   return parseAndStore({ type: 'screenshot', imageDataUrl: dataUrl })
 }
 
@@ -367,12 +373,13 @@ export async function submitFeishu(input: {
   text?: string
   imageDataUrl?: string
 }): Promise<ParseSummary> {
+  if (isExitPreparing()) return emptyParseSummary('正在保存并退出，请稍后重试')
   return parseAndStore({ type: 'feishu', ...input })
 }
 
 /** 托盘拖拽 / 右键快速操作的入口：用预览卡反馈进度和结果 */
 export async function submitExternalFiles(paths: string[]): Promise<void> {
-  if (isContentResetting()) return
+  if (isContentResetting() || isExitPreparing()) return
   const epoch = captureContentEpoch()
   showPreview({
     busy: paths.length === 1 ? `正在解析 ${basename(paths[0])}…` : `正在解析 ${paths.length} 个文件…`
@@ -396,7 +403,12 @@ export async function submitExternalFiles(paths: string[]): Promise<void> {
 /** 单次提交文件数上限：每个文件一次解析调用（最长 120s），无上限会耗尽 API 配额并长时间占连接 */
 const MAX_FILES_PER_SUBMIT = 20
 
-export async function submitFiles(paths: string[]): Promise<ParseSummary[]> {
+export function submitFiles(paths: string[]): Promise<ParseSummary[]> {
+  if (isExitPreparing()) return Promise.reject(new Error('正在保存并退出，请稍后重试'))
+  return trackContentWork(submitFilesInternal(paths))
+}
+
+async function submitFilesInternal(paths: string[]): Promise<ParseSummary[]> {
   const epoch = captureContentEpoch()
   const results: ParseSummary[] = []
   const capped = paths.slice(0, MAX_FILES_PER_SUBMIT)

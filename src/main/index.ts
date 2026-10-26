@@ -1,9 +1,9 @@
 import { app, dialog, Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions } from 'electron'
-import { applyVoiceSettings, recoverStaleVoiceSession } from './voicenotes/service'
+import { applyVoiceSettings, recoverStaleVoiceSession, stopVoiceSession } from './voicenotes/service'
 import { initDb, getSettings } from './db'
 import { registerIpc, triggerClipboardCapture, triggerScreenshotCapture } from './ipc'
 import { initHotkey, initNamedHotkey, initScreenshotHotkey, stopHotkey } from './hotkey'
-import { initDropbox } from './dropbox'
+import { initDropbox, stopDropbox } from './dropbox'
 import { upgradeQuickActionIfNeeded } from './quickaction'
 import { ensureFeishu } from './feishu'
 import {
@@ -14,10 +14,9 @@ import {
   isWatchPaused,
   stopWatch
 } from './screenwatch'
-import { shutdownHistoryStore } from './history/service.ts'
+import { flushHistoryStore, shutdownHistoryStore } from './history/service.ts'
 import { submitExternalFiles } from './capture'
 import {
-  appState,
   createMainWindow,
   focusMain,
   openDebugWindow,
@@ -37,7 +36,9 @@ import {
 } from './pet/controller'
 import { createQuickBar, toggleQuickBar } from './quickbar'
 import { applyMcpSettings, stopMcpServer } from './mcp-server'
-import { scheduleStartupUpdateCheck } from './updater'
+import { bootstrapUpdater, cancelPendingUpdate, scheduleStartupUpdateCheck } from './updater'
+import { installExitLifecycle, requestExit } from './exit-lifecycle'
+import { getIsolatedUpdateProfile, isIsolatedUpdateTest } from './updating/config'
 import { startDailyBrief, stopDailyBrief } from './dailybrief-scheduler'
 import { startWellnessReminder, stopWellnessReminder } from './wellness-reminder'
 import { applyTaskReminderSchedule, stopTaskReminder } from './task-reminder'
@@ -51,7 +52,7 @@ import windowsTrayIcon from '../../resources/trayWindows.png?asset'
 import trayIcon from '../../resources/trayTemplate.png?asset'
 import trayIcon2x from '../../resources/trayTemplate@2x.png?asset'
 
-const userDataOverride = process.env.GUZI_ASSISTANT_USER_DATA_DIR
+const userDataOverride = getIsolatedUpdateProfile() ?? process.env.GUZI_ASSISTANT_USER_DATA_DIR
 if (userDataOverride) {
   app.setPath('userData', userDataOverride)
 } else {
@@ -120,7 +121,6 @@ function buildTrayMenu(): void {
     {
       label: '退出',
       click: () => {
-        appState.quitting = true
         app.quit()
       }
     }
@@ -189,6 +189,15 @@ if (!hasSingleInstanceLock) {
     nativeTheme.themeSource = getSettings().theme // 应用主题设置：驱动渲染层 prefers-color-scheme + 桌宠/窗口深浅色
     installAppMenu()
     registerIpc()
+    installExitLifecycle({
+      beforeNormalExit: cancelPendingUpdate,
+      cancelFailedInstall: cancelPendingUpdate,
+      prepareMain: async () => {
+        await stopVoiceSession()
+        await flushHistoryStore()
+      }
+    })
+    bootstrapUpdater(requestExit)
     // 开机自启拉起的这次不弹主窗：桌宠和托盘照常在，用户要用时自己叫出来
     const openedAtLogin = process.platform === 'win32' ? process.argv.includes('--hidden') : app.getLoginItemSettings().wasOpenedAtLogin
     const externalFileStartup = process.platform === 'win32' && process.argv.includes(EXPLORER_FILE_FLAG)
@@ -206,23 +215,25 @@ if (!hasSingleInstanceLock) {
     createTray()
     void handleExternalFileArgs(process.argv)
     setTrayRefresh(buildTrayMenu) // 监控启停/暂停时刷新托盘菜单
-    initHotkey(getSettings().hotkey, triggerClipboardCapture)
-    initScreenshotHotkey(getSettings().screenshotHotkey, triggerScreenshotCapture)
-    initNamedHotkey('mainWindow', getSettings().mainWindowHotkey, toggleMainWindow)
-    initNamedHotkey('petVoice', getSettings().petVoiceHotkey, togglePetListening)
-    initNamedHotkey('quickAsk', getSettings().quickAskHotkey, toggleQuickBar)
-    initDropbox()
-    upgradeQuickActionIfNeeded()
-    ensureFeishu()
-    applyScreenSenseSettings()
-    applyMcpSettings() // 对外 MCP 服务（默认关，设置页开启）
-    startDailyBrief()
-    startWellnessReminder()
-    applyTaskReminderSchedule() // 设置里关掉时连提醒窗都不建
-    applyClipWatchSettings()
-    // 语音纪要：上次强退可能留下没收尾的录制会话，先收干净再起监听
-    recoverStaleVoiceSession()
-    applyVoiceSettings()
+    if (!isIsolatedUpdateTest()) {
+      initHotkey(getSettings().hotkey, triggerClipboardCapture)
+      initScreenshotHotkey(getSettings().screenshotHotkey, triggerScreenshotCapture)
+      initNamedHotkey('mainWindow', getSettings().mainWindowHotkey, toggleMainWindow)
+      initNamedHotkey('petVoice', getSettings().petVoiceHotkey, togglePetListening)
+      initNamedHotkey('quickAsk', getSettings().quickAskHotkey, toggleQuickBar)
+      initDropbox()
+      upgradeQuickActionIfNeeded()
+      ensureFeishu()
+      applyScreenSenseSettings()
+      applyMcpSettings() // 对外 MCP 服务（默认关，设置页开启）
+      startDailyBrief()
+      startWellnessReminder()
+      applyTaskReminderSchedule() // 设置里关掉时连提醒窗都不建
+      applyClipWatchSettings()
+      // 语音纪要：上次强退可能留下没收尾的录制会话，先收干净再起监听
+      recoverStaleVoiceSession()
+      applyVoiceSettings()
+    }
     if (app.isPackaged) scheduleStartupUpdateCheck() // dev 实例天天重启，别拿开发机刷清单
   })
 
@@ -231,11 +242,9 @@ if (!hasSingleInstanceLock) {
   app.on('activate', (_e, hasVisibleWindows) => {
     if (!hasVisibleWindows) focusMain()
   })
-  app.on('before-quit', () => {
-    appState.quitting = true
-  })
   let historyShutdownStarted = false
   app.on('will-quit', (event) => {
+    stopDropbox()
     stopHotkey()
     stopWatch()
     stopDailyBrief()
@@ -248,7 +257,8 @@ if (!hasSingleInstanceLock) {
     event.preventDefault()
     void shutdownHistoryStore()
       .catch((error) => console.error('[history] shutdown failed:', error))
-      .finally(() => app.quit())
+      // Electron must finish cancelling this will-quit before accepting the next quit request.
+      .finally(() => setImmediate(() => app.quit()))
   })
   // 常驻托盘：所有窗口关闭后不退出
   app.on('window-all-closed', () => {})

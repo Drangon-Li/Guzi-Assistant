@@ -579,12 +579,12 @@ export default function Schedule({ tasks, hotkeyLabel, onOpenAssistant }: Props)
             flash('任务已删除')
           }}
           onClose={() => setEditing(null)}
-          onSave={(patch) => {
+          onSave={async (patch) => {
             // 延期任务改到未来时间后恢复为已安排
             if (editing.status === 'overdue' && patch.dueTime && patch.dueTime > nowLocal()) {
               patch.status = 'scheduled'
             }
-            void api.updateTask(editing.id, patch)
+            await api.updateTask(editing.id, patch)
             setEditing(null)
           }}
         />
