@@ -21,13 +21,13 @@ export async function windowsOcrImageDetailed(pngPath: string, signal?: AbortSig
   const poll = setInterval(() => {
     if (!isContentEpochCurrent(epoch)) lifecycle.abort(new Error('用户内容已清除，此次操作已失效'))
   }, 100)
-  app.once('before-quit', quit)
+  app.once('will-quit', quit)
   try {
     const result = await waitForOcrChild(child, activeSignal)
     assertContentEpoch(epoch)
     return normalizeOcrResult(result)
   } finally {
-    app.removeListener('before-quit', quit)
+    app.removeListener('will-quit', quit)
     clearInterval(poll)
     child.kill()
   }

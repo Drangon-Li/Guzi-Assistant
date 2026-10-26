@@ -10,7 +10,7 @@ import Database from 'better-sqlite3'
 const root=fileURLToPath(new URL('..',import.meta.url))
 const temp=mkdtempSync(join(tmpdir(),'guzi-history-service-demo-'))
 const production=[
-  'src/main/history/service.ts','src/main/privacy.ts','src/main/history/privacy-policy.ts',
+  'src/main/history/service.ts','src/main/content-lifecycle.ts','src/main/privacy.ts','src/main/history/privacy-policy.ts',
   'src/main/history/event-store.ts','src/main/history/event-schema.ts','src/main/history/retention.ts',
   'src/main/history/work-derivation.ts','src/shared/activity-events.ts','src/shared/work-report.ts',
   'src/shared/history.ts','src/shared/app-exclude.ts','src/shared/sensitive.ts',

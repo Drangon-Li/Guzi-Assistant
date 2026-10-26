@@ -1,12 +1,12 @@
-// 更新检查 —— 未签名阶段的轻量方案：拉版本清单 → 比对版本 → 系统对话框引导下载 dmg。
-// macOS 上 electron-updater 的自动安装依赖代码签名，拿到开发者证书后可平滑升级；
-// 清单放 Supabase Storage 公共桶（仓库是 private，GitHub Releases 匿名拉不到）。
-// 发布流程见 scripts/publish-release.sh：构建 → 上传 dmg + latest-mac.json。
+// Windows 保留现有更新入口；macOS 由 Sparkle 管理下载、校验和安装。
 import { app, dialog, shell } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { firstNonBlank } from '@shared/env-value'
 import { isNewerVersion, parseUpdateManifest, updateFeed } from '../shared/update-manifest.ts'
+import { checkMacUpdates } from './updating/service'
+import type { UpdateState } from '../shared/update-state'
+export { bootstrapUpdater, cancelPendingUpdate, getUpdateState, downloadMacUpdate, installMacUpdate } from './updating/service'
 
 const CHECK_INTERVAL_MS = 24 * 3600 * 1000
 
@@ -21,7 +21,8 @@ function stampFile(): string {
 }
 
 /** 检查更新。manual=true 时「已是最新/检查失败」也弹框反馈；启动静默检查只在有新版时打扰。 */
-export async function checkForUpdates(manual: boolean): Promise<UpdateCheckResult> {
+export async function checkForUpdates(manual: boolean): Promise<UpdateCheckResult | UpdateState> {
+  if (process.platform === 'darwin') return checkMacUpdates()
   try {
     const configured = firstNonBlank(
       process.platform === 'win32' ? process.env.GUZI_ASSISTANT_WINDOWS_UPDATE_FEED : undefined,
@@ -70,6 +71,7 @@ export async function checkForUpdates(manual: boolean): Promise<UpdateCheckResul
 
 /** 启动后台检查：24 小时节流，静默进行（发现新版才弹框）。 */
 export function scheduleStartupUpdateCheck(): void {
+  if (process.platform === 'darwin') return
   const t = setTimeout(() => {
     try {
       const last = (JSON.parse(readFileSync(stampFile(), 'utf8')) as { last?: number }).last ?? 0

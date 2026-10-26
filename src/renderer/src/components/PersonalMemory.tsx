@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { memoryToPlain, plainToMemory } from '@shared/work-report'
 import { api } from '../api'
+import { clearExitSaveError, trackExitSave, useExitParticipant } from '../exit-lifecycle'
 
 const input =
   'w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
@@ -104,13 +105,29 @@ function MemorySection(p: SectionProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
+  const latestValue = useRef(p.value)
+  latestValue.current = p.value
   const preview = p.value.split('\n').find(Boolean) ?? ''
 
   const save = async (): Promise<void> => {
-    await p.onSave()
-    setDirty(false)
+    const value = p.value
+    await trackExitSave(p.onSave(), `personal-memory:${p.title}`)
+    if (value === latestValue.current) setDirty(false)
+    setSaveError('')
   }
+  useExitParticipant({
+    id: `personal-memory:${p.title}`,
+    label: `个人记忆 · ${p.title}`,
+    isDirty: () => dirty,
+    alwaysPrepare: true,
+    prepare: async (decision) => {
+      if (decision === 'save' && dirty) await save()
+      else clearExitSaveError(`personal-memory:${p.title}`)
+    }
+  })
+
   const refresh = async (): Promise<void> => {
     setBusy(true)
     try {
@@ -152,6 +169,7 @@ function MemorySection(p: SectionProps): React.JSX.Element {
               setDirty(true)
             }}
           />
+          {saveError && <p className="text-xs text-red-500">{saveError}</p>}
           <div className="flex justify-end gap-2">
             <button
               className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
@@ -162,7 +180,7 @@ function MemorySection(p: SectionProps): React.JSX.Element {
             </button>
             <button
               className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-40"
-              onClick={() => void save()}
+              onClick={() => void save().catch((error: unknown) => setSaveError(error instanceof Error ? error.message : String(error)))}
               disabled={!dirty}
             >
               保存

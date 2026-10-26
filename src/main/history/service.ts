@@ -2,6 +2,7 @@
 // 从 screenwatch.ts 迁出——事件采集由 activity-tracker/collector 负责，这里只管存储与派生。
 import { join } from 'path'
 import { app } from 'electron'
+import { isExitPreparing } from '../content-lifecycle'
 import {
   getHistorySegmentIndex,
   getHistorySummaryIndex,
@@ -52,11 +53,11 @@ let historyMutationEpoch = 0
 let historyPaused = false
 let historyQueryService: HistoryQueryService | null = null
 
-configureActivityHistoryAllowed(() => !historyPaused && getSettings().historyV2Enabled)
+configureActivityHistoryAllowed(() => !isExitPreparing() && !historyPaused && getSettings().historyV2Enabled)
 
 /** collector 的 History 事件落盘回调：暂停时丢弃，否则写入当前 store 单例。 */
 export function appendHistoryEventIfRunning(event: ActivityEvent): void {
-  if (historyPaused || historyMutationPending > 0 || !getSettings().historyV2Enabled) return
+  if (isExitPreparing() || historyPaused || historyMutationPending > 0 || !getSettings().historyV2Enabled) return
   // Resolve the current singleton at callback time. A pause/resume can
   // replace the store while the collector itself remains running.
   const decision = privacyForContext({
@@ -388,7 +389,7 @@ async function clearHistoryInternal(): Promise<HistoryDeleteResult> {
 }
 
 async function processHistorySummaries() {
-  if (historyMutationPending > 0 || !getSettings().historyV2Enabled || historyPaused)
+  if (isExitPreparing() || historyMutationPending > 0 || !getSettings().historyV2Enabled || historyPaused)
     return historySummaryRunEmpty()
   const startEpoch = historyMutationEpoch
   const store = startHistoryPersistence()
@@ -501,6 +502,7 @@ export function stopHistoryPersistence(): Promise<void> {
     .then(() => store.close())
     .catch((error) => {
       debugEvent('error', `History store 关闭失败：${error instanceof Error ? error.message : String(error)}`)
+      throw error
     })
   return historyCloseTail
 }
@@ -520,7 +522,7 @@ export function startHistoryPersistence(): HistorySegmentStore | null {
       .then(() => store.cleanup())
       .then(() => {
         if (
-          historyMutationPending > 0 ||
+          isExitPreparing() || historyMutationPending > 0 ||
           historyMutationEpoch !== startEpoch ||
           historyPaused ||
           !getSettings().historyV2Enabled ||
@@ -540,7 +542,7 @@ export function startHistoryPersistence(): HistorySegmentStore | null {
     if (!historyCleanupTimer) {
       const timerStore = store
       historyCleanupTimer = setInterval(() => {
-        if (historyStore !== timerStore) return
+        if (isExitPreparing() || historyStore !== timerStore) return
         void timerStore.cleanup().catch((error) => {
           debugEvent('error', `History store 清理失败：${error instanceof Error ? error.message : String(error)}`)
         })
@@ -550,7 +552,7 @@ export function startHistoryPersistence(): HistorySegmentStore | null {
     if (!historySummaryTimer) {
       const timerStore = store
       historySummaryTimer = setInterval(() => {
-        if (historyMutationPending > 0 || historyStore !== timerStore || historySummarizer !== summarizer) return
+        if (isExitPreparing() || historyMutationPending > 0 || historyStore !== timerStore || historySummarizer !== summarizer) return
         void summarizer.process()
           .then((result) => notifyAutomaticHistorySummary(result))
           .catch((error) => {
@@ -574,4 +576,11 @@ export function startHistoryPersistence(): HistorySegmentStore | null {
 export async function shutdownHistoryStore(): Promise<void> {
   await stopHistoryPersistence()
   await historyCloseTail
+}
+
+export async function flushHistoryStore(): Promise<void> {
+  await historyMutationTail
+  await historyCloseTail
+  await historySummarizer?.invalidateAndWait()
+  await historyStore?.flush()
 }

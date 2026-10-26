@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   AppSettings,
   FeishuStatus,
@@ -8,6 +8,7 @@ import type {
 } from '@shared/types'
 import type { HistoryStatus } from '@shared/history'
 import { api } from '../api'
+import { trackExitSave, useExitParticipant } from '../exit-lifecycle'
 import { formatHotkey } from '../labels'
 import AboutSection from '../components/settings/AboutSection'
 import AssistantSection from '../components/settings/AssistantSection'
@@ -36,7 +37,17 @@ interface Props {
 
 export default function Settings({ onProfileChange, initialCat }: Props): React.JSX.Element {
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [settings, setSettings] = useState<AppSettings | null>(null)
+  const savedProfile = useRef<Profile | null>(null)
+  const profileValue = useRef<Profile | null>(null)
+  const [settings, setSettingsState] = useState<AppSettings | null>(null)
+  const settingsValue = useRef<AppSettings | null>(null)
+  const setSettings = (value: React.SetStateAction<AppSettings | null>): void => {
+    const next = typeof value === 'function' ? value(settingsValue.current) : value
+    settingsValue.current = next
+    setSettingsState(next)
+  }
+  const savedSettings = useRef<AppSettings | null>(null)
+  const settingsQueue = useRef<Promise<unknown>>(Promise.resolve())
   const [perms, setPerms] = useState<PermissionStatus | null>(null)
   const [note, setNote] = useState('')
   const [recordingKey, setRecordingKey] = useState<HotkeyField | null>(null)
@@ -65,9 +76,16 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
   }
 
   useEffect(() => {
-    void api.getProfile().then(setProfile)
+    void api.getProfile().then((value) => {
+      savedProfile.current = value
+      profileValue.current = value
+      setProfile(value)
+    })
     void api.appVersion().then(setAppVersion)
-    void api.getSettings().then(setSettings)
+    void api.getSettings().then((value) => {
+      savedSettings.current = value
+      setSettings(value)
+    })
     void api.quickActionStatus().then(setQaInstalled)
     void api.feishuStatus().then(setFeishu)
     loadPerms()
@@ -89,6 +107,69 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
     window.setTimeout(() => setNote(''), 2500)
   }
 
+  const saveSettings = (patch: Partial<AppSettings>): Promise<boolean> => {
+    setSettings((current) => current ? { ...current, ...patch } : current)
+    const pending = settingsQueue.current.then(async () => {
+      const ok = await api.saveSettings(patch)
+      if (!ok) throw new Error('保存设置失败，请检查快捷键是否被占用')
+      if (savedSettings.current) savedSettings.current = { ...savedSettings.current, ...patch }
+      return true
+    })
+    const tracked = trackExitSave(pending, 'app-settings')
+    settingsQueue.current = tracked.catch((error: unknown) => {
+      flash(error instanceof Error ? error.message : String(error))
+    })
+    return tracked
+  }
+
+  const settingsPatch = (): Partial<AppSettings> => {
+    const settings = settingsValue.current
+    if (!settings || !savedSettings.current) return {}
+    const next = { ...settings,
+      taskReminderOffsetMin: Math.min(1440, Math.max(0, Number(settings.taskReminderOffsetMin) || 0)),
+      assistantAutoCloseSec: Math.min(600, Math.max(0, Number(settings.assistantAutoCloseSec) || 0)),
+      screenSenseRetentionDays: Math.min(365, Math.max(0, Number(settings.screenSenseRetentionDays) || 0)),
+      mcpPort: Math.min(65535, Math.max(1024, Number(settings.mcpPort) || 38999)),
+      voiceApiBase: settings.voiceApiBase.trim(), voiceApiKey: settings.voiceApiKey.trim(), voiceModel: settings.voiceModel.trim(),
+      feishuAppId: settings.feishuAppId.trim(), feishuAppSecret: settings.feishuAppSecret.trim()
+    }
+    return Object.fromEntries(Object.entries(next).filter(([key, value]) => value !== savedSettings.current?.[key as keyof AppSettings])) as Partial<AppSettings>
+  }
+
+  useExitParticipant({
+    id: 'app-settings',
+    label: '飞书机器人配置',
+    isDirty: () => {
+      const current = settingsValue.current
+      return !!current && !!savedSettings.current && (current.feishuAppId.trim() !== savedSettings.current.feishuAppId || current.feishuAppSecret.trim() !== savedSettings.current.feishuAppSecret)
+    },
+    alwaysPrepare: true,
+    prepare: async (decision) => {
+      await settingsQueue.current
+      const patch = settingsPatch()
+      if (decision === 'discard') {
+        delete patch.feishuAppId
+        delete patch.feishuAppSecret
+      }
+      if (Object.keys(patch).length) await saveSettings(patch)
+    }
+  })
+
+  useExitParticipant({
+    id: 'settings-profile',
+    label: '确认模式设置',
+    isDirty: () => false,
+    alwaysPrepare: true,
+    prepare: async () => {
+      const next = profileValue.current
+      if (next && JSON.stringify(next) !== JSON.stringify(savedProfile.current)) {
+        await trackExitSave(api.saveProfile(next), 'settings-profile')
+        savedProfile.current = next
+        onProfileChange(next)
+      }
+    }
+  })
+
   // 统一的快捷键录制：进入录制态后按下的组合直接保存到对应设置字段
   useEffect(() => {
     if (!recordingKey) return
@@ -104,7 +185,7 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
       if (!acc) return
       setRecordingKey(null)
       void (async () => {
-        const ok = await api.saveSettings({ [key]: acc })
+        const ok = await saveSettings({ [key]: acc })
         if (ok) {
           setSettings((s) => (s ? { ...s, [key]: acc } : s))
           flash(`快捷键已设为 ${formatHotkey(acc)}`)
@@ -120,8 +201,10 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
   if (!profile || !settings) return <div className="p-8 text-sm text-slate-400">加载中…</div>
 
   const saveProfile = async (next: Profile): Promise<void> => {
+    profileValue.current = next
     setProfile(next)
-    await api.saveProfile(next)
+    await trackExitSave(api.saveProfile(next), 'settings-profile')
+    savedProfile.current = next
     onProfileChange(next)
   }
 
@@ -166,6 +249,7 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
       <div className="flex min-w-0 flex-1 flex-col gap-5 pb-12">
         {cat === '通用' && (
           <GeneralSection
+            saveSettings={saveSettings}
             profile={profile}
             settings={settings}
             setSettings={setSettings}
@@ -181,10 +265,11 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
           />
         )}
         {cat === '助手' && (
-          <AssistantSection settings={settings} setSettings={setSettings} flash={flash} />
+          <AssistantSection saveSettings={saveSettings} settings={settings} setSettings={setSettings} flash={flash} />
         )}
         {cat === '集成' && (
           <IntegrationSection
+            saveSettings={saveSettings}
             settings={settings}
             setSettings={setSettings}
             qaInstalled={qaInstalled}
@@ -196,6 +281,7 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
         )}
         {cat === '屏幕感知' && (
           <ScreenSenseSection
+            saveSettings={saveSettings}
             settings={settings}
             setSettings={setSettings}
             perms={perms}
@@ -208,7 +294,7 @@ export default function Settings({ onProfileChange, initialCat }: Props): React.
           />
         )}
         {cat === '语音纪要' && (
-          <VoiceNotesSection settings={settings} setSettings={setSettings} flash={flash} />
+          <VoiceNotesSection saveSettings={saveSettings} settings={settings} setSettings={setSettings} flash={flash} />
         )}
         {cat === '数据' && (
           <DataSection

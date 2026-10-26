@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ItemType, Priority, TaskRecord, TaskStatus } from '@shared/types'
 import { api } from '../api'
+import { clearExitSaveError, trackExitSave, useExitParticipant } from '../exit-lifecycle'
 import Modal from './Modal'
 import ConfidenceBadge from './ConfidenceBadge'
 import {
@@ -38,6 +39,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export default function TaskDetailModal({ task, onShowSource, onClose }: Props): React.JSX.Element {
   const [current, setCurrent] = useState<TaskRecord>(task)
   const [editing, setEditing] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   const [title, setTitle] = useState(task.title)
   const [itemType, setItemType] = useState<ItemType>(task.itemType)
@@ -63,7 +65,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
   }
 
   const save = async (): Promise<void> => {
-    if (!title.trim()) return
+    if (!title.trim()) throw new Error('任务标题不能为空')
     const patch: Partial<TaskRecord> = {
       title: title.trim(),
       itemType,
@@ -78,14 +80,26 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
         .map((s) => s.trim())
         .filter(Boolean)
     }
-    await api.updateTask(current.id, patch)
+    await trackExitSave(api.updateTask(current.id, patch), `task-detail:${current.id}`)
     setCurrent({ ...current, ...patch } as TaskRecord)
     setEditing(false)
   }
 
+  const taskDirty = editing && (title !== current.title || itemType !== current.itemType || startTime !== (current.startTime ?? '') || dueTime !== (current.dueTime ?? '') || location !== (current.location ?? '') || priority !== current.priority || status !== (EDIT_STATUSES.includes(current.status) ? current.status : 'scheduled') || notesText !== current.notes.join('\n') || remind !== remindToInput(current.remindOffsetMin))
+  useExitParticipant({
+    id: `task-detail:${current.id}`,
+    label: '任务详情编辑',
+    isDirty: () => taskDirty,
+    alwaysPrepare: true,
+    prepare: async (decision) => {
+      if (decision === 'save' && taskDirty) await save()
+      else clearExitSaveError(`task-detail:${current.id}`)
+    }
+  })
+
   // #15：改判「不是我的事」→ 归属置 no（触发主进程个性化学习）+ 移出列表（ignored）
   const markNotMine = async (): Promise<void> => {
-    await api.updateTask(current.id, { belongsToUser: 'no', status: 'ignored' })
+    await trackExitSave(api.updateTask(current.id, { belongsToUser: 'no', status: 'ignored' }))
     setCurrent({ ...current, belongsToUser: 'no', status: 'ignored' })
   }
 
@@ -251,7 +265,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                               const checklist = current.checklist.map((x, j) =>
                                 j === i ? { ...x, done: !x.done } : x
                               )
-                              void api.updateTask(current.id, { checklist })
+                              void trackExitSave(api.updateTask(current.id, { checklist })).catch((error: unknown) => setSaveError(error instanceof Error ? error.message : String(error)))
                               setCurrent({ ...current, checklist })
                             }}
                           />
@@ -299,6 +313,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
             )}
           </div>
 
+          {saveError && <p className="px-5 text-xs text-red-500">{saveError}</p>}
           <div className="flex items-center justify-end gap-2 border-t border-slate-100 p-4">
             {editing ? (
               <>
@@ -311,7 +326,7 @@ export default function TaskDetailModal({ task, onShowSource, onClose }: Props):
                 <button
                   className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark disabled:opacity-40"
                   disabled={!title.trim()}
-                  onClick={() => void save()}
+                  onClick={() => void save().catch((error: unknown) => setSaveError(error instanceof Error ? error.message : String(error)))}
                 >
                   保存修改
                 </button>

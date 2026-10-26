@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { TaskRecord } from '@shared/types'
 import type { CandidateContext, ChatHistoryItem, ParsedItem } from '@shared/parsing'
 import { api } from '../api'
+import { isExitPreparing, trackExitSave, useExitParticipant } from '../exit-lifecycle'
 import { fmtTime, summaryToast, TYPE_LABELS } from '../labels'
 import { autoGrow, insertNewline } from '../textarea'
 import ConfidenceBadge from './ConfidenceBadge'
@@ -92,6 +93,23 @@ export default function AssistantChat({
   const [msgs, setMsgs] = useState<ChatMsg[]>(store.msgs)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const sendTail = useRef<Promise<void>>(Promise.resolve())
+  const saveTail = useRef<Promise<void>>(Promise.resolve())
+  const historyVersion = useRef(0)
+  const savedHistoryVersion = useRef(0)
+  const saveHistory = (messages: ChatMsg[]): Promise<void> => {
+    const version = historyVersion.current
+    const save = saveTail.current.catch(() => {}).then(async () => {
+      await api.chatSave(SCOPE, messages)
+      savedHistoryVersion.current = version
+    })
+    saveTail.current = save
+    return trackExitSave(save, 'assistant-history')
+  }
+  useExitParticipant({ id: 'assistant-input', label: '助手中有尚未发送的输入', canSave: false,
+    isDirty: () => !!input.trim(), prepare: async () => { setInput('') } })
+  useExitParticipant({ id: 'assistant-history', label: '助手对话记录', isDirty: () => false, alwaysPrepare: true,
+    prepare: async () => { await sendTail.current; if (hydrated && historyVersion.current !== savedHistoryVersion.current) await saveHistory(store.msgs); else await saveTail.current } })
   const [detail, setDetail] = useState<TaskRecord | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
   const [screenSense, setScreenSense] = useState(false)
@@ -106,8 +124,9 @@ export default function AssistantChat({
 
   const update = (next: ChatMsg[]): void => {
     store.msgs = next
+    historyVersion.current++
     setMsgs(next)
-    void api.chatSave(SCOPE, next)
+    void saveHistory(next).catch(console.error)
   }
 
   // 首次挂载取一次历史；之后另一个窗口改了会广播过来（自己的改动不回推，免得打断正在输入的人）
@@ -120,7 +139,7 @@ export default function AssistantChat({
     }
     if (!hydrated) pull()
     const off = api.on('guzi-assistant:chat-updated', (p) => {
-      if ((p as { scope?: string })?.scope === SCOPE) pull()
+      if (!isExitPreparing() && (p as { scope?: string })?.scope === SCOPE) pull()
     })
     return () => {
       alive = false
@@ -132,10 +151,8 @@ export default function AssistantChat({
   useEffect(() => {
     if (clearNonce === undefined || clearNonce === clearedNonce.current) return
     clearedNonce.current = clearNonce
-    store.msgs = []
     store.nextId = 1
-    setMsgs([])
-    void api.chatClear(SCOPE)
+    update([])
   }, [clearNonce])
 
   // 正文有多高就告诉外面多高，让独立成窗的气泡自己撑大。观察内容而不是滚动容器：
@@ -176,7 +193,14 @@ export default function AssistantChat({
     return null
   }
 
-  const send = async (raw: string, displayText?: string): Promise<void> => {
+  const send = (raw: string, displayText?: string): Promise<void> => {
+    if (isExitPreparing()) return Promise.resolve()
+    const job = sendInternal(raw, displayText)
+    sendTail.current = job
+    return job
+  }
+
+  const sendInternal = async (raw: string, displayText?: string): Promise<void> => {
     const value = raw.trim()
     if (!value || busy) return
     setInput('')

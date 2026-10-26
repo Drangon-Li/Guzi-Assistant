@@ -18,6 +18,7 @@ const input =
 
 interface Props {
   settings: AppSettings
+  saveSettings: (patch: Partial<AppSettings>) => Promise<boolean>
   setSettings: Dispatch<SetStateAction<AppSettings | null>>
   qaInstalled: boolean
   setQaInstalled: Dispatch<SetStateAction<boolean>>
@@ -27,7 +28,7 @@ interface Props {
 }
 
 export default function IntegrationSection({
-  settings, setSettings, qaInstalled, setQaInstalled, feishu, setFeishu, flash
+  settings, saveSettings, setSettings, qaInstalled, setQaInstalled, feishu, setFeishu, flash
 }: Props): React.JSX.Element {
   return (
     <>
@@ -86,7 +87,7 @@ export default function IntegrationSection({
                     onChange={async (on) => {
                       const patch: Partial<AppSettings> = { mcpEnabled: on }
                       if (on && !settings.mcpToken) patch.mcpToken = genMcpToken()
-                      await api.saveSettings(patch)
+                      await saveSettings(patch)
                       setSettings((s) => (s ? { ...s, ...patch } : s))
                       flash(on ? 'MCP 服务已启动' : 'MCP 服务已停止')
                     }}
@@ -106,7 +107,7 @@ export default function IntegrationSection({
                         onBlur={async (e) => {
                           const v = Math.min(65535, Math.max(1024, Number(e.target.value) || 38999))
                           setSettings({ ...settings, mcpPort: v })
-                          await api.saveSettings({ mcpPort: v })
+                          await saveSettings({ mcpPort: v })
                           flash(`MCP 服务已在端口 ${v} 重启`)
                         }}
                       />
@@ -144,7 +145,7 @@ export default function IntegrationSection({
                         className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
                         onClick={async () => {
                           const t = genMcpToken()
-                          await api.saveSettings({ mcpToken: t })
+                          await saveSettings({ mcpToken: t })
                           setSettings((s) => (s ? { ...s, mcpToken: t } : s))
                           flash('已重新生成，旧 token 立即失效，请更新客户端配置')
                         }}
@@ -200,7 +201,7 @@ export default function IntegrationSection({
                 <button
                   className="rounded-lg bg-brand px-4 py-1.5 text-xs text-white hover:bg-brand-dark"
                   onClick={async () => {
-                    await api.saveSettings({
+                    await saveSettings({
                       feishuAppId: settings.feishuAppId.trim(),
                       feishuAppSecret: settings.feishuAppSecret.trim()
                     })

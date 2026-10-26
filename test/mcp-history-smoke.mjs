@@ -22,7 +22,7 @@ function check(name, ok) {
 
 check('all History MCP tools are declared', names.every((name) => source.includes(`name: '${name}'`)))
 check('History MCP dispatches every declared tool', names.every((name) => source.includes(`name === '${name}'`)))
-check('MCP waits for async History operations', /async function callTool/.test(source) && /await callTool\(name, args\)/.test(source))
+check('MCP waits for async History operations', /async function callTool/.test(source) && /await trackContentWork\(callTool\(name, args\)\)/.test(source))
 check('MCP remains loopback-only', /listen\(wantPort, '127\.0\.0\.1'/.test(source))
 check('MCP keeps Bearer token and constant-time comparison', /authorization/.test(source) && /bearerTokenMatches/.test(source) && /timingSafeEqual/.test(authSource))
 check('History tool descriptions prohibit raw sensitive output', /不返回敏感原文/.test(source) && /不返回原始事件文本/.test(source))

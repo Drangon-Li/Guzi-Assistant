@@ -6,6 +6,11 @@ import { floatingPanelOptions } from './platform/window-options'
 import { isContentResetting } from './content-lifecycle'
 
 export const appState = { quitting: false }
+const exitWindows = new Set<BrowserWindow>()
+
+export function getExitWindows(): BrowserWindow[] {
+  return [...exitWindows].filter((win) => !win.isDestroyed())
+}
 
 let mainWin: BrowserWindow | null = null
 let previewWin: BrowserWindow | null = null
@@ -13,6 +18,8 @@ let previewWin: BrowserWindow | null = null
 export const preload = join(__dirname, '../preload/index.js')
 
 export function load(win: BrowserWindow, hash: string): void {
+  exitWindows.add(win)
+  win.once('closed', () => exitWindows.delete(win))
   if (process.platform !== 'darwin') {
     const updateBackground = (): void => {
       if (!win.isDestroyed()) win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#202126' : '#ffffff')

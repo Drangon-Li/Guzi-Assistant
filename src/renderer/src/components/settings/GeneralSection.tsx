@@ -9,13 +9,14 @@ import { Section, Toggle } from '../ui'
 interface Props {
   profile: Profile
   settings: AppSettings
+  saveSettings: (patch: Partial<AppSettings>) => Promise<boolean>
   setSettings: Dispatch<SetStateAction<AppSettings | null>>
   flash: (msg: string) => void
   saveProfile: (next: Profile) => Promise<void>
 }
 
 export default function GeneralSection({
-  profile, settings, setSettings, flash, saveProfile
+  profile, settings, setSettings, flash, saveProfile, saveSettings
 }: Props): React.JSX.Element {
   // 开机自启不进 settings 表：真值在系统登录项里，单独读
   const [launch, setLaunch] = useState<LaunchAtLoginState | null>(null)
@@ -37,7 +38,7 @@ export default function GeneralSection({
             <button
               key={t.v}
               onClick={() => {
-                void api.saveSettings({ theme: t.v })
+                void saveSettings({ theme: t.v })
                 setSettings((s) => (s ? { ...s, theme: t.v } : s))
                 flash('外观已更新')
               }}
@@ -87,7 +88,7 @@ export default function GeneralSection({
               ariaLabel="开启任务提醒"
               onChange={async (next) => {
                 setSettings({ ...settings, taskReminderEnabled: next })
-                await api.saveSettings({ taskReminderEnabled: next })
+                await saveSettings({ taskReminderEnabled: next })
                 flash(next ? '任务到点会主动提醒' : '已关闭任务提醒')
               }}
             />
@@ -107,7 +108,7 @@ export default function GeneralSection({
                 onBlur={async (e) => {
                   const v = Math.min(1440, Math.max(0, Number(e.target.value) || 0))
                   setSettings({ ...settings, taskReminderOffsetMin: v })
-                  await api.saveSettings({ taskReminderOffsetMin: v })
+                  await saveSettings({ taskReminderOffsetMin: v })
                   flash(v ? `任务开始前 ${v} 分钟提醒` : '到点时提醒')
                 }}
               />
@@ -131,7 +132,7 @@ export default function GeneralSection({
               ariaLabel="自动感知剪贴板"
               onChange={async (next) => {
                 setSettings({ ...settings, clipWatchEnabled: next })
-                await api.saveSettings({ clipWatchEnabled: next })
+                await saveSettings({ clipWatchEnabled: next })
                 flash(next ? '复制到日程会主动提示' : '已关闭剪贴板自动感知')
               }}
             />

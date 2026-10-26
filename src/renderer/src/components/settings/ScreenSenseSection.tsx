@@ -10,6 +10,7 @@ import HistoryDataSection from './HistoryDataSection'
 
 interface Props {
   settings: AppSettings
+  saveSettings: (patch: Partial<AppSettings>) => Promise<boolean>
   setSettings: Dispatch<SetStateAction<AppSettings | null>>
   perms: PermissionStatus | null
   activityStatus: ScreenActivityStatus | null
@@ -21,7 +22,7 @@ interface Props {
 }
 
 export default function ScreenSenseSection({
-  settings, setSettings, perms, activityStatus, historyStatus, setHistoryStatus, loadPerms,
+  settings, saveSettings, setSettings, perms, activityStatus, historyStatus, setHistoryStatus, loadPerms,
   loadActivityStatus, flash
 }: Props): React.JSX.Element {
   return (
@@ -39,7 +40,7 @@ export default function ScreenSenseSection({
             ariaLabel="屏幕感知"
             onChange={async (next) => {
               setSettings({ ...settings, screenSenseEnabled: next })
-              await api.saveSettings({ screenSenseEnabled: next })
+              await saveSettings({ screenSenseEnabled: next })
               flash(next ? '已开启屏幕感知' : '已关闭屏幕感知')
             }}
           />
@@ -141,7 +142,7 @@ export default function ScreenSenseSection({
                   ariaLabel="待办自动识别"
                   onChange={async (next) => {
                     setSettings({ ...settings, todoScanEnabled: next })
-                    await api.saveSettings({ todoScanEnabled: next })
+                    await saveSettings({ todoScanEnabled: next })
                     flash(next ? '会自动识别屏幕上的待办' : '已关闭待办自动识别')
                   }}
                 />
@@ -160,7 +161,7 @@ export default function ScreenSenseSection({
                   ariaLabel="检测到日程时弹窗提醒"
                   onChange={async (next) => {
                     setSettings({ ...settings, screenSensePopup: next })
-                    await api.saveSettings({ screenSensePopup: next })
+                    await saveSettings({ screenSensePopup: next })
                     flash(next ? '检测到日程会弹窗提醒' : '已转为完全被动（只进记忆）')
                   }}
                 />
@@ -180,7 +181,7 @@ export default function ScreenSenseSection({
                   ariaLabel="工作记录"
                   onChange={async (next) => {
                     setSettings({ ...settings, screenSenseWorkLog: next })
-                    await api.saveSettings({ screenSenseWorkLog: next })
+                    await saveSettings({ screenSenseWorkLog: next })
                     flash(next ? '已开启工作记录' : '已关闭工作记录')
                   }}
                 />
@@ -195,7 +196,7 @@ export default function ScreenSenseSection({
                     onChange={async (e) => {
                       const v = e.target.value
                       setSettings({ ...settings, dailyReportTime: v })
-                      await api.saveSettings({ dailyReportTime: v })
+                      await saveSettings({ dailyReportTime: v })
                       flash(v ? `每天 ${v} 自动生成日报` : '已关闭定时日报')
                     }}
                   />
@@ -217,7 +218,7 @@ export default function ScreenSenseSection({
                   ariaLabel="日程深度确认"
                   onChange={async (next) => {
                     setSettings({ ...settings, screenSenseVlmConfirm: next })
-                    await api.saveSettings({ screenSenseVlmConfirm: next })
+                    await saveSettings({ screenSenseVlmConfirm: next })
                     flash(next ? '已开启日程深度确认（截图上云）' : '已关闭深度确认（仅文字上云）')
                   }}
                 />
@@ -235,7 +236,7 @@ export default function ScreenSenseSection({
                   ariaLabel="持续监控"
                   onChange={async (next) => {
                     setSettings({ ...settings, screenSenseContinuous: next })
-                    await api.saveSettings({ screenSenseContinuous: next })
+                    await saveSettings({ screenSenseContinuous: next })
                     flash(next ? '已开启持续监控' : '已关闭持续监控')
                   }}
                 />
@@ -257,7 +258,7 @@ export default function ScreenSenseSection({
                         ariaLabel="保存截图到可搜索记忆"
                         onChange={async (next) => {
                           setSettings({ ...settings, screenSenseKeepShots: next })
-                          await api.saveSettings({ screenSenseKeepShots: next })
+                          await saveSettings({ screenSenseKeepShots: next })
                           flash(next ? '已开启截图保存（加密）' : '已关闭截图保存')
                         }}
                       />
@@ -277,7 +278,7 @@ export default function ScreenSenseSection({
                           onBlur={async (e) => {
                             const v = Math.min(365, Math.max(0, Number(e.target.value) || 0))
                             setSettings({ ...settings, screenSenseRetentionDays: v })
-                            await api.saveSettings({ screenSenseRetentionDays: v })
+                            await saveSettings({ screenSenseRetentionDays: v })
                             flash('已保存截图保留期')
                           }}
                         />
@@ -311,7 +312,7 @@ export default function ScreenSenseSection({
             value={settings.activityTimelineMode}
             onChange={async (event) => {
               const mode = event.target.value as AppSettings['activityTimelineMode']
-              await api.saveSettings({ activityTimelineMode: mode })
+              await saveSettings({ activityTimelineMode: mode })
               setSettings(await api.getSettings())
               flash(mode === 'unified' ? '已安排从明天开始使用统一计时' : mode === 'shadow' ? '已开启后台对照，页面继续使用原计时' : '已恢复原计时，已有记录保留')
             }}

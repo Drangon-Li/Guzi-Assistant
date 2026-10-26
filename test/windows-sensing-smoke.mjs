@@ -105,6 +105,9 @@ function processFixture() {
   abortedChild.emit('close', null)
   await assert.rejects(abortedRequest, /AbortError/)
   application.emit('before-quit')
+  assert.notEqual(collector.killed, true, 'cancelled save must leave helpers running')
+  assert.notEqual(clipboard.killed, true)
+  application.emit('will-quit')
   assert.equal(collector.killed, true)
   assert.equal(clipboard.killed, true)
   const abort = new AbortController()
@@ -174,6 +177,7 @@ console.log('✓ Windows collector uses packaged commands, enforces protocol pri
   let writes = 0
   class CooldownMap { sweep() {} untilMs() {} start() {} clear() {} }
   const mocks = {
+    './content-lifecycle.ts': { isExitPreparing: () => false, trackContentWork: (promise) => promise },
     child_process: { execFile() { throw Error('Windows must not run xcrun') }, spawn() { throw Error('Windows must use packaged helper') } },
     './native/clipboard-detect.m?raw': { default: '' }, electron: { app: { getPath: () => '/fixture' } },
     fs: { existsSync: () => true }, path: require('node:path'), util: require('node:util'),

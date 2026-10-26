@@ -2,7 +2,6 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 
-const BRAND = '谷子助手'
 const INTERNAL = 'GuziAssistant'
 
 function setPlistString(file, key, value) {
@@ -15,21 +14,40 @@ module.exports = async function afterPack(context) {
   const appName = `${context.packager.appInfo.productFilename}.app`
   const appPath = path.join(context.appOutDir, appName)
   const frameworksPath = path.join(appPath, 'Contents', 'Frameworks')
-  if (!fs.existsSync(frameworksPath)) return
+  const brand = context.packager.appInfo.productFilename
+  const update = context.packager.info.metadata.guziUpdate
+  const { validateUpdateConfig } = await import('./macos-release.mjs')
+  validateUpdateConfig(update)
+  const internal = update.channel === 'test' ? `GuziAssistantUpdateTest-${update.appId.split('.').at(-1)}` : INTERNAL
+  const sparkle = path.join(context.packager.projectDir, 'build', 'sparkle')
+  if (!fs.existsSync(path.join(sparkle, 'sparkle-bridge.node'))) throw new Error('Run prepare:mac before packaging')
+  execFileSync('/usr/bin/ditto', [path.join(sparkle, 'Sparkle.framework'), path.join(frameworksPath, 'Sparkle.framework')])
+  const native = path.join(appPath, 'Contents', 'Resources', 'native')
+  fs.mkdirSync(native, { recursive: true })
+  fs.copyFileSync(path.join(sparkle, 'sparkle-bridge.node'), path.join(native, 'sparkle-bridge.node'))
+  const licenses = path.join(appPath, 'Contents', 'Resources', 'licenses')
+  fs.mkdirSync(licenses, { recursive: true })
+  fs.copyFileSync(path.join(sparkle, 'LICENSE'), path.join(licenses, 'Sparkle-LICENSE.txt'))
 
   const mainInfo = path.join(appPath, 'Contents', 'Info.plist')
   const mainMacosPath = path.join(appPath, 'Contents', 'MacOS')
   const generatedMain = path.join(mainMacosPath, context.packager.appInfo.productFilename)
-  const internalMain = path.join(mainMacosPath, INTERNAL)
+  const internalMain = path.join(mainMacosPath, internal)
   if (fs.existsSync(generatedMain) && !fs.existsSync(internalMain)) fs.renameSync(generatedMain, internalMain)
-  setPlistString(mainInfo, 'CFBundleExecutable', INTERNAL)
-  setPlistString(mainInfo, 'CFBundleName', INTERNAL)
+  setPlistString(mainInfo, 'CFBundleExecutable', internal)
+  setPlistString(mainInfo, 'CFBundleName', internal)
+  setPlistString(mainInfo, 'SUFeedURL', update.feedUrl)
+  setPlistString(mainInfo, 'SUPublicEDKey', update.publicKey)
+  for (const key of ['SUAutomaticallyUpdate', 'SUAllowsAutomaticUpdates', 'SUEnableAutomaticChecks']) {
+    execFileSync('/usr/bin/plutil', ['-replace', key, '-bool', 'false', mainInfo])
+  }
+  execFileSync('/usr/bin/plutil', ['-replace', 'SUVerifyUpdateBeforeExtraction', '-bool', 'true', mainInfo])
 
   for (const entry of fs.readdirSync(frameworksPath)) {
-    if (!entry.startsWith(`${BRAND} Helper`) || !entry.endsWith('.app')) continue
+    if (!entry.startsWith(`${brand} Helper`) || !entry.endsWith('.app')) continue
 
     const oldAppPath = path.join(frameworksPath, entry)
-    const newEntry = `${INTERNAL}${entry.slice(BRAND.length)}`
+    const newEntry = `${internal}${entry.slice(brand.length)}`
     const newAppPath = path.join(frameworksPath, newEntry)
     if (!fs.existsSync(newAppPath)) fs.renameSync(oldAppPath, newAppPath)
 

@@ -28,6 +28,9 @@ function harness() {
   const timers = new Map()
   const effects = []
   const calls = []
+  const participants = new Map()
+  let updateFailure = false
+  let delayUpdate = null
   let hookIndex = 0
   let timerId = 0
   let tree
@@ -86,6 +89,8 @@ function harness() {
       return snapshot
     }
     if (action === 'update') {
+      if (delayUpdate) { const gate = delayUpdate; delayUpdate = null; await gate.promise }
+      if (updateFailure) throw new Error('note disk full')
       const [id, patch] = args
       const normalized = { ...patch }
       if ('title' in patch) normalized.title = patch.title.trim().slice(0, 200) || '未命名'
@@ -109,6 +114,7 @@ function harness() {
       if (id === 'react/jsx-runtime') return { jsx, jsxs: jsx, Fragment: 'Fragment' }
       if (id === '@shared/notebook') return notebook
       if (id === '../../api') return { api: { plugin } }
+      if (id === '../../exit-lifecycle') return { useExitParticipant(p) { participants.set(p.id, p) }, registerExitParticipant(p) { participants.set(p.id, p); return () => participants.delete(p.id) }, clearExitSaveError() {}, trackExitSave: (promise) => promise }
       return { __esModule: true, default: id }
     },
     window: {
@@ -141,6 +147,10 @@ function harness() {
   render()
   return {
     rows, calls, settle, open, editor,
+    inspectExit: () => participants.get('notebook').isDirty(),
+    prepareExit: () => participants.get('notebook').prepare('save'),
+    failUpdate: (value) => { updateFailure = value },
+    holdNextUpdate: () => { const gate = deferred(); delayUpdate = gate; return gate.resolve },
     visibleIds: () => nodes(tree).filter((n) => n.type === 'li' &&
       n.props.children?.props?.className?.includes('cursor-default rounded-xl')).map((n) => n.key),
     async query(value) {
@@ -330,4 +340,34 @@ await run('旧搜索命中已删除笔记时不将其重新加入列表', async 
   await h.settle()
   await h.tick()
   assert.deepEqual(h.visibleIds(), [])
+})
+
+await run('600ms防抖结束前退出仍保存最新笔记，失败保留补丁可重试', async () => {
+  const h = await setup()
+  await h.edit({ content: 'latest before debounce' })
+  assert.equal(h.rows.get('a').content, 'old-a')
+  assert.equal(h.inspectExit(), true)
+  h.failUpdate(true)
+  await assert.rejects(h.prepareExit(), /note disk full/)
+  assert.equal(h.inspectExit(), true)
+  h.failUpdate(false)
+  await h.prepareExit()
+  assert.equal(h.rows.get('a').content, 'latest before debounce')
+  assert.equal(h.inspectExit(), false)
+})
+await run('退出等待已经发出的笔记写入，并继续保存期间产生的最后补丁', async () => {
+  const h = await setup()
+  const release = h.holdNextUpdate()
+  await h.edit({ title: 'first pending' })
+  const first = h.prepareExit()
+  await h.settle()
+  await h.edit({ content: 'final pending body' })
+  let finished = false
+  const last = h.prepareExit().then(() => { finished = true })
+  await h.settle()
+  assert.equal(finished, false)
+  release()
+  await Promise.all([first, last])
+  assert.equal(h.rows.get('a').title, 'first pending')
+  assert.equal(h.rows.get('a').content, 'final pending body')
 })

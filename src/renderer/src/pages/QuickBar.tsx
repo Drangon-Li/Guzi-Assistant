@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CandidateContext, ParsedItem } from '@shared/parsing'
 import type { TaskStatus } from '@shared/types'
 import { api } from '../api'
+import { isExitPreparing, trackExitSave, useExitParticipant } from '../exit-lifecycle'
 import { fmtTime } from '../labels'
 import { autoGrow, insertNewline } from '../textarea'
 import Markdown from '../components/Markdown'
@@ -39,7 +40,26 @@ const SCOPE = 'quickbar'
 
 export default function QuickBar(): React.JSX.Element {
   const [text, setText] = useState('')
-  const [msgs, setMsgs] = useState<Msg[]>([])
+  const historyVersion = useRef(0)
+  const savedHistoryVersion = useRef(0)
+  const [msgs, setMsgsState] = useState<Msg[]>([])
+  const messages = useRef<Msg[]>([])
+  const setMsgs = (next: Msg[] | ((previous: Msg[]) => Msg[])): void => {
+    messages.current = typeof next === 'function' ? next(messages.current) : next
+    if (loaded.current) historyVersion.current++
+    setMsgsState(messages.current)
+  }
+  const askTail = useRef<Promise<void>>(Promise.resolve())
+  const saveTail = useRef<Promise<void>>(Promise.resolve())
+  const saveHistory = (next: Msg[]): Promise<void> => {
+    const version = historyVersion.current
+    const save = saveTail.current.catch(() => {}).then(async () => {
+      await api.chatSave(SCOPE, next)
+      savedHistoryVersion.current = version
+    })
+    saveTail.current = save
+    return trackExitSave(save, 'quickbar-history')
+  }
   const [busy, setBusy] = useState(false)
   // 每次唤起 +1：重放内容的入场动画（配合主进程的窗口透明度渐变）
   const [showNonce, setShowNonce] = useState(0)
@@ -49,15 +69,21 @@ export default function QuickBar(): React.JSX.Element {
   const idRef = useRef(0)
   const loaded = useRef(false)
 
+  useExitParticipant({ id: 'quickbar-input', label: '快捷提问框中有尚未发送的输入', canSave: false,
+    isDirty: () => !!text.trim(), prepare: async () => { setText('') } })
+  useExitParticipant({ id: 'quickbar-history', label: '快捷提问对话记录', isDirty: () => false, alwaysPrepare: true,
+    prepare: async () => { await askTail.current; if (loaded.current && historyVersion.current !== savedHistoryVersion.current) await saveHistory(messages.current); else await saveTail.current } })
+
   const clearHistory = (): void => {
     setMsgs([])
     idRef.current = 0
-    void api.chatClear(SCOPE)
+    void saveHistory([]).catch(console.error)
   }
 
   // 唤起：清掉没发出去的输入、聚焦，对话本身留着接着上次说
   useEffect(() => {
     return api.on('guzi-assistant:quickbar-show', () => {
+      if (isExitPreparing()) return
       setText('')
       setBusy(false)
       setShowNonce((n) => n + 1)
@@ -77,7 +103,7 @@ export default function QuickBar(): React.JSX.Element {
   // 改动落库。取回历史之前不写，否则初始的空列表会把上次的对话覆盖掉
   useEffect(() => {
     if (!loaded.current) return
-    void api.chatSave(SCOPE, msgs)
+    void saveHistory(msgs).catch(console.error)
   }, [msgs])
 
   // 内容高度变化（气泡展开/收起）→ 主进程按底边固定调整窗口高度
@@ -101,7 +127,14 @@ export default function QuickBar(): React.JSX.Element {
     if (l) l.scrollTop = l.scrollHeight
   }, [msgs, busy, showNonce])
 
-  const ask = async (): Promise<void> => {
+  const ask = (): Promise<void> => {
+    if (isExitPreparing()) return Promise.resolve()
+    const job = askInternal()
+    askTail.current = job
+    return job
+  }
+
+  const askInternal = async (): Promise<void> => {
     const q = text.trim()
     if (!q || busy) return
     setText('')

@@ -1,0 +1,148 @@
+name: macOS Sparkle release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing source tag matching package version (vX.Y.Z)
+        type: string
+        required: true
+      publish:
+        description: Publish stable release after validation and exact version confirmation
+        type: boolean
+        default: false
+      confirmation:
+        description: For stable publication, type publish-vX.Y.Z
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && 'stable' || 'test' }}
+      SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify immutable source tag on main
+        id: source
+        run: |
+          node scripts/verify-macos-release.mjs --source
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Verify release script policies
+        run: node scripts/test-macos-release.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Run unit tests under Node
+        run: |
+          npm rebuild better-sqlite3
+          npm run test:unit
+      - name: Prepare Sparkle from pinned upstream archive
+        run: node scripts/prepare-sparkle.mjs
+      - name: Run native Sparkle integration tests
+        run: node scripts/test-sparkle-update.mjs
+      - name: Restore Electron SQLite and build application
+        run: |
+          npm run postinstall
+          npm run build
+      - name: Verify isolated whole application upgrade
+        run: node scripts/test-macos-app-update.mjs
+      - name: Build macOS arm64 archives
+        shell: bash
+        run: |
+          if [[ "$CHANNEL" == stable ]]; then
+            node scripts/build-macos-release.mjs --channel stable --skip-build
+          else
+            node scripts/build-macos-release.mjs --channel test --skip-build \
+              --app-id "cn.shilong.gooz.update-test.ci-${GITHUB_RUN_ID}" \
+              --profile-dir "/private/tmp/guzi-update-ci-${GITHUB_RUN_ID}" \
+              --feed-url "https://github.com/Drangon-Li/guzi-assistant-releases/releases/download/${RELEASE_TAG}-test-${GITHUB_RUN_ID}/appcast-mac-arm64.xml"
+          fi
+      - name: Verify archives and sign Sparkle update
+        run: node scripts/sign-macos-release.mjs --channel "$CHANNEL"
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-release-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            release/*-arm64.dmg
+            release/*-arm64.zip
+            release/appcast-mac-arm64.xml
+            release/mac-arm64-provenance.json
+            release/mac-arm64-SHA256SUMS.txt
+
+  draft:
+    if: github.event_name != 'workflow_dispatch' || !inputs.publish
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-arm64-release-${{ github.run_id }}
+          path: release
+      - name: Upload isolated test draft and verify remote bytes
+        run: node scripts/publish-macos-release.mjs
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 20
+    environment: macos-release
+    concurrency:
+      group: macos-stable-publication
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-arm64-release-${{ github.run_id }}
+          path: release
+      - name: Publish stable only after remote archive verification
+        run: node scripts/publish-macos-release.mjs --publish --confirm "$CONFIRMATION"
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}

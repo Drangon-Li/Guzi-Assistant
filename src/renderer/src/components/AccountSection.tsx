@@ -4,6 +4,7 @@ import { isSubscriptionActive, planById, shouldRemindRenew } from '@shared/subsc
 import { supabase, hasBackend } from '../supabase'
 import SubscribePanel from './SubscribePanel'
 import Modal from './Modal'
+import { useExitParticipant } from '../exit-lifecycle'
 
 const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-900/5 focus:outline-none'
@@ -44,6 +45,9 @@ export default function AccountSection(): React.JSX.Element {
   const [dialog, setDialog] = useState<'subscribe' | 'email' | 'password' | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  useExitParticipant({ id: 'account-login', label: '账户中有尚未提交的输入', canSave: false,
+    isDirty: () => (!session && !!(email.trim() || password)) || editingName,
+    prepare: async () => { setEmail(''); setPassword(''); setEditingName(false) } })
   const fileRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -336,6 +340,9 @@ function ChangeEmailForm({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
+  useExitParticipant({ id: 'account-email', label: '邮箱修改尚未提交', canSave: false,
+    isDirty: () => !!next.trim() && next.trim() !== current, prepare: async () => { setNext('') } })
+
   const submit = async (): Promise<void> => {
     const target = next.trim()
     if (!target || target === current) return
@@ -378,6 +385,9 @@ function ChangePasswordForm({ onDone }: { onDone: (msg: string) => void }): Reac
   const [pw2, setPw2] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+
+  useExitParticipant({ id: 'account-password', label: '密码修改尚未提交', canSave: false,
+    isDirty: () => !!(pw1 || pw2), prepare: async () => { setPw1(''); setPw2('') } })
 
   const submit = async (): Promise<void> => {
     if (pw1.length < 6) {

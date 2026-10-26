@@ -22,7 +22,7 @@ import {
 import type { HistoryQueryOptions, HistorySearchOptions } from '@shared/history'
 import { bearerTokenMatches } from './history/mcp-auth.ts'
 import { workRecordInterval } from '@shared/work-report'
-import { captureContentEpoch, isContentEpochCurrent, isContentResetting } from './content-lifecycle'
+import { captureContentEpoch, isContentEpochCurrent, isContentResetting, isExitPreparing, trackContentWork } from './content-lifecycle'
 
 const STATUSES: TaskStatus[] = ['not_started', 'scheduled', 'in_progress', 'done', 'overdue', 'ignored']
 
@@ -301,7 +301,8 @@ async function handleRpc(req: RpcRequest): Promise<{ status: number; body: strin
     const name = typeof req.params?.name === 'string' ? req.params.name : ''
     const args = (req.params?.arguments ?? {}) as Record<string, unknown>
     try {
-      const out = await callTool(name, args)
+      if (isExitPreparing()) throw new Error('正在保存并退出，请稍后重试')
+      const out = await trackContentWork(callTool(name, args))
       return {
         status: 200,
         body: rpcResult(req.id, { content: [{ type: 'text', text: JSON.stringify(out, null, 1) }] })

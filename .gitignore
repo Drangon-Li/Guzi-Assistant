@@ -13,3 +13,4 @@ release/
 app/
 build/native/
 build/windows-ocr/
+build/sparkle/

@@ -3,7 +3,7 @@ import { join } from 'path'
 import { app } from 'electron'
 import { submitExternalFiles } from './capture'
 import { isSafeDropPath } from '@shared/safe-path'
-import { isContentResetting } from './content-lifecycle'
+import { isContentResetting, isExitPreparing } from './content-lifecycle'
 
 let debounce: NodeJS.Timeout | null = null
 let watcher: FSWatcher | null = null
@@ -15,7 +15,7 @@ export function dropboxDir(): string {
 
 /** 右键快速操作把选中文件的路径写成 manifest（.txt 一行一个路径），这里消费并删除 */
 function processManifests(): void {
-  if (isContentResetting()) return
+  if (isContentResetting() || isExitPreparing()) return
   const dir = dropboxDir()
   let manifests: string[] = []
   try {
@@ -55,7 +55,7 @@ export function initDropbox(): void {
   })
   // 退出时关闭 watcher 句柄，避免常驻 libuv handle 拖延退出
   if (!quitHooked) {
-    app.on('before-quit', stopDropbox)
+    app.on('will-quit', stopDropbox)
     quitHooked = true
   }
 }

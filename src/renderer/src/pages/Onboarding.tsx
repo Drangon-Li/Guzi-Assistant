@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ConfirmMode, Identity, Profile } from '@shared/types'
 import { api } from '../api'
+import { useExitParticipant } from '../exit-lifecycle'
 import {
   CONFIRM_MODES,
   fillFromPlaceholder,
@@ -47,6 +48,11 @@ export default function Onboarding({ onDone }: Props): React.JSX.Element {
     await api.saveProfile(profile)
     onDone(profile)
   }
+
+  useExitParticipant({ id: 'onboarding', label: '首次设置档案尚未完成',
+    isDirty: () => !!(name || nicknames || accounts || org || group || workHours) || identity !== 'student' || confirmMode !== 'standard',
+    canSave: !!name.trim(),
+    prepare: async (decision) => { if (decision === 'save') await finish() } })
 
   return (
     <div className="flex h-full items-center justify-center bg-slate-100">

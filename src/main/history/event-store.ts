@@ -102,6 +102,7 @@ export class HistorySegmentStore {
   private currentSegmentId: string | null = null
   private state: HistoryStoreHealth['state'] = 'starting'
   private closed = false
+  private failedJobs: (() => Promise<void>)[] = []
 
   constructor(options: HistorySegmentStoreOptions) {
     this.rootDir = resolve(options.rootDir)
@@ -145,6 +146,10 @@ export class HistorySegmentStore {
   async flush(): Promise<void> {
     await this.start()
     await this.queueTail.promise
+    const retries = this.failedJobs.splice(0)
+    for (const job of retries) this.schedule(job)
+    await this.queueTail.promise
+    if (this.failedJobs.length) throw new Error(this.lastError ?? 'History 写入失败')
   }
 
   async cleanup(nowMs = this.now()): Promise<void> {
@@ -302,16 +307,15 @@ export class HistorySegmentStore {
     if (this.closed) return
     try {
       await this.flush()
-    } catch {
-      // Preserve the original health error while still releasing the lock.
+    } finally {
+      this.closed = true
+      this.state = 'stopped'
+      await this.releaseLock()
     }
-    this.closed = true
-    this.state = 'stopped'
-    await this.releaseLock()
   }
 
   private enqueue(job: () => Promise<void>): boolean {
-    if (this.queueLength >= this.maxQueue) {
+    if (this.queueLength + this.failedJobs.length >= this.maxQueue) {
       this.droppedCount += 1
       return false
     }
@@ -324,7 +328,7 @@ export class HistorySegmentStore {
     this.queueTail.promise = this.queueTail.promise
       .then(() => this.start())
       .then(job)
-      .catch((error) => this.fail(error))
+      .catch((error) => { this.failedJobs.push(job); this.fail(error) })
       .finally(() => {
         this.queueLength = Math.max(0, this.queueLength - 1)
       })
@@ -409,7 +413,10 @@ export class HistorySegmentStore {
   private async writeEvent(event: HistoryEvent): Promise<void> {
     const bucket = utcTenMinuteBucket(Date.parse(event.occurred_at))
     const state = await this.ensureSegment(bucket.startIso, bucket.endIso)
-    if (state.eventIds.has(event.id)) return
+    if (state.eventIds.has(event.id)) {
+      await this.persistMetadata(state)
+      return
+    }
     await appendFile(state.eventsPath, `${JSON.stringify(event)}\n`, 'utf8')
     await chmod(state.eventsPath, 0o600).catch(() => {})
     state.eventIds.add(event.id)

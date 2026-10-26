@@ -1,19 +1,19 @@
 // 设置页「助手」分区。状态仍由 pages/Settings.tsx 持有，这里只负责这一段的渲染与保存。
 import type { Dispatch, SetStateAction } from 'react'
 import type { AppSettings } from '@shared/types'
-import { api } from '../../api'
 import CustomModelSettings from '../CustomModelSettings'
 import PetSettings from '../PetSettings'
 import { Section } from '../ui'
 
 interface Props {
   settings: AppSettings
+  saveSettings: (patch: Partial<AppSettings>) => Promise<boolean>
   setSettings: Dispatch<SetStateAction<AppSettings | null>>
   flash: (msg: string) => void
 }
 
 export default function AssistantSection({
-  settings, setSettings, flash
+  settings, saveSettings, setSettings, flash
 }: Props): React.JSX.Element {
   return (
     <>
@@ -32,7 +32,7 @@ export default function AssistantSection({
             onBlur={async (e) => {
               const v = Math.min(600, Math.max(0, Number(e.target.value) || 0))
               setSettings({ ...settings, assistantAutoCloseSec: v })
-              await api.saveSettings({ assistantAutoCloseSec: v })
+              await saveSettings({ assistantAutoCloseSec: v })
               flash(v ? `闲置 ${v} 秒自动收起助手` : '已关闭自动收起')
             }}
           />

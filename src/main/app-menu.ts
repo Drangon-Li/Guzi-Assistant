@@ -31,7 +31,7 @@ export function installAppMenu(): void {
           { role: 'unhide', label: '全部显示' },
           { type: 'separator' }
         ] satisfies MenuItemConstructorOptions[] : []),
-        { role: 'quit', label: '退出 谷子助手' }
+        { label: '退出 谷子助手', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() }
       ]
     },
     {

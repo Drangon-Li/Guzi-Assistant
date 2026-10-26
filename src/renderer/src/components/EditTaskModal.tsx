@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { clearExitSaveError, trackExitSave, useExitParticipant } from '../exit-lifecycle'
 import type { ItemType, Priority, TaskRecord } from '@shared/types'
 import Modal from './Modal'
 import { REMIND_OPTIONS, remindFromInput, remindToInput, TYPE_LABELS } from '../labels'
@@ -7,7 +8,7 @@ interface Props {
   task: TaskRecord
   heading: string
   confirmLabel: string
-  onSave: (patch: Partial<TaskRecord>) => void
+  onSave: (patch: Partial<TaskRecord>) => void | Promise<void>
   onClose: () => void
   /** 传入即显示「删除任务」（两步确认后触发）；不传则不显示 */
   onDelete?: () => void
@@ -42,16 +43,17 @@ export default function EditTaskModal({
     setTagDraft('')
   }
 
-  const save = (): void => {
-    if (!title.trim()) return
-    onSave({
+  const save = async (): Promise<void> => {
+    if (!title.trim()) throw new Error('任务标题不能为空')
+    await trackExitSave(Promise.resolve(onSave({
       title: title.trim(),
       itemType,
       startTime: startTime || null,
       dueTime: dueTime || null,
       location: location.trim() || null,
       priority,
-      tags,
+      tags: tagDraft.trim() && !tags.includes(tagDraft.trim().replace(/^#/, '')) && tags.length < 8
+        ? [...tags, tagDraft.trim().replace(/^#/, '')] : tags,
       // 按行重建清单；同名条目保留原勾选状态
       checklist: checklistText
         .split('\n')
@@ -59,8 +61,17 @@ export default function EditTaskModal({
         .filter(Boolean)
         .map((text) => ({ text, done: task.checklist.find((c) => c.text === text)?.done ?? false })),
       remindOffsetMin: remindFromInput(remind)
-    })
+    })), `edit-task:${task.id}`)
   }
+
+  const dirty = title !== task.title || itemType !== task.itemType || startTime !== (task.startTime ?? '') ||
+      dueTime !== (task.dueTime ?? '') || location !== (task.location ?? '') || priority !== task.priority ||
+      remind !== remindToInput(task.remindOffsetMin) || JSON.stringify(tags) !== JSON.stringify(task.tags) ||
+      checklistText !== task.checklist.map((item) => item.text).join('\n') || !!tagDraft.trim()
+  useExitParticipant({ id: `edit-task:${task.id}`, label: '日程任务编辑尚未保存',
+    isDirty: () => dirty,
+    alwaysPrepare: true,
+    prepare: async (decision) => { if (decision === 'save' && dirty) await save(); else clearExitSaveError(`edit-task:${task.id}`) } })
 
   return (
     <Modal panelClass="w-[480px] rounded-xl bg-surface p-5 shadow-2xl" onClose={onClose}>
@@ -203,7 +214,7 @@ export default function EditTaskModal({
           </button>
           <button
             className="rounded-lg bg-brand px-4 py-1.5 text-sm text-white hover:bg-brand-dark"
-            onClick={save}
+            onClick={() => void save().catch((error) => window.alert(String(error)))}
           >
             {confirmLabel}
           </button>
