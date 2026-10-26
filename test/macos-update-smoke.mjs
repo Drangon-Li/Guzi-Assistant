@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import vm from 'node:vm'
 import ts from 'typescript'
-import * as paths from 'node:path'
+import { posix as paths } from 'node:path'
 import * as shared from '../src/shared/update-state.ts'
 
 const compiled = (path) => ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
