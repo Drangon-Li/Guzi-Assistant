@@ -3,6 +3,7 @@ out/
 dist/
 .env
 *.local
+signing/*.local.*
 .DS_Store
 *.tsbuildinfo
 test/agent-tmp/

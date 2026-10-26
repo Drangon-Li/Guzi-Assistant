@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "requestId": "d7041e60-4bdf-4606-9257-f2dea763b985",
+  "repository": "Drangon-Li/Guzi-Assistant",
+  "ref": "refs/heads/codex/recover-sparkle-signing-backup-v1",
+  "sparklePublicKey": "69F8+2FxXMNiiAahs9zuN3p2TU25h8s9MY/30wY0ijA=",
+  "recipientPublicKeyPem": "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAxXomrWg8qsf/vw8+b8wv\nJD/cH9jtEPbBlzTz44FTLwIZwwogXeczeLVooX4N18cdmTlOIGlSWLDkRyZMwDFy\nHRxZ3Rou6ix6vnihJSd4F45NTFZpQvceRgq5shehPe8WjhLliYFotCStrR0OFW+K\nbygrFoXZiAyLTHNVELkNLmGd4iZ1Xek9z/MmwdqMjqGnlJQmTGvS/tMKAz4HXTPi\negLU0ZEJgwTR+rFNYwi1UNn1MqknG5+gGu9six5U4OQzRQaNxFAEU9e1Zxjx4YaJ\n/o4B6zcTJbRNZNxWFbIArFYEob4+tMJYkH1gg/5/TaYhny2N8AK3MPli6xSohZJR\ntYjkL0bZgrHIcHv7XZocsc6A9u0qUAWDA4vWW1/GTkQRsrd/+MOYPyuBS2dfwrI1\nr8rSKNerhPvpz845tSon/3fJsn0uSFFFCBB8r6OsbRPCJMf5hbExhMghvg19ZcXK\np8ByE1Cla2v16oYe4+RdyhKXqrKtb7bIfx6oNUsnwqKwDTBjJnuGxlgts8G6ZAUU\nzXyoQU6kh0FjqlJ06XemvjvNGhjdroHV9ELcWB8wjJEYJJLZjx6bdsznyrGdUUnb\n7sNlMGl4pN4jsm3/XaEs/zDpnxlE90Wz1vSlKm6ilT9mnK4c7mfkV9NcOhK/6thS\nyNcPbX/UGCN5KZ6entuX8EECAwEAAQ==\n-----END PUBLIC KEY-----\n",
+  "recipientPublicKeySha256": "02c56c297052c429be543fb395d0509b77506adb610585eab6b6ca8b68081527"
+}

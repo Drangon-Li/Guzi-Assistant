@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "applicationId": "cn.shilong.gooz",
+  "signingIdentityVersion": 1,
+  "originalIdentityRecord": "signing/macos-signing-identity.json",
+  "recoveredAt": "2026-10-26T05:45:50.161Z",
+  "publicKey": "69F8+2FxXMNiiAahs9zuN3p2TU25h8s9MY/30wY0ijA=",
+  "encryptedBackup": {
+    "path": "signing/guzi-assistant-sparkle-production-v1-recovery-20261026.asc",
+    "sha256": "702e5ffdd742628b179a5f6320eb12b0343f83aa8eadc434bfd20e10a0e2a190",
+    "format": "OpenPGP armored symmetric encryption; AES256; SHA256 iterated salted S2K; plaintext is the original Sparkle Base64 32-byte seed"
+  },
+  "passphrase": {
+    "localFile": "signing/guzi-assistant-sparkle-recovery-20261026-passphrase.local.txt",
+    "storage": "plaintext local file explicitly requested by the user",
+    "mode": "0600",
+    "gitIgnored": true,
+    "includedInGit": false,
+    "decryptsOriginalBackup": false
+  },
+  "source": {
+    "repository": "Drangon-Li/Guzi-Assistant",
+    "branch": "codex/recover-sparkle-signing-backup-v1",
+    "commit": "3c6c6fd106891e559f26f3e90aec74d3ef2a4599",
+    "runId": "40275673847",
+    "runAttempt": 1,
+    "runUrl": "https://github.com/Drangon-Li/Guzi-Assistant/actions/runs/40275673847",
+    "requestId": "d7041e60-4bdf-4606-9257-f2dea763b985",
+    "artifactId": 12629843706,
+    "artifactSha256": "698d0a2e2f08f4a24acc43b1c2116aa42722dacaac385f9a367fdb058752fac2",
+    "artifactExpiresAt": "2026-10-27T05:42:34Z",
+    "recipientPublicKeySha256": "02c56c297052c429be543fb395d0509b77506adb610585eab6b6ca8b68081527",
+    "secretName": "SPARKLE_PRIVATE_KEY",
+    "secretModified": false
+  },
+  "verification": {
+    "sourceCommitAndRunMatch": true,
+    "signedEnvelopeVerified": true,
+    "recoveredPublicKeyMatchesOriginal": true,
+    "gpgRoundTripPassed": true,
+    "nodeSignatureVerificationPassed": true,
+    "officialSparkleSignatureVerificationPassed": true,
+    "modifiedPayloadRejected": true,
+    "independentOnDiskRestorePassed": true,
+    "wrongPassphraseRejected": true,
+    "originalEncryptedBackupUnchanged": true
+  },
+  "cleanup": {
+    "temporaryRecipientPrivateKeyRemoved": true,
+    "plaintextSigningSeedWrittenToDisk": false,
+    "localPassphraseRetained": true,
+    "remoteArtifactManuallyDeleted": false,
+    "remoteRecoveryBranchDeleted": true,
+    "temporaryGpgAgentProcessesRemaining": 0,
+    "localRecoveryBranchDeleted": true,
+    "recoveryBranchDeletedAt": "2026-10-26T05:52:40.535041+00:00"
+  }
+}
