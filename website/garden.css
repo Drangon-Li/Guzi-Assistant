@@ -1,0 +1,315 @@
+:root {
+  --cream: #FFFAF0;
+  --ink: #2C352E;
+  --leaf: #487353;
+  --leaf-dark: #35583F;
+  --leaf-soft: #E9F0E3;
+  --gold: #97611F;
+  --muted: #626C61;
+  --line: #D8DDCE;
+  --garden-yellow: #F6BF69;
+  --garden-pink: #E6ABB7;
+  --garden-blue: #AECFDF;
+  --garden-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='%235C694B' opacity='.035' filter='url(%23grain)' d='M0 0h180v180H0z'/%3E%3C/svg%3E");
+}
+
+html {
+  overflow-x: clip;
+}
+
+body {
+  background-image: var(--garden-grain);
+  overflow-x: clip;
+}
+
+::selection {
+  background: #F6D697;
+  color: var(--ink);
+}
+
+.site-header {
+  background: #FFFAF0F2;
+}
+
+.site-header::after {
+  content: "";
+  display: none;
+  position: fixed;
+  inset: 0 0 auto;
+  height: 2px;
+  background: var(--garden-yellow);
+  transform-origin: left;
+  pointer-events: none;
+}
+
+.hero,
+.task-section,
+.plugins-section,
+.product-section,
+.privacy-section {
+  position: relative;
+  isolation: isolate;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -98px calc((100vw - 100%) / -2) 0;
+  background:
+    linear-gradient(90deg, #FFFAF0EB 0%, #FFFAF0C9 34%, #FFFAF047 66%, #FFFAF024 100%),
+    url("assets/garden-backdrop.webp") center 65% / cover no-repeat;
+  -webkit-mask-image: linear-gradient(#000 85%, transparent);
+  mask-image: linear-gradient(#000 85%, transparent);
+  pointer-events: none;
+}
+
+.hero-product-frame {
+  transform: none;
+  border-color: #C5D1BD;
+  background: #fff;
+  box-shadow: 0 18px 50px #48633A1C, 0 3px 0 #FFFFFFAB;
+}
+
+.hero-product-note {
+  border-color: #E5D6B9;
+  background: #FFFDF7F2;
+}
+
+.note-check {
+  background: var(--garden-yellow);
+  color: var(--ink);
+}
+
+.button-primary {
+  background: var(--garden-yellow);
+  color: var(--ink);
+}
+
+.button-primary:hover {
+  background: #EDAF50;
+}
+
+.button-outline {
+  border-color: #87A07C;
+  background: #FFFDF580;
+}
+
+.small-sun,
+.hero-english {
+  color: #9B692A;
+}
+
+.task-section {
+  background-color: #FFF3D9;
+  background-image: var(--garden-grain);
+}
+
+.plugins-section {
+  background-color: #EAF1E4;
+  background-image: var(--garden-grain);
+}
+
+.task-section::before,
+.plugins-section::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 20px;
+  background: var(--cream);
+  clip-path: polygon(0 0, 100% 0, 100% 26%, 91% 48%, 78% 24%, 65% 53%, 48% 26%, 32% 55%, 15% 24%, 0 50%);
+  pointer-events: none;
+}
+
+.plugins-section::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 36vw);
+  height: 260px;
+  background: url("assets/garden-backdrop.webp") right bottom / 560px auto no-repeat;
+  opacity: .35;
+  -webkit-mask-image: linear-gradient(135deg, transparent 25%, #000 100%);
+  mask-image: linear-gradient(135deg, transparent 25%, #000 100%);
+  pointer-events: none;
+}
+
+.product-section::before,
+.privacy-section::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 calc((100vw - 100%) / -2);
+  background-color: #FBEDEF;
+  background-image: var(--garden-grain);
+  pointer-events: none;
+}
+
+.privacy-section::before {
+  background-color: #EDF4F6;
+}
+
+.care-visual {
+  background: #EAF0E0;
+  border: 1px solid #D9E2CB;
+}
+
+.care-day {
+  color: var(--leaf-dark);
+  background: #DAE6CE;
+}
+
+.care-nudge {
+  border-color: #E9DCC8;
+  background: #FFF9EC;
+}
+
+.work-timeline .timeline-focus {
+  background: #9EBA8A;
+}
+
+.work-timeline .timeline-meeting {
+  background: var(--garden-blue);
+}
+
+.timeline-legend .legend-focus {
+  background: #9EBA8A;
+}
+
+.plugin-button:hover {
+  background: #F8FBF1;
+}
+
+.plugin-button[aria-pressed="true"] {
+  background: #FFFFFFD9;
+  box-shadow: inset 3px 0 var(--leaf);
+}
+
+.plugin-button small,
+.plugin-detail-copy > p {
+  color: var(--muted);
+}
+
+.plugin-button[data-plugin="routine"] .plugin-symbol { color: #997029; }
+.plugin-button[data-plugin="focus"] .plugin-symbol { color: #A26579; }
+.plugin-button[data-plugin="habit"] .plugin-symbol { color: var(--leaf); }
+.plugin-button[data-plugin="achievement"] .plugin-symbol { color: #987337; }
+.plugin-button[data-plugin="notebook"] .plugin-symbol { color: #527C94; }
+
+.plugin-detail {
+  background: #F7FAF1;
+  border: 1px solid #D0DEC7;
+}
+
+#plugin-preview,
+.story-screen,
+.product-screenshot-frame {
+  background-color: #fff;
+  border-color: #CCD7C5;
+  box-shadow: 0 14px 38px #3C603817;
+}
+
+#plugin-preview img,
+.story-screenshot img,
+.product-screenshot-frame img {
+  background: #fff;
+}
+
+.product-view-switcher button {
+  background: #FFFAF6;
+  border-color: #DCCBD0;
+}
+
+.product-view-switcher button[aria-pressed="true"] {
+  background: var(--leaf);
+  border-color: var(--leaf);
+  color: #fff;
+}
+
+.product-image-zoom {
+  background: #35583FEF;
+}
+
+.download-section {
+  background-color: var(--leaf);
+  background-image: var(--garden-grain);
+}
+
+.button-light {
+  color: var(--ink);
+  background: var(--garden-yellow);
+}
+
+.button-light:hover {
+  background: #FFD58E;
+}
+
+@supports (animation-timeline: scroll()) {
+  @keyframes garden-reading-progress {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+
+  .site-header::after {
+    display: block;
+    animation: garden-reading-progress linear both;
+    animation-timeline: scroll(root);
+  }
+}
+
+html[data-motion="paused"] .site-header::after {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .section-heading:has(.section-mascot) > div {
+    padding-right: 0;
+  }
+
+  .section-heading:has(.section-mascot) .section-kicker {
+    min-height: 58px;
+    padding-right: 78px;
+    display: flex;
+    align-items: center;
+  }
+
+  .section-heading .section-mascot {
+    width: 68px;
+    top: 0;
+  }
+
+  .section-heading h2 {
+    font-size: clamp(25px, 7.5vw, 31px);
+    text-wrap: balance;
+  }
+
+  .task-heading h2 br {
+    display: block;
+  }
+
+  .hero::before {
+    inset-block-start: -78px;
+    background-position: center, 62% bottom;
+    background-size: auto, auto 100%;
+  }
+
+  .plugins-section::after {
+    width: 180px;
+    height: 160px;
+    background-size: 360px auto;
+    opacity: .22;
+  }
+
+  .task-section::before,
+  .plugins-section::before {
+    height: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-header::after {
+    display: none;
+  }
+}
