@@ -17,6 +17,7 @@
     "test": "node test/run.mjs",
     "test:unit": "node test/run.mjs",
     "test:demo": "node test/run.mjs task-chain-demo screen-safety activity-timeline usage-sampler history-boundary-demo history-service-demo activity-tracker-privacy",
+    "test:scenarios": "ELECTRON_RUN_AS_NODE=1 electron test/daily-scenarios-live.mjs",
     "test:parser": "node test/run.mjs parser",
     "prepare:mac": "node scripts/prepare-sparkle.mjs",
     "pack:mac": "node scripts/build-macos-release.mjs",

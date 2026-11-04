@@ -105,6 +105,8 @@ const stubs = {
   'electron': `export const app={getPath:()=>globalThis.${stateKey}.temp};`,
   'src/main/capture.ts': selectedDeclarations('src/main/capture.ts', ['LIST_EXTRACTION_RULES', 'SCREEN_LIST_EXTRACTION_RULES', 'SCREEN_NOT_SCHEDULE_RULES', 'HINTS']),
   'src/main/detection-cards.ts': selectedDeclarations('src/main/detection-cards.ts', ['parsedToExtraction']),
+  // ocr.ts 在 Windows 上动态加载这条分支；macOS demo 走 Apple Vision，用不到
+  'src/main/platform/windows-ocr.ts': `export const windowsOcrImageDetailed=async()=>{throw new Error('Windows OCR 不在 macOS demo 范围')};`
 }
 const compiled = new Set()
 const dest = (name) => join(temp, name === 'electron' ? 'electron.mjs' : name.replace(/\.ts$/, '.mjs'))

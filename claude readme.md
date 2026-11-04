@@ -256,6 +256,7 @@ npm run test              # 全部默认用例（无需 API，CI 用这个）
 node test/run.mjs history # 只跑文件名含 history 的
 node test/run.mjs --all   # 连需要 .env/API 的一起跑
 node test/run.mjs --verbose
+npm run test:scenarios    # 日常场景端到端（离线回放）；加 -- --run --config <chmod 600 的 JSON> 打真实模型
 ```
 
 `test/run.mjs` 自动发现 `test/*-smoke.mjs`，**新增用例不用改 package.json**。测试直接 import `.ts` 源码。

@@ -432,7 +432,11 @@ npm test history         # 只跑文件名含 history 的用例（可给多个�
 npm test -- --verbose    # 打印每个用例的完整输出，而非只打印失败的
 npm run test:parser      # 解析归属判断冒烟（需 .env 配 API）
 npm test -- --all        # 连需要 .env/API 的用例一起跑
+npm run test:scenarios   # 日常场景端到端（离线回放，不联网）
+npm run test:scenarios -- --run --config ~/guzi-model.json   # 同一批场景打真实模型
 ```
+
+`test/daily-scenarios-live.mjs` 不是 `*-smoke.mjs`，`npm test` 永远不会触发付费请求。它跑生产的提示词、解析、捕获入库、IPC 注册包装、飞书收消息（假 SDK）、屏幕 OCR「谁说的」转写与提醒调度，覆盖不同时间表述 × @不同成员 × 剪切板/日程快建/快捷提问/飞书/屏幕/Word/会议转录七个渠道；只把 Electron 窗口、原生截屏/OCR 和剪切板换成桩，绝不读真实屏幕与剪切板。config 只允许 apiBase/apiKey/model（可选 apiFormat/modelChat/modelVision），必须 chmod 600，报告里 Key 会被抹掉。新增场景直接往 `SCENARIOS` 里加。
 
 测试入口是 `test/run.mjs`：遍历 `test/*-smoke.mjs` **全部跑完再汇总**，不会像旧的 `&&` 链那样中途短路，
 新增用例放进 `test/` 即自动纳入，不必登记到 `package.json`。需要真实 API 凭据的用例记在 run.mjs 的 `NEEDS_API` 里，默认跳过。
