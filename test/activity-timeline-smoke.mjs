@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { ActivityTimeline, activityUsage, timelineDayEnabled } from '../src/shared/activity-timeline.ts'
+import { ActivityTimeline, activityUsage } from '../src/shared/activity-timeline.ts'
 import { focusDurations, groupWorkPeriods, workRecordInterval } from '../src/shared/work-report.ts'
 import { productiveRunsFromSwitches } from '../src/shared/attention.ts'
 
@@ -62,8 +62,4 @@ assert.equal(focusDurations([record('zero', 0, 600_000, '任务A', 0)])[0].secon
 console.log('✓ A → 未分类 → A 和15分钟以内观察空隙不虚增；重复结果不重复计时；明确0时长合法')
 assert.deepEqual(productiveRunsFromSwitches([{ ts: new Date(base).toISOString(), toApp: 'A', fromApp: null }], () => 'productive', 10, base + 86_400_000), [])
 assert.equal(productiveRunsFromSwitches([{ ts: new Date(base).toISOString(), endTs: new Date(base + 5_000).toISOString(), activeMs: 5_000, toApp: 'A', fromApp: null }], () => 'productive')[0].seconds, 5)
-assert.equal(timelineDayEnabled('shadow', new Date(base).toISOString(), '2026-10-19'), false)
-assert.equal(timelineDayEnabled('unified', new Date(2026, 9, 19).toISOString(), '2026-10-18'), false)
-assert.equal(timelineDayEnabled('unified', new Date(2026, 9, 19).toISOString(), '2026-10-19'), true)
-assert.equal(timelineDayEnabled('legacy', new Date(2026, 9, 19).toISOString(), '2026-10-19'), false)
-console.log('✓ 末条switch不伸到现在；shadow/unified日界切换/rollback只选一代数据')
+console.log('✓ 末条switch不伸到现在')

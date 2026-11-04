@@ -134,9 +134,3 @@ export function activityUsage(intervals: ActivityInterval[], fromMs: number, toM
   }
   return [...totals].map(([app, ms]) => ({ app, seconds: ms / 1_000 })).sort((a, b) => b.seconds - a.seconds)
 }
-
-export function timelineDayEnabled(mode: string, cutoverAt: string | null | undefined, day: string): boolean {
-  if (mode !== 'unified' || !cutoverAt) return false
-  const cutoffMs = Date.parse(cutoverAt)
-  return Number.isFinite(cutoffMs) && new Date(`${day}T00:00:00`).getTime() >= cutoffMs
-}

@@ -41,10 +41,9 @@ check('manual summaries re-check lifecycle state after store startup',
     /historyMutationEpoch !== startEpoch/.test(service) &&
     /historyPaused/.test(service) &&
     /historyStore === store/.test(service))
-check('History v2 can run the native collector without the legacy OCR watcher',
-  /function startHistoryCollectorOnly\(\)/.test(screenwatch) &&
-    /configureHistoryCollector\(\)/.test(screenwatch) &&
-    /if \(historyV2Enabled\) startHistoryCollectorOnly\(\)/.test(screenwatch))
+check('History v2 can run the native collector without the OCR watcher',
+  /function startSampler\(\)[\s\S]*configureHistoryCollector\(\)/.test(screenwatch) &&
+    /stopWatch\(\)\s*\n\s*if \(historyV2Enabled\) startSampler\(\)/.test(screenwatch))
 check('automatic summary completion refreshes History',
   /function notifyAutomaticHistorySummary\(result: SummaryRunResult\)/.test(service) &&
     /notifyAutomaticHistorySummary\(result\)/.test(service) &&

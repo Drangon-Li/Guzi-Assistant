@@ -195,7 +195,15 @@ macOS 需要 `NSMicrophoneUsageDescription`（`electron-builder.yml`），
 
 `src/main/history/` 一整套：`service.ts`（生命周期）、`event-store.ts`、`summarizer.ts`、`query-service.ts`、`work-derivation.ts`、`retention.ts`。
 
-事件采集由 `activity-tracker.ts` 负责，`history/` 只管存储与派生。工作记录有两条路径共用 `work_records` 表，靠 `derived_by` / `segment_id` / `summary_hash` 区分和幂等去重。
+事件采集由 `activity-tracker.ts` 负责，`history/` 只管存储与派生。
+
+**活动时间线（`activity_intervals`，保留 90 天）是唯一的计时来源**：应用时长、应用切换、工作记录都从它派生。
+- 应用时长：90 天内直接从区间现算；`app_usage` 只是采样器从区间投影出的按天汇总，过了保留期才被读取
+- 应用切换：由相邻的活跃区间推出（没有单独的切换表）
+- 工作记录：**只由 10 分钟摘要按区间派生**（`derived_by = 'timeline'`，`history/service.ts` 的 `onTenMinuteSummary`），
+  区间里没被摘要覆盖的空档显示成「使用 X，暂无活动描述」。屏幕 OCR 只用来找待办，不再顺带写工作记录
+
+以前的「原计时 / 后台对照 / 统一计时」三种模式、旧 OCR 工作记录、Accessibility 语义归类和几个隐藏回滚开关都已删除（产品未上线，没有存量数据）。
 
 ### 对外 MCP 服务
 

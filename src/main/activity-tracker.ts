@@ -20,7 +20,6 @@ import {
 } from '../shared/hybrid-history.ts'
 import { redactSensitive } from '../shared/sensitive.ts'
 import { emptyHistoryStoreHealth } from '../shared/history.ts'
-import type { SemanticWorkEvidence } from '../shared/semantic-work.ts'
 import type {
   HistoryStoreHealth,
   OcrEvidenceRecord,
@@ -35,20 +34,11 @@ import type {
 import { CollectorPolicy, type CollectorPolicyMetrics } from './history/collector-policy.ts'
 import { isPrivateBrowserWindow } from './history/privacy-policy.ts'
 
-export type ActivityScanReason = 'event' | 'hard_fallback' | 'interval' | 'manual' | 'semantic_only'
+export type ActivityScanReason = 'event' | 'hard_fallback' | 'manual' | 'semantic_only'
 
 export interface ActivityScanDecision {
   run: boolean
   reason: ActivityScanReason | 'observer_unavailable' | 'waiting'
-}
-
-export interface AccessibilityWorkContext extends SemanticWorkEvidence {
-  urlHost?: string | null
-  eventId: string
-  occurredAtMs: number
-  eventKind: string
-  segmentId: string
-  highValueEvent: boolean
 }
 
 const MAX_EVENTS = 5000
@@ -167,12 +157,6 @@ class ActivityTracker {
   private lastOcrContextKey: string | null = null
   private observerFailureOcrUsed = false
   private ocrEvidence: OcrEvidence[] = []
-  private semanticWorkClassifier: ((context: AccessibilityWorkContext) => void) | null = null
-  private workClassificationStatus: ScreenActivityStatus['workClassificationStatus'] = 'idle'
-  private workClassificationSource: ScreenActivityStatus['workClassificationSource'] = null
-  private workClassificationAtMs: number | null = null
-  private workClassificationDetail: string | null = null
-  private workClassificationCount = 0
   private persistence: ActivityHistoryPersistence | null = null
   private historyHealthProvider: (() => HistoryStoreHealth) | null = null
 
@@ -182,24 +166,6 @@ class ActivityTracker {
 
   configureHistoryHealthProvider(next: (() => HistoryStoreHealth) | null): void {
     this.historyHealthProvider = next
-  }
-
-  configureSemanticWorkClassifier(next: ((context: AccessibilityWorkContext) => void) | null): void {
-    this.semanticWorkClassifier = next
-  }
-
-  setWorkClassificationStatus(input: {
-    status: ScreenActivityStatus['workClassificationStatus']
-    source?: ScreenActivityStatus['workClassificationSource']
-    detail?: string | null
-    atMs?: number | null
-    increment?: boolean
-  }): void {
-    this.workClassificationStatus = input.status
-    if (input.source !== undefined) this.workClassificationSource = input.source
-    if (input.detail !== undefined) this.workClassificationDetail = input.detail
-    if (input.atMs !== undefined) this.workClassificationAtMs = input.atMs
-    if (input.increment) this.workClassificationCount += 1
   }
 
   private readHistoryHealth(): HistoryStoreHealth {
@@ -319,28 +285,6 @@ class ActivityTracker {
     else if (privacyState !== 'normal') this.consecutivePartialCount = 0
     this.appendEvent(event, nowMs)
     if (!options.suppressed) this.pendingContextChange = true
-    if (
-      !options.suppressed &&
-      privacyState === 'normal' &&
-      assessment.semanticLevel === 'complete' &&
-      safe.eventSource === 'accessibility'
-    ) {
-      this.semanticWorkClassifier?.({
-        eventId: event.id,
-        occurredAtMs: nowMs,
-        appName: safe.name,
-        bundleId: safe.bundleId,
-        urlHost: safe.urlHost,
-        windowTitle: safe.windowTitle,
-        focusedRole: safe.focusedRole ?? '',
-        safeLabel: safe.safeLabel ?? '',
-        eventKind: event.kind,
-        semanticScore: assessment.score,
-        source: 'accessibility',
-        segmentId: `activity-10m-${utcTenMinuteBucket(nowMs).startIso}`,
-        highValueEvent: isHighValueActivityEvent(event)
-      })
-    }
     return event
   }
 
@@ -540,8 +484,8 @@ class ActivityTracker {
     this.observerDetail = null
   }
 
-  scanDecision(eventDriven: boolean, fallbackIntervalSec: number, nowMs = Date.now()): ActivityScanDecision {
-    if (!eventDriven) return { run: true, reason: 'interval' }
+  /** 截图由前台变化驱动：有新事件才扫，静止时按硬兜底间隔补一次 */
+  scanDecision(fallbackIntervalSec: number, nowMs = Date.now()): ActivityScanDecision {
     if (this.observer === 'unavailable') return { run: false, reason: 'observer_unavailable' }
     if (this.observer !== 'healthy') return { run: false, reason: 'waiting' }
     if (this.pendingContextChange) return { run: true, reason: 'event' }
@@ -675,14 +619,9 @@ class ActivityTracker {
     this.collectorPolicy.reset()
     this.collectorPolicyMetrics = this.collectorPolicy.snapshot()
     this.observerFailureOcrUsed = false
-    this.workClassificationStatus = 'idle'
-    this.workClassificationSource = null
-    this.workClassificationAtMs = null
-    this.workClassificationDetail = null
-    this.workClassificationCount = 0
   }
 
-  status(input: { eventDriven: boolean; hybridV2: boolean; running: boolean; paused: boolean }): ScreenActivityStatus {
+  status(input: { running: boolean; paused: boolean }): ScreenActivityStatus {
     const nowMs = Date.now()
     this.forgetAssessments(this.buffer.retain((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS))
     this.ocrEvidence = this.ocrEvidence.filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
@@ -706,8 +645,6 @@ class ActivityTracker {
       ? Math.round((usable.filter((item) => item.semanticLevel === 'complete').length / usable.length) * 100)
       : 0
     return {
-      eventDriven: input.eventDriven,
-      hybridV2: input.hybridV2,
       running: input.running,
       paused: input.paused,
       observer: this.observer,
@@ -744,11 +681,6 @@ class ActivityTracker {
       tenMinuteSegmentCount: tenMinuteSegments.length,
       sixHourSegmentCount: sixHourSegments.length,
       latestSummary: tenMinuteSegments.at(-1)?.summary ?? null,
-      workClassificationStatus: this.workClassificationStatus,
-      workClassificationSource: this.workClassificationSource,
-      workClassificationAt: isoOrNull(this.workClassificationAtMs),
-      workClassificationDetail: this.workClassificationDetail,
-      workClassificationCount: this.workClassificationCount,
       history: this.readHistoryHealth()
     }
   }
@@ -763,16 +695,6 @@ export function configureActivityHistoryPersistence(next: ActivityHistoryPersist
 
 export function configureHistoryHealthProvider(next: (() => HistoryStoreHealth) | null): void {
   activityTracker.configureHistoryHealthProvider(next)
-}
-
-export function configureSemanticWorkClassifier(
-  next: ((context: AccessibilityWorkContext) => void) | null
-): void {
-  activityTracker.configureSemanticWorkClassifier(next)
-}
-
-export function setWorkClassificationStatus(input: Parameters<ActivityTracker['setWorkClassificationStatus']>[0]): void {
-  activityTracker.setWorkClassificationStatus(input)
 }
 
 export function recordFrontmostContext(context: FrontmostContext, options: RecordContextOptions): ActivityEvent | null {
@@ -806,12 +728,8 @@ export function markActivityObserverHealthy(): void {
   activityTracker.markObserverHealthy()
 }
 
-export function activityScanDecision(
-  eventDriven: boolean,
-  fallbackIntervalSec: number,
-  nowMs = Date.now()
-): ActivityScanDecision {
-  return activityTracker.scanDecision(eventDriven, fallbackIntervalSec, nowMs)
+export function activityScanDecision(fallbackIntervalSec: number, nowMs = Date.now()): ActivityScanDecision {
+  return activityTracker.scanDecision(fallbackIntervalSec, nowMs)
 }
 
 export function markActivityScan(reason: ActivityScanReason, nowMs = Date.now()): void {
@@ -849,11 +767,6 @@ export function resetActivityGate(nowMs = Date.now()): void {
   activityTracker.resetGate(nowMs)
 }
 
-export function getScreenActivityStatus(input: {
-  eventDriven: boolean
-  hybridV2: boolean
-  running: boolean
-  paused: boolean
-}): ScreenActivityStatus {
+export function getScreenActivityStatus(input: { running: boolean; paused: boolean }): ScreenActivityStatus {
   return activityTracker.status(input)
 }

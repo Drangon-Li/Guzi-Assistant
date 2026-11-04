@@ -1,11 +1,10 @@
-// work_records：工作记录。legacy OCR 路径与 History v2 摘要派生路径共用这张表，
-// 靠 derived_by / segment_id / summary_hash 区分与幂等去重。
+// work_records：工作记录。只由 History 10 分钟摘要按活动区间派生（derived_by = 'timeline'），
+// 按 segment_id + interval_id 幂等覆盖。
 import { getDb } from './connection.ts'
 import { localNow } from '@shared/parsing'
 import type { HistoryDerivedWorkRecordInput, WorkRecord, WorkRecordSource } from '@shared/types'
-import { normalizeTaskLabel, workRecordInterval } from '@shared/work-report'
-import { randomUUID } from 'crypto'
-import { listActivityIntervals, activityTimelineDaySelector } from './activity-timeline.ts'
+import { normalizeTaskLabel } from '@shared/work-report'
+import { listActivityIntervals } from './activity-timeline.ts'
 
 // ---------- work_records（工作记录：屏幕识别顺带的「在做什么」时间线，供日报生成）----------
 
@@ -73,7 +72,7 @@ function insertWorkRecord(rec: {
   app: string | null
   task: string | null
   source: WorkRecordSource
-  derivedBy: 'history' | 'legacy' | 'timeline'
+  derivedBy: 'timeline'
   segmentId: string | null
   startAt: string
   endAt: string
@@ -128,105 +127,6 @@ function insertWorkRecord(rec: {
   })
 }
 
-export function addWorkRecord(w: {
-  content: string
-  app: string | null
-  task?: string | null
-  source?: WorkRecordSource
-  derivedBy?: 'legacy'
-  startAt?: string
-  endAt?: string
-  confidence?: number
-  evidenceCount?: number
-  segmentId?: string | null
-  summaryHash?: string | null
-  createdAt?: string
-  intervalId?: string | null
-  activeMs?: number | null
-}): WorkRecord {
-  const createdAt = w.createdAt?.slice(0, 19) || localNow()
-  const rec = {
-    id: randomUUID(),
-    content: w.content.slice(0, 200),
-    app: w.app,
-    task: normalizeTaskLabel(w.task),
-    source: w.source ?? 'ocr',
-    derivedBy: w.derivedBy ?? 'legacy' as const,
-    segmentId: w.segmentId ?? null,
-    startAt: normalizeWorkTimestamp(w.startAt, createdAt),
-    endAt: normalizeWorkTimestamp(w.endAt, normalizeWorkTimestamp(w.startAt, createdAt)),
-    confidence: Math.min(1, Math.max(0, Number(w.confidence) || 0.5)),
-    evidenceCount: Math.max(0, Math.trunc(Number(w.evidenceCount) || 1)),
-    summaryHash: w.summaryHash ?? null,
-    createdAt,
-    intervalId: w.intervalId ?? null,
-    activeMs: w.activeMs == null ? null : Math.max(0, w.activeMs)
-  }
-  return insertWorkRecord(rec)
-}
-
-/** Upsert one History-derived record by segment; a changed summary updates in place. */
-export function upsertHistoryWorkRecord(input: HistoryDerivedWorkRecordInput): WorkRecord {
-  const fallback = localNow()
-  const startAt = normalizeWorkTimestamp(input.startAt, fallback)
-  const endAt = normalizeWorkTimestamp(input.endAt, startAt)
-  const content = input.content.slice(0, 200)
-  const app = input.app?.slice(0, 80) ?? null
-  const task = normalizeTaskLabel(input.task)
-  const confidence = Math.min(1, Math.max(0, Number(input.confidence) || 0))
-  const evidenceCount = Math.max(0, Math.trunc(Number(input.evidenceCount) || 0))
-  const existing = getDb().prepare(
-    "SELECT * FROM work_records WHERE derived_by = 'history' AND segment_id = ? LIMIT 1"
-  ).get(input.segmentId) as WorkRecordRow | undefined
-  if (existing) {
-    const unchanged =
-      existing.content === content &&
-      existing.app === app &&
-      existing.task === task &&
-      existing.start_at === startAt &&
-      existing.end_at === endAt &&
-      Number(existing.confidence) === confidence &&
-      Number(existing.evidence_count) === evidenceCount &&
-      existing.summary_hash === input.summaryHash
-    if (!unchanged) {
-      getDb().prepare(
-        `UPDATE work_records
-         SET content = ?, app = ?, task = ?, start_at = ?, end_at = ?,
-             confidence = ?, evidence_count = ?, summary_hash = ?, created_at = ?
-         WHERE id = ?`
-      ).run(content, app, task, startAt, endAt, confidence, evidenceCount, input.summaryHash, endAt, existing.id)
-    }
-    return rowToWorkRecord({
-      ...existing,
-      content,
-      app,
-      task,
-      start_at: startAt,
-      end_at: endAt,
-      confidence,
-      evidence_count: evidenceCount,
-      summary_hash: input.summaryHash,
-      created_at: endAt
-    })
-  }
-
-  return insertWorkRecord({
-    id: `history-work-${input.segmentId}`,
-    content,
-    app,
-    task,
-    source: 'accessibility',
-    derivedBy: 'history',
-    segmentId: input.segmentId,
-    startAt,
-    endAt,
-    confidence,
-    evidenceCount,
-    summaryHash: input.summaryHash,
-    createdAt: endAt
-  })
-}
-
 export function upsertTimelineWorkRecord(input: HistoryDerivedWorkRecordInput & { intervalId: string; activeMs: number }): WorkRecord {
   const fallback = localNow()
   const startAt = normalizeWorkTimestamp(input.startAt, fallback)
@@ -250,74 +150,25 @@ export function removeTimelineWorkRecords(segmentId: string): void {
   getDb().prepare("DELETE FROM work_records WHERE derived_by = 'timeline' AND segment_id = ?").run(segmentId)
 }
 
-export function extendLegacyWorkRecord(id: string, endAt: string, additionalActiveMs: number): void {
-  const end = normalizeWorkTimestamp(endAt, localNow())
-  getDb().prepare(`UPDATE work_records SET end_at = ?, active_ms = COALESCE(active_ms, 0) + ?
-    WHERE id = ? AND derived_by = 'legacy' AND end_at < ?`).run(end, additionalActiveMs, id, end)
-}
-
-/** Remove only the current derived record; legacy OCR records are untouched. */
-export function removeHistoryWorkRecord(segmentId: string): void {
-  getDb().prepare("DELETE FROM work_records WHERE derived_by = 'history' AND segment_id = ?").run(segmentId)
-}
-
-/** Remove History-derived records for a set of segments and return actual row ids. */
-export function removeHistoryWorkRecords(segmentIds: string[]): string[] {
-  const ids = [...new Set(segmentIds.filter((id) => typeof id === 'string' && id.length > 0))]
-  if (!ids.length) return []
-  const select = getDb().prepare("SELECT id FROM work_records WHERE derived_by = 'history' AND segment_id = ?")
-  const remove = getDb().prepare("DELETE FROM work_records WHERE derived_by = 'history' AND segment_id = ?")
-  const deleted: string[] = []
-  getDb().transaction((values: string[]) => {
-    for (const segmentId of values) {
-      const rows = select.all(segmentId) as { id: string }[]
-      for (const row of rows) deleted.push(row.id)
-      remove.run(segmentId)
-    }
-  })(ids)
-  return deleted
-}
-
 function nextLocalDay(day: string): number {
   const date = new Date(`${day}T00:00:00`)
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime()
 }
 
+/**
+ * 工作记录全部来自时间线：10 分钟摘要按活动区间切好的记录，加上区间里没被摘要覆盖的空档——
+ * 空档显示成「使用 X，暂无活动描述」，这样记录的总时长始终和应用时间线对得上。
+ */
 function visibleWorkRecords(rows: WorkRecordRow[], fromMs: number, toMs: number): WorkRecord[] {
-  const usesTimelineForDay = activityTimelineDaySelector()
-  const allRecords = rows.map(rowToWorkRecord)
-  const projected = allRecords.filter((record) => record.derivedBy === 'timeline')
+  const records = rows.map(rowToWorkRecord).filter((record) => record.derivedBy === 'timeline')
   const projectedByInterval = new Map<string, WorkRecord[]>()
-  for (const record of projected) {
+  for (const record of records) {
     if (!record.intervalId) continue
     const group = projectedByInterval.get(record.intervalId) ?? []
     group.push(record)
     projectedByInterval.set(record.intervalId, group)
   }
-  const records = [...projected]
-  const coverage = projected.map(workRecordInterval).sort((a, b) => a.startMs - b.startMs)
-  for (const record of allRecords) {
-    if (record.derivedBy === 'timeline' || usesTimelineForDay(record.startAt.slice(0, 10))) continue
-    const interval = workRecordInterval(record)
-    const overlaps = coverage.filter((part) => part.endMs > interval.startMs && part.startMs < interval.endMs)
-    if (!overlaps.length) { records.push(record); continue }
-    let cursor = interval.startMs
-    let remainingMs = interval.activeMs
-    const appendLegacy = (start: number, end: number): void => {
-      if (end <= start) return
-      const activeMs = Math.min(remainingMs, end - start)
-      remainingMs -= activeMs
-      records.push({ ...record, startAt: localDateTimeAtPrecise(new Date(start).toISOString()),
-        endAt: localDateTimeAtPrecise(new Date(end).toISOString()), activeMs })
-    }
-    for (const part of overlaps) {
-      appendLegacy(cursor, Math.min(part.startMs, interval.endMs))
-      cursor = Math.max(cursor, part.endMs)
-    }
-    appendLegacy(cursor, interval.endMs)
-  }
   for (const interval of listActivityIntervals(fromMs, toMs, { historyOnly: true })) {
-    if (!usesTimelineForDay(localDateTimeAtPrecise(new Date(interval.startMs).toISOString()).slice(0, 10))) continue
     let cursor = Math.max(fromMs, interval.startMs)
     const endMs = Math.min(toMs, interval.endMs)
     const coverage = (projectedByInterval.get(interval.id) ?? [])

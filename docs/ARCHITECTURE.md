@@ -20,10 +20,10 @@
 - AI 解析 + 归属判断 + 语义查重；助手对话式确认。
 - 今日 / 日程 / 日报 / 分析 / 个人 / 设置六个界面 + 右下角悬浮助手。
 - **账号体系 + 托管解析网关 + 积分计费 + 充值收款**（"数据库即后端"，密钥只在服务端）。
-- **legacy 屏幕感知管线**：本地截图/pHash/OCR/脱敏，判断走云端解析；默认关闭，可选日程深度确认和截图留存。
+- **屏幕待办识别**：本地截图/pHash/OCR/脱敏，判断走云端解析；默认关闭，可选日程深度确认和截图留存。只用来找待办，不产出工作记录。
 - **Computer History v2**：默认关闭的原生活动采集器，记录 App、窗口、AX 焦点、点击、拖拽、快捷键、选择和输入 burst 的元数据；输入只保存长度/动作类型，不保存键盘正文或完整 URL。
 - **History 存储与摘要**：JSONL segment + SQLite metadata/summary index，崩溃恢复、48 小时保留、范围清理；本地确定性生成 10 分钟工作摘要，再汇总为 6 小时摘要。
-- **工作记录与日报**：History 摘要可派生带任务、真实起止时间、置信度和证据来源的工作记录；旧 OCR 记录保留并标记 legacy；一键/每日定时生成工作日报，支持导出。
+- **工作记录与日报**：工作记录只由 History 10 分钟摘要按活动时间线派生，带任务、真实起止时间、置信度和证据来源；一键/每日定时生成工作日报，支持导出。
 - **历史查询与 MCP**：日报页「活动明细」支持时间范围与手动摘要，采集暂停/恢复、App 黑名单和清理在设置 → 屏幕感知；MCP 仅监听 `127.0.0.1`，使用 Bearer token，默认不返回敏感原文。
 - **个人记忆**：基本画像（手动维护）+ 近期行为画像（AI 归纳），注入解析/助手 prompt，越用越懂用户。
 - **隐私强化**：安全输入、私密浏览和排除 App 只产生 suppressed 计数；OCR/摘要内容上云前敏感脱敏；数据可按时间范围导出 JSON。
@@ -71,12 +71,13 @@ macOS 原生 collector
 JSONL segment（原始事件元数据） + SQLite index（metadata/summary）
           │  48 小时 retention / crash recovery
           ▼
-10 分钟本地摘要 ──> 6 小时摘要 ──> History 派生工作记录
+10 分钟本地摘要 ──> 6 小时摘要 ──> 时间线工作记录（按活动区间切分）
           │                 │                  │
           └──── History 页面 / IPC / MCP ─────┘
 ```
 
-- `historyV2Enabled` 控制原生采集，`historyDerivedWorkEnabled` 单独控制摘要派生工作记录；两个开关默认关闭、可独立回滚。
+- `historyV2Enabled` 是 History 总开关（默认开启、设置页不暴露）；工作记录只在设置的「工作记录」开关打开时从摘要派生。
+- **活动时间线 `activity_intervals`（保留 90 天）是唯一的计时来源**：应用时长、应用切换、工作记录都从它派生。`app_usage` 只是按天汇总的投影，过了 90 天保留期才被读取。
 - 原始事件只进入本机 `<userData>/history-v2/segments/<segment-id>/events.jsonl`，SQLite 保存可恢复的索引和摘要元数据。
 - 摘要 prompt 将事件内容标记为 observed data，不把事件中的文本当作可执行指令。
 
@@ -131,9 +132,9 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 
 **计费（`server/billing/credits.ts` + Postgres RPC）**：`parse_vision`=2 分、`parse_text`/`chat`=1 分、失败/跳过=0；先扣当月赠送（到期清零）再扣购买积分；`deduct_credits` 行锁防并发超扣。
 
-### 3. legacy 屏幕感知管线（`screenwatch.ts`）
+### 3. 屏幕待办识别（`screenwatch.ts`）
 
-> 设计目标：不串味、不打扰、可控（不静默改日程）。这一节描述旧的 OCR/截图路径；它与默认关闭的 Computer History v2 原生事件路径并行存在，两个开关互不替代。
+> 设计目标：不串味、不打扰、可控（不静默改日程）。这条 OCR/截图路径只负责从屏幕里找待办；「在做什么」由 History 原生事件 + 时间线负责（3.1），两者互不替代。
 
 ```
                           手动:扫描快捷键 → scanOnce()
@@ -156,7 +157,7 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
                                   ↓
    [自动] 文本去重 + 内容冷却(同内容 10 分钟一次)
                                   ↓
-       云端解析（只传脱敏文字、扣分）→ 待办候选（多任务）+ work_summary/focus_task 便车
+       云端解析（只传脱敏文字、扣分）→ 待办候选（多任务）
                                   ↓
    [可选] 日程深度确认：检出带时间候选 → 当帧截图裁前景发视觉模型逐项复核（截图上云，opt-in）
                                   ↓
@@ -168,7 +169,6 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 ```
 
 - **云端解析**：`HINTS.screen_scan` 提示词负责去噪（菜单/侧栏文字）、旧消息过滤（非今天发送的聊天不提取）、「A 至 B」截止语义；多任务一次全部返回，卡片逐张确认。
-- **legacy 工作记录便车**：同一次识别调用顺带返回 `work_summary`（在做什么一句话）与 `focus_task`（任务级标签），零额外积分；无信息量画面返回 null；1 分钟节流 + 同活动去重，展示端按时段聚合（`groupWorkPeriods`）。History v2 的工作记录由 10 分钟摘要独立派生，见下一节。
 - **深度确认（opt-in）**：文字层检出「有具体时间且非明确他人」的候选时，当帧截图裁前景发视觉模型逐项复核，以视觉结果为准（空=文字层假阳性丢弃）。注意此路径截图会上云，且文字层的无时间弱候选会被替换掉。
 - **全屏感知**：不按进程白名单过滤前台 App（进程门不可靠），只保留排除名单(隐私)与「不扫自己」两道门。
 - **零静默**：不点「同意」绝不写日程/待确认；手动扫描无命中时明确提示「未发现可添加的日程」。
@@ -183,14 +183,14 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 - **浏览器边界**：只保留 `http/https` 的 host；完整 URL、路径、查询参数、凭据和键盘正文在 helper、IPC、schema 三层拒绝。
 - **存储**：每 10 分钟一个 UTC segment，事件写入 JSONL，`metadata.json` 与 SQLite index 双写并在重启时协调；只保留最近 48 小时，边界时刻按明确规则处理。
 - **摘要**：10 分钟摘要使用确定性本地统计，包含时间范围、主要工作焦点、进展、App、活动类型、置信度和来源 segment；6 小时摘要只消费 10 分钟摘要，可选在线模型补充并带失败退避/幂等。
-- **工作记录**：开启「从摘要派生工作记录」后，10 分钟摘要写入 `work_records`，任务标签、真实 `startAt/endAt`、摘要 hash、证据数量和来源保持一致；旧 OCR 记录不删除，标记为 `legacy/ocr`。
+- **工作记录**：每个 10 分钟摘要按当段的活动区间切成记录写入 `work_records`（`derived_by = 'timeline'`，按 segment + interval 幂等覆盖），任务标签、真实 `startAt/endAt`、摘要 hash、证据数量保持一致；区间里没被摘要覆盖的空档显示为「使用 X，暂无活动描述」，保证记录总时长与应用时间线一致。
 - **查询与清理**：History 页面和 MCP 查询顺序为 6 小时摘要 → 10 分钟摘要 → 必要时 segment 统计；支持暂停/恢复、按时间范围删除和全部清空。MCP 仅监听 `127.0.0.1` 并要求 Bearer token。
 
 ### 4. 工作日报与个人记忆（`report.ts` / `report-scheduler.ts` / `personal-memory.ts` / `shared/work-report.ts`）
 
 - **工作记录 → 日报**：当日工作记录（时段聚合）+ 应用使用时长 + 任务完成情况 → 云端撰写 Markdown 日报（今日概览/主要工作/完成事项/时间分配/明日计划）；`dailyReportTime` 设置可每日定时自动生成并系统通知。
-- **任务专注**：legacy 记录继续使用 `focus_task` 模型归并；History v2 使用摘要中的稳定 `focusTask`，并将同一任务的真实时间区间写入 `work_records`。`focusDurations()` 按真实连续段累计，不再给每条记录固定增加时长；日报页可添加自定义任务名（进模型候选）/删除（隐藏并剔出候选），形成人工校正闭环（`focus_tasks` 表）。
-- **来源与兼容**：History 派生记录保存 `segment_id`、`summary_hash`、`confidence`、`evidence_count`、`derived_by` 等追溯字段，按 segment/hash 幂等去重；旧 OCR 记录保留并标记 `legacy`，两个路径可以独立回滚。
+- **任务专注**：使用摘要中的稳定 `focusTask`，并将同一任务的真实时间区间写入 `work_records`。`focusDurations()` 按真实连续段累计，不再给每条记录固定增加时长；日报页可添加自定义任务名（进模型候选）/删除（隐藏并剔出候选），形成人工校正闭环（`focus_tasks` 表）。
+- **追溯字段**：时间线记录保存 `segment_id`、`interval_id`、`summary_hash`、`confidence`、`evidence_count`，按 segment/interval 幂等覆盖；History 删除范围时按区间切分并一并删除。
 - **个人记忆两段式**：基本画像（用户身份的长期定义，手动维护）+ 近期行为画像（AI 从近 14 天活动归纳，可刷新/编辑）；`personalMemoryText()` 拼接注入解析与助手系统提示词。
 
 ### 5. 归属判断（"哪些是你的事"）
@@ -276,7 +276,7 @@ History v2 另外使用两张 SQLite 索引表：
 - **日报 `Reports.tsx`**：工作记录/活动明细双视图。工作记录：时间线（限高滚动 + 小时锚点跳转）、应用使用时长、任务专注（可增删校正）、生成/回看/导出工作日报；活动明细（`ActivityDetail.tsx`，原独立「历史」页并入）：6 小时摘要、10 分钟活动块、未摘要 segment 统计、时间范围筛选与立即摘要。该视图是 48 小时滚动窗口，不随按天翻页。
   采集暂停/恢复、App 黑名单、按范围清理原始数据随合并移到设置 → 屏幕感知（`HistoryDataSection.tsx`）。
 - **个人 `Account.tsx`**：账户登录 + 用户档案。
-- **设置 `Settings.tsx`**：确认模式、快捷键、系统集成、飞书、legacy 屏幕感知、独立 History v2/派生开关、collector 健康状态、权限和数据管理。二值设置统一使用可访问 Toggle。
+- **设置 `Settings.tsx`**：确认模式、快捷键、系统集成、飞书、屏幕感知、collector 健康状态、权限和数据管理。二值设置统一使用可访问 Toggle。
   分区渲染拆在 `components/settings/` 下（每个分类一个文件），状态与保存仍集中在 `Settings.tsx`，子组件只收 props。
 - **市场 `Market.tsx`**：插件的启用 / 停用 / 清除数据。卡片上给出硬依赖（启用会连带装上谁）、反向依赖（停用会连带停掉谁）和软依赖提示（装了谁会更好用）。
 - **悬浮助手 `FloatingAssistant.tsx` + `AssistantChat.tsx`**：Notion 式右下角对话，点外部关闭。
@@ -297,7 +297,7 @@ History v2 另外使用两张 SQLite 索引表：
 - 上云前脱敏（`shared/sensitive.ts`）：API key/私钥/JWT/身份证/银行卡/密码值替换为 `[已隐去·类型]` 占位符（模式参考 gitleaks / detect-secrets / Presidio；手机号不打码——常是任务必要联系信息）。
 - History v2 原生 collector 不保存键盘正文、选中文本或完整 URL；输入只保存长度/动作类型，浏览器只保留 `http/https` host。
 - 密码/安全输入、私密浏览、排除 App、AX 查询失败等情况 fail-closed，只保留 suppressed 计数，不进入普通摘要或工作记录。
-- History 原始 JSONL、metadata 和摘要默认只保留最近 48 小时；删除/清空会同时删除 segment 文件、索引、摘要和 History 派生工作记录，旧 legacy OCR 记录按兼容规则保留。
+- History 原始 JSONL、metadata 和摘要默认只保留最近 48 小时；删除/清空会同时删除 segment 文件、索引、摘要和范围内的时间线工作记录。
 - History MCP 只绑定 `127.0.0.1`，必须使用 Bearer token；查询默认返回摘要统计，不返回敏感原文。
 - 设置 → 数据 可按时间范围导出工作记录/日报/应用时长/检测历史为 JSON。
 - 排除名单 App 在前台时连截图都不做。
@@ -320,7 +320,7 @@ src/
                          detections work-records app-usage activity reports memory maintenance
     db-migrations.ts     增量迁移 work_records 与 History 追溯字段
     capture.ts           剪贴板/截图/文件捕获、待提交项
-    screenwatch.ts       legacy 屏幕感知 + History 生命周期/摘要/双写
+    screenwatch.ts       屏幕待办识别（手动扫描 + 持续监控），以及 History collector/采样器的启停
     frontapp.ts          macOS 原生前台/AX/鼠标/键盘元数据 collector
     native-helper-cache.ts  原生 helper 源码 hash 校验与安全重编
     history/              event schema / JSONL store / retention / summarizer / query / MCP / work derivation
@@ -442,12 +442,11 @@ CI（`.github/workflows/ci.yml`）：PR 与 push 到 main 跑 `Typecheck & Build
 
 ## 十二、已知限制
 
-- legacy 屏幕感知只把脱敏 OCR **文字**发上游，不把截图发多模态（除非显式开启日程深度确认）；模型看不到版面/坐标，个别依赖布局的场景可能漏/误判。
+- 屏幕待办识别只把脱敏 OCR **文字**发上游，不把截图发多模态（除非显式开启日程深度确认）；模型看不到版面/坐标，个别依赖布局的场景可能漏/误判。
 - History v2 的原生 collector 需要用户授予 Accessibility/Input Monitoring；权限不足时会显示 `unavailable/degraded`，安全输入仍按 suppressed 计数处理。
 - 原生 helper 首次运行可能需要 `xcrun clang` 编译；启动时按源码 hash 校验缓存，源码变化会自动重编。真实 macOS 权限矩阵和长时间 WindowServer/输入延迟仍需真机观察。
 - 检测必须联网 + 登录（或 BYOK）：每次「屏幕出现新内容且冷却过期」消耗一次积分，pHash 门/文本去重/10 分钟冷却/App 排除名单是成本挡板；未登录时监控静默暂停。
 - 检测响应为云端往返（数秒），手动扫描期间以桌宠光环/加载卡示意。
 - 任务证据缩略图为整屏截图（不再逐行裁剪「依据行」）。
 - 深度确认开启时以视觉结果为准：文字层检出的无时间弱候选会被替换掉、不进历史。
-- 任务专注标签只覆盖功能启用后的新工作记录；存量 legacy 记录无 task 标签时不参与 History 专注统计。
-- History 默认关闭，且只保留最近 48 小时；启用派生工作记录后，摘要生成仍可能受本地资源或在线模型可用性影响。
+- History 原始事件只保留最近 48 小时，时间线保留 90 天；工作记录依赖摘要生成，可能受本地资源或在线模型可用性影响。

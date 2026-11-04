@@ -239,11 +239,6 @@ export function registerIpc(): void {
   ipcMain.handle('voice:segment', (_e, segment: PcmSegment) => ingestSegment(segment))
   ipcMain.handle('settings:save', (_e, patch: Partial<AppSettings>) => {
     let ok = true
-    if (
-      patch.screenSenseEventDriven !== undefined &&
-      typeof patch.screenSenseEventDriven !== 'boolean'
-    )
-      delete patch.screenSenseEventDriven
     if (patch.screenSenseFallbackIntervalSec !== undefined) {
       const value = Number(patch.screenSenseFallbackIntervalSec)
       patch.screenSenseFallbackIntervalSec = Number.isFinite(value)
@@ -290,7 +285,7 @@ export function registerIpc(): void {
       if (!ok) delete patch.quickAskHotkey
     }
     const activityPolicyChanged = ['historyV2Enabled', 'historyExcludedApps', 'historyExcludedHosts', 'historyIncludedHosts',
-      'screenSenseExcludedApps', 'activityTimelineMode'].some((key) => key in patch)
+      'screenSenseExcludedApps'].some((key) => key in patch)
     if (activityPolicyChanged) invalidateHistoryContent()
     saveSettings(patch)
     if (['apiBase', 'apiKey', 'apiFormat', 'model', 'modelVision', 'useCustomModel'].some((key) => key in patch))
@@ -307,9 +302,6 @@ export function registerIpc(): void {
       patch.screenSenseHotkey !== undefined ||
       patch.screenSenseContinuous !== undefined ||
       patch.screenSenseIntervalSec !== undefined ||
-      patch.screenSenseEventDriven !== undefined ||
-      patch.historyV2Enabled !== undefined ||
-      patch.historyDerivedWorkEnabled !== undefined ||
       activityPolicyChanged ||
       patch.dailyReportTime !== undefined
     )

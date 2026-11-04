@@ -23,7 +23,7 @@ function loadTs(file, dependencies, platform = 'win32', globals = {}) {
 }
 
 const { win32, posix } = require('node:path')
-for (const name of ['activity-timeline-db-smoke.mjs', 'usage-sampler-smoke.mjs', 'task-chain-demo-smoke.mjs', 'history-service-demo-smoke.mjs', 'semantic-work-privacy-smoke.mjs', 'real-model-demo.mjs']) {
+for (const name of ['activity-timeline-db-smoke.mjs', 'usage-sampler-smoke.mjs', 'task-chain-demo-smoke.mjs', 'history-service-demo-smoke.mjs', 'real-model-demo.mjs']) {
   const source = readFileSync(new URL(name, import.meta.url), 'utf8')
   const expression = source.match(/let target\s*=\s*([^\n]+)/)?.[1]
   assert(expression, `Missing module resolver in ${name}`)

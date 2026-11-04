@@ -71,12 +71,10 @@ function readSettings(): AppSettings {
     screenSenseHotkey: map.screenSenseHotkey || 'Alt+S',
     screenSenseContinuous: map.screenSenseContinuous !== 'false',
     screenSenseIntervalSec: Number(map.screenSenseIntervalSec) || 5,
-    screenSenseEventDriven: map.screenSenseEventDriven !== 'false',
     screenSenseFallbackIntervalSec:
       map.screenSenseFallbackIntervalSec != null
         ? Math.min(60, Math.max(30, Number(map.screenSenseFallbackIntervalSec) || 45))
         : 45,
-    screenSenseHybridV2: map.screenSenseHybridV2 !== 'false',
     // 排除名单空 = 不排除（不能像关键词那样回退默认词表）
     screenSenseExcludedApps: parseList(map.screenSenseExcludedApps),
     historyIncludedApps: parseList(map.historyIncludedApps),
@@ -117,11 +115,6 @@ function readSettings(): AppSettings {
         : 180,
     // 默认开启：屏幕感知设置页不再暴露这个开关，留 false 的话没开过的用户永远开不了
     historyV2Enabled: map.historyV2Enabled !== 'false',
-    historyDerivedWorkEnabled: map.historyDerivedWorkEnabled === 'true',
-    activityTimelineMode: map.activityTimelineMode === 'legacy' || map.activityTimelineMode === 'unified'
-      ? map.activityTimelineMode : 'shadow',
-    activityTimelineCutoverAt: map.activityTimelineCutoverAt && Number.isFinite(Date.parse(map.activityTimelineCutoverAt))
-      ? map.activityTimelineCutoverAt : null,
     historyCaptureText: map.historyCaptureText === 'true',
     voiceNotesEnabled: map.voiceNotesEnabled === 'true',
     voiceAutoStart: map.voiceAutoStart !== 'false',
@@ -172,17 +165,6 @@ function parseHistoryAppList(raw: string | undefined): HistoryAppSelection[] {
 }
 
 export function saveSettings(patch: Partial<AppSettings>): void {
-  patch = { ...patch }
-  if (patch.activityTimelineMode !== undefined &&
-    !['legacy', 'shadow', 'unified'].includes(patch.activityTimelineMode)) delete patch.activityTimelineMode
-  if (patch.activityTimelineMode === 'unified' && getSettings().activityTimelineMode !== 'unified') {
-    const midnight = new Date()
-    midnight.setHours(24, 0, 0, 0)
-    patch.activityTimelineCutoverAt = midnight.toISOString()
-  } else if (patch.activityTimelineCutoverAt !== undefined) {
-    // The rollout boundary is owned by the main process, not a renderer-provided timestamp.
-    delete patch.activityTimelineCutoverAt
-  }
   const stmt = getDb().prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
   )
