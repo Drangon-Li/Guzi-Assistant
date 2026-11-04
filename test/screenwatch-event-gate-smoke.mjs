@@ -17,7 +17,10 @@ const db = readdirSync(new URL('../src/main/db/', import.meta.url))
   .filter((f) => f.endsWith('.ts'))
   .map((f) => readFileSync(new URL(`../src/main/db/${f}`, import.meta.url), 'utf8'))
   .join('\n')
-const ipc = readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')
+// IPC 注册按领域拆在 src/main/ipc/ 下：入口与各领域文件拼起来断言
+const ipc = [new URL('../src/main/ipc.ts', import.meta.url), ...readdirSync(new URL('../src/main/ipc/', import.meta.url))
+  .filter((f) => f.endsWith('.ts')).map((f) => new URL(`../src/main/ipc/${f}`, import.meta.url))]
+  .map((url) => readFileSync(url, 'utf8')).join('\n')
 
 const watchStart = screenwatch.indexOf('async function watchTick')
 const contextGate = screenwatch.indexOf('const snapshot = await getScreenSnapshot(signal)', watchStart)

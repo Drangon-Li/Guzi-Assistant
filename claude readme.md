@@ -45,7 +45,9 @@ TS 分两个 project：`tsconfig.node.json`（main + preload + shared + server�
 
 `src/shared/ipc-channels.ts` 是唯一登记处。新增通道必须写进 `INVOKE_CHANNELS` / `EVENT_CHANNELS`，否则 preload 白名单会拒绝调用。`test/ipc-channels-smoke.mjs` 会校验这张表和源码里实际注册/调用的一致。
 
-主进程注册在 `src/main/ipc.ts`（约 100 个 handler）。
+主进程注册按领域拆在 `src/main/ipc/` 下（`settings` `voice` `capture` `task` `activity` `app`，共约 115 个 handler），
+`src/main/ipc.ts` 只是入口。所有 handler 都经 `ipc/register.ts` 的 `ipcMain` 包装注册（内容纪元校验 + 退出期在途工作登记），
+**不要直接用 electron 的 `ipcMain.handle`**。
 
 ### 2. 插件的"声明"和"实现"必须两边都有
 
@@ -362,7 +364,7 @@ console.log(b.includes(Buffer.from('某个新加的中文串','utf8')))"
 
 | 要改的东西 | 落点 |
 |---|---|
-| 新增 IPC 通道 | `shared/ipc-channels.ts` 登记 → `main/ipc.ts` 注册 → `renderer/src/api.ts` 调用 |
+| 新增 IPC 通道 | `shared/ipc-channels.ts` 登记 → `main/ipc/<领域>.ts` 注册 → `renderer/src/api.ts` 调用 |
 | 新增插件 | `shared/plugin-registry.ts` + `main/plugins/<id>/` + `renderer/src/plugins/<id>/`，注册进两个 index |
 | 插件加一个后端能力 | 该插件 `index.ts` 的 `handlers` 加 key，自动注册 |
 | 让助手会做新动作 | 插件 manifest 的 `assistantActions` + 主进程模块的 `assistantActions` 实现 |

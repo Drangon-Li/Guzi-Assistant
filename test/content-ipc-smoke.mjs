@@ -84,13 +84,21 @@ function fixture() {
     './content-files': { clearUserContentFiles: async (directory) => assert.equal(directory, '/fixture-only') },
     './history/service': { acquireHistoryMutationBarrier: () => noop, clearHistory: noop, stopHistoryPersistence: noop }
   }, () => unused)
-  load('main/ipc', {
+  const ipcMocks = {
     electron, './content-lifecycle': lifecycle, './content-ipc': contentIpc,
     '@shared/ipc-channels': channels, './plugins/index.ts': plugins, './data-reset': reset,
     './db': { saveChatMessages: record('chat:save'), clearChatMessages: record('chat:clear') },
     './assistant': { assistantChat: () => assistant.promise },
     './windows': { broadcastExcept: noop }
-  }, () => unused).registerIpc()
+  }
+  // 注册按领域拆在 main/ipc/ 下：子模块里的 '../x' 就是入口里的 './x'，用同一套 mock 真实加载；
+  // register（带内容纪元/退出守卫的包装）只加载一次，各领域共用同一个实例
+  const subMocks = Object.fromEntries(Object.entries(ipcMocks).map(([id, mock]) => [id.startsWith('./') ? `.${id}` : id, mock]))
+  const register = load('main/ipc/register', subMocks, () => unused)
+  const ipcModule = (id) => id.startsWith('./ipc/')
+    ? load(`main/ipc/${id.slice('./ipc/'.length)}`, { ...subMocks, './register': register }, () => unused)
+    : unused
+  load('main/ipc', ipcMocks, ipcModule).registerIpc()
 
   const event = { sender: { id: 42 } }
   const invoke = async (channel, ...args) => {
