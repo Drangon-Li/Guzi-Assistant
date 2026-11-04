@@ -220,7 +220,7 @@ macOS 需要 `NSMicrophoneUsageDescription`（`electron-builder.yml`），
 
 ### 调度器
 
-`report-scheduler.ts`（日报）、`dailybrief-scheduler.ts`（每日简报）、`task-reminder.ts`（任务提醒，30 秒 tick）、`wellness-reminder.ts`、`usage-sampler.ts`（前台应用采样）。
+`report-scheduler.ts`（日报）、`dailybrief-scheduler.ts`（每日简报）、`task-reminder.ts`（任务提醒，30 秒 tick；事件前按提前量提醒，只给了日期的截止——无开始时刻、截止 23:59——锚在当天 09:00，截止前开机都会补）、`wellness-reminder.ts`、`usage-sampler.ts`（前台应用采样）。
 
 ---
 

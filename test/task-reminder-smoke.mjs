@@ -1,5 +1,5 @@
 // 纯函数单测：任务提醒判定 dueReminders。运行：npm run test:reminder
-import { dueReminders, reminderWhenLabel } from '../src/shared/task-reminder.ts'
+import { dueReminders, isDayDeadline, reminderWhenLabel } from '../src/shared/task-reminder.ts'
 
 let failed = 0
 function check(name, ok) {
@@ -69,6 +69,27 @@ check('两者皆空 → 不提醒', !fires({}))
 const dateOnly = dueReminders([mk({ startTime: '2026-08-24' })], { ...OPTS, catchupWindowMin: 600 }, NOW)
 check('只有日期 → 按当天 09:00', dateOnly[0]?.eventIso === '2026-08-24T09:00')
 
+// ---- 整天截止（只说了「X 日前」，解析补成 23:59）：早上提醒，不再拖到半夜 23:54 ----
+const at = (h, m = 0, day = 24) => new Date(2026, 7, day, h, m)
+const dayDue = { dueTime: '2026-08-24T23:59' }
+const morning = dueReminders([mk(dayDue)], OPTS, at(8, 55))
+check('整天截止 → 当天 08:55（09:00 减默认提前量）响', morning.length === 1 && morning[0].targetIso === '2026-08-24T08:55')
+check('整天截止 → 08:54 还不响', dueReminders([mk(dayDue)], OPTS, at(8, 54)).length === 0)
+check('整天截止 → 事件时刻仍是真正的截止 23:59', morning[0]?.eventIso === '2026-08-24T23:59' && morning[0]?.kind === 'ahead')
+check('整天截止 → 下午才开机也补得上（截止前不受 2 小时补提醒窗口限制）', run(dayDue).length === 1 && run(dayDue)[0].kind === 'ahead')
+check('整天截止 → 已提醒过就不会在 23:54 再响一次',
+  dueReminders([mk({ ...dayDue, remindedAt: '2026-08-24T08:55' })], OPTS, at(23, 54)).length === 0)
+check('整天截止 → 截止后 1 小时内开机按逾期补', dueReminders([mk(dayDue)], OPTS, at(0, 59, 25))[0]?.kind === 'catchup')
+check('整天截止 → 截止后超过补提醒窗口就不补', dueReminders([mk(dayDue)], OPTS, at(2, 30, 25)).length === 0)
+check('明天的整天截止 → 今天不响', !fires({ dueTime: '2026-08-25T23:59' }))
+check('任务级提前 1 天 → 前一天早上 09:00 响', run({ dueTime: '2026-08-25T23:59', remindOffsetMin: 1440 })[0]?.targetIso === '2026-08-24T09:00')
+check('有开始时刻的 23:59 不算整天截止（照常提前 5 分钟）',
+  dueReminders([mk({ startTime: '2026-08-24T23:59' })], OPTS, at(23, 54))[0]?.targetIso === '2026-08-24T23:54')
+check('具体钟点的截止（18:00 前）照常提前 5 分钟', !fires({ dueTime: '2026-08-24T18:00' }) &&
+  dueReminders([mk({ dueTime: '2026-08-24T18:00' })], OPTS, at(17, 55)).length === 1)
+check('isDayDeadline 口径', isDayDeadline({ startTime: null, dueTime: '2026-08-24T23:59' }) &&
+  !isDayDeadline({ startTime: '2026-08-24T10:00', dueTime: '2026-08-24T23:59' }) && !isDayDeadline({ startTime: null, dueTime: '2026-08-24T18:00' }))
+
 // ---- 逾期补提醒窗口 ----
 const catchup = run({ startTime: '2026-08-24T13:00', remindOffsetMin: 0 })
 check('1 小时前逾期 → 补提醒', catchup.length === 1)
@@ -128,6 +149,12 @@ check(
   '只有日期 → 文案也按 09:00 归一',
   reminderWhenLabel({ eventIso: '2026-08-24', kind: 'ontime' }, new Date(2026, 7, 24, 9, 0)) === '现在 · 09:00'
 )
+
+const dayLabel = (eventIso, kind, now) => reminderWhenLabel({ eventIso, kind, dayDeadline: true }, now)
+check('整天截止文案 → 今天截止', dayLabel('2026-08-24T23:59', 'ahead', NOW) === '今天截止 · 23:59')
+check('整天截止文案 → 提前到前一天时说明天截止', dayLabel('2026-08-25T23:59', 'ahead', NOW) === '明天截止 · 23:59')
+check('整天截止文案 → 过了截止照常说已逾期', dayLabel('2026-08-24T12:59', 'catchup', NOW) === '已逾期 1 小时')
+check('非整天截止的文案不变', reminderWhenLabel({ eventIso: '2026-08-24T23:59', kind: 'ahead', dayDeadline: false }, NOW) === '10 小时后 · 23:59')
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

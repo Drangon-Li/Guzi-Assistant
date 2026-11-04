@@ -130,6 +130,8 @@ export interface ReminderCardItem {
   /** 事件真正发生的时刻（本地 ISO） */
   eventIso: string
   kind: 'ahead' | 'ontime' | 'catchup' | 'snooze'
+  /** 只给了日期的截止（23:59）：早上提醒，文案说「今天截止」 */
+  dayDeadline: boolean
   location: string | null
   notes: string[]
   priority: Priority
