@@ -111,7 +111,7 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 | 文件拖拽 | 拖进窗口 | `MainApp.tsx` → `capture:files` |
 | 托盘拖拽 | 拖到菜单栏图标 | `dropbox.ts` |
 | 访达右键 | 「发送到 谷子助手」 | `quickaction.ts` |
-| 飞书机器人 | 转发消息/图 | `feishu.ts` |
+| 飞书机器人 | 转发消息/图（正文 `@_user_N` 占位按 mentions 还原成「@名字」，见 `shared/feishu-message.ts`） | `feishu.ts` |
 | 屏幕感知 | 扫描快捷键 / 持续监控 | `screenwatch.ts` |
 
 普通来源走 `capture.ts` 的 `submitPending` → 右下角预览卡确认 → `parser.parseToItems` → 建任务。

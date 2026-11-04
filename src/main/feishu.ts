@@ -3,6 +3,7 @@ import { nativeImage } from 'electron'
 import { getSettings } from './db'
 import { submitFeishu, toJpegDataUrl } from './capture'
 import type { FeishuStatus, ParseSummary } from '@shared/types'
+import { flattenPost, restoreMentions, type FeishuMention } from '@shared/feishu-message'
 import { captureContentEpoch, isContentEpochCurrent, isContentResetting } from './content-lifecycle'
 
 let state: FeishuStatus = { status: 'disabled', detail: '' }
@@ -16,6 +17,8 @@ interface FeishuMessage {
   chat_type: string
   message_type: string
   content: string
+  /** 正文里 @_user_N 占位符对应的真名 */
+  mentions?: FeishuMention[]
 }
 
 export function feishuStatus(): FeishuStatus {
@@ -98,9 +101,9 @@ async function handleMessage(msg: FeishuMessage | undefined): Promise<void> {
   let imageDataUrl: string | undefined
   if (msg.message_type === 'text') {
     const content = JSON.parse(msg.content) as { text?: string }
-    text = content.text?.replace(/@_user_\d+/g, '').trim()
+    text = restoreMentions(content.text ?? '', msg.mentions).trim()
   } else if (msg.message_type === 'post') {
-    text = flattenPost(JSON.parse(msg.content))
+    text = flattenPost(JSON.parse(msg.content), msg.mentions)
   } else if (msg.message_type === 'image') {
     const content = JSON.parse(msg.content) as { image_key?: string }
     if (content.image_key) imageDataUrl = await downloadImage(msg.message_id, content.image_key)
@@ -113,19 +116,6 @@ async function handleMessage(msg: FeishuMessage | undefined): Promise<void> {
   const summary = await submitFeishu({ text, imageDataUrl })
   if (!isContentEpochCurrent(epoch)) return
   await reply(msg.chat_id, summaryText(summary))
-}
-
-interface PostNode {
-  tag: string
-  text?: string
-  href?: string
-}
-
-function flattenPost(content: { title?: string; content?: PostNode[][] }): string {
-  const lines = (content.content ?? []).map((line) =>
-    line.map((node) => node.text ?? node.href ?? '').join('')
-  )
-  return [content.title ?? '', ...lines].filter(Boolean).join('\n')
 }
 
 async function downloadImage(messageId: string, fileKey: string): Promise<string> {
