@@ -22,7 +22,20 @@ export function saveProfile(p: Profile): void {
 
 // ---------- settings ----------
 
+// getSettings() 在每条活动事件、每轮屏幕监控、每次隐私判定里都会被调好几次，
+// 而 settings 表里还躺着插件状态和逐日的活动对照行——每次全表读出再解析纯属浪费。
+// AppSettings 的键只经 saveSettings 写入（插件/对照行用的是别的前缀，不影响这里），
+// 所以在 saveSettings 里失效即可；按句柄记录，换库（测试、重新 initDb）自动重读。
+// 返回的是共享快照：调用方只读，不要原地修改其中的字段或数组。
+let settingsCache: { db: unknown; value: AppSettings } | null = null
+
 export function getSettings(): AppSettings {
+  const db = getDb()
+  if (settingsCache?.db !== db) settingsCache = { db, value: readSettings() }
+  return settingsCache.value
+}
+
+function readSettings(): AppSettings {
   const env = loadEnv()
   const rows = getDb().prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
@@ -128,6 +141,19 @@ function parseList(raw: string | undefined): string[] {
     .filter(Boolean)
 }
 
+/** 单个 History 排除 App 条目的规整：读库和写库共用，缺 bundleId 的丢弃。 */
+function normalizeHistoryApp(item: unknown): HistoryAppSelection | null {
+  if (!item || typeof item !== 'object') return null
+  const value = item as Record<string, unknown>
+  const bundleId = typeof value.bundleId === 'string' ? value.bundleId.trim() : ''
+  if (!bundleId) return null
+  return {
+    bundleId,
+    name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : bundleId,
+    path: typeof value.path === 'string' ? value.path.trim() : ''
+  }
+}
+
 function parseHistoryAppList(raw: string | undefined): HistoryAppSelection[] {
   if (!raw) return []
   try {
@@ -135,16 +161,10 @@ function parseHistoryAppList(raw: string | undefined): HistoryAppSelection[] {
     if (!Array.isArray(parsed)) return []
     const seen = new Set<string>()
     return parsed.flatMap((item): HistoryAppSelection[] => {
-      if (!item || typeof item !== 'object') return []
-      const value = item as Record<string, unknown>
-      const bundleId = typeof value.bundleId === 'string' ? value.bundleId.trim() : ''
-      if (!bundleId || seen.has(bundleId.toLowerCase())) return []
-      seen.add(bundleId.toLowerCase())
-      return [{
-        bundleId,
-        name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : bundleId,
-        path: typeof value.path === 'string' ? value.path.trim() : ''
-      }]
+      const app = normalizeHistoryApp(item)
+      if (!app || seen.has(app.bundleId.toLowerCase())) return []
+      seen.add(app.bundleId.toLowerCase())
+      return [app]
     })
   } catch {
     return []
@@ -166,6 +186,8 @@ export function saveSettings(patch: Partial<AppSettings>): void {
   const stmt = getDb().prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
   )
+  // 先失效再写：循环中途抛错时，已写入的部分也会在下一次读取时生效
+  settingsCache = null
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) continue
     if (k === 'starredTags' || k === 'hiddenTags' || k === 'customTags') {
@@ -184,17 +206,7 @@ export function saveSettings(patch: Partial<AppSettings>): void {
     }
     if (k === 'historyExcludedApps') {
       const values = Array.isArray(v)
-        ? v.flatMap((item): HistoryAppSelection[] => {
-            if (!item || typeof item !== 'object') return []
-            const value = item as unknown as Record<string, unknown>
-            const bundleId = typeof value.bundleId === 'string' ? value.bundleId.trim() : ''
-            if (!bundleId) return []
-            return [{
-              bundleId,
-              name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : bundleId,
-              path: typeof value.path === 'string' ? value.path.trim() : ''
-            }]
-          })
+        ? v.map(normalizeHistoryApp).filter((item): item is HistoryAppSelection => item !== null)
         : []
       const deduped = [...new Map(values.map((item) => [item.bundleId.toLowerCase(), item])).values()]
       stmt.run(k, JSON.stringify(deduped))

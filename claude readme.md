@@ -106,6 +106,10 @@ TS 分两个 project：`tsconfig.node.json`（main + preload + shared + server�
 
 `src/main/db/connection.ts` 是唯一持有 Database 句柄的地方，其余模块用 `getDb()` 取，不各自开库。
 
+`getSettings()` 带缓存（它在每条活动事件、每轮屏幕监控里都会被调好几次），只在 `saveSettings()` 里失效。
+所以 **AppSettings 的键只能经 `saveSettings()` 写**，别直接往 settings 表里写；返回值是共享快照，**不要原地修改**。
+插件状态（`plugin:*`）和活动对照行（`activityTimelineComparison:*`）不在 AppSettings 里，不受影响。
+
 ### 核心表
 
 `profile` `settings` `sources` `tasks` `detections` `work_records` `app_usage` `reports` `chat_messages` `personal_memory` `focus_tasks` `detection_notes` `app_switches` `app_categories` `activity_segments` `ocr_evidence` `voice_sessions` `voice_segments`
@@ -207,11 +211,11 @@ macOS 需要 `NSMicrophoneUsageDescription`（`electron-builder.yml`），
 
 ### 路由
 
-`App.tsx` 先看 hash 决定是不是独立窗口（`/preview` `/reminder` `/debug` `/petchat` `/quickbar`），否则进主界面。
+`App.tsx` 只做路由：先看 hash 决定是不是独立窗口（`/preview` `/reminder` `/debug` `/petchat` `/quickbar`），否则按需加载主界面 `MainApp.tsx`。**小窗组件必须保持同步 import**——主进程在 `did-finish-load` 后立刻推第一条消息，组件若还在等分块就会丢消息；主界面整套（页面、插件、Supabase 客户端、录音）只在主窗口里求值。
 
-主导航：**今日 / 日程 / 日报 / 分析 / 个人**（`App.tsx:55` 的 `NAV`）。设置和市场固定在侧边栏底部，不在主导航里。插件页由 `PLUGIN_UI[page]?.Page` 渲染。
+主导航：**今日 / 日程 / 日报 / 分析 / 个人**（`MainApp.tsx` 的 `NAV`）。设置和市场固定在侧边栏底部，不在主导航里。插件页由 `PLUGIN_UI[page]?.Page` 渲染。
 
-页面跳转统一走 `App.tsx` 的 `navigate(page, cat?)`，第二个参数只对设置页有意义
+页面跳转统一走 `MainApp.tsx` 的 `navigate(page, cat?)`，第二个参数只对设置页有意义
 （深链到某个分区，如首页「去设置开启」直接落到屏幕感知）。每次导航都重设，
 所以从侧栏进设置不会残留上一次的分区。
 
@@ -333,9 +337,9 @@ console.log(b.includes(Buffer.from('某个新加的中文串','utf8')))"
 - **textarea 高度不能按 `'\n'` 个数算**，长文本软折行时行数仍是 1，框子不会长高。用 `autoGrow()` 读 `scrollHeight`
 - **`⌘⏎` 在 textarea 里不会自己插换行**（只有 `⇧⏎` 会），必须手动插；插完 React 重渲染会把光标甩到末尾，要在下一帧放回去
 - **body 全局禁用了文字选择**，需要选中的区域要显式 `select-text` / `user-select: text`
-- **嵌套的 drop 区域不要 `stopPropagation`**，否则 `App.tsx` 的 `handleDrop` 收不到，拖放遮罩会卡住不消失
+- **嵌套的 drop 区域不要 `stopPropagation`**，否则 `MainApp.tsx` 的 `handleDrop` 收不到，拖放遮罩会卡住不消失
 - **CSP 是 `img-src 'self' data:`**，图片要以 data URL 回读
-- **`h-full` 在 `App.tsx` 的 `animate-page` 容器里解析成 `auto`**（那个 div 是块级、高度由内容撑）。需要满高的插件页用 `h-screen`，不要改共用容器——会影响所有核心页的滚动
+- **`h-full` 在 `MainApp.tsx` 的 `animate-page` 容器里解析成 `auto`**（那个 div 是块级、高度由内容撑）。需要满高的插件页用 `h-screen`，不要改共用容器——会影响所有核心页的滚动
 - **contentEditable 里新起的行常常是 `<div>` 而不是 `<p>`**（Chromium 的 `defaultParagraphSeparator` 就是 div）。记事本的 `currentBlock()` 曾因白名单漏了 DIV，导致 slash 菜单、Markdown 输入规则、公式块级渲染在新打的行上**一起静默失效**——载入时的渲染照常工作，所以症状像「有时行有时不行」。凡是靠标签白名单找块的地方都要留兜底
 - **contentEditable 里空的块元素不是合法落点**，浏览器会把光标弹到上一行。新建空块必须塞一个 `<br>`；而落光标时「内容末尾」等于落在 `<br>` 之后（又跑下一行），空块要显式落块首
 - **中文输入法激活时 `keydown` 上报的 `key` 不可靠**（常见 `Process` / keyCode 229）。要判具体字符的输入规则挂 `beforeinput`，按 `inputType === 'insertText' && data === '…'` 判断，组合输入期间是 `insertCompositionText`，天然不会误命中
@@ -357,7 +361,7 @@ console.log(b.includes(Buffer.from('某个新加的中文串','utf8')))"
 | 加数据库字段 | 对应 `db/*.ts` 的 `initTables` 走增量迁移；插件表在插件自己的 `initTables` |
 | 改任务字段映射 | `main/task-ingest.ts` 一处（三条接受流共用） |
 | 改助手提示词 | `shared/parsing.ts` 的 `buildAssistantInstructions()` |
-| 改主界面导航 | `renderer/src/App.tsx` 的 `NAV` |
+| 改主界面导航 | `renderer/src/MainApp.tsx` 的 `NAV` |
 | 改聊天输入行为 | `components/AssistantChat.tsx`（桌宠+悬浮助手）和 `pages/QuickBar.tsx`（快捷提问，**是另一份代码**） |
 | 加共用控件 | `renderer/src/components/ui.tsx` |
 | 加纯逻辑 + 单测 | `shared/xxx.ts` + `test/xxx-smoke.mjs`（自动发现，不用改 package.json） |

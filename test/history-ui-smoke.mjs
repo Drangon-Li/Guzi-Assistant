@@ -15,7 +15,7 @@ const settings =
   read('../src/renderer/src/pages/Settings.tsx') +
   readDir('../src/renderer/src/components/settings/', '.tsx')
 const settingsUi = read('../src/renderer/src/components/ui.tsx')
-const app = read('../src/renderer/src/App.tsx')
+const app = read('../src/renderer/src/MainApp.tsx')
 const historyService = read('../src/main/history/service.ts')
 const privacy = read('../src/main/privacy.ts')
 const db = readDir('../src/main/db/', '.ts')

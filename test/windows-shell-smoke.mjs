@@ -197,7 +197,8 @@ function windowsModule(platform) {
     electron,
     './pet/pet-window': { getPetBadgeBounds: () => null },
     './content-lifecycle': { isContentResetting: () => false },
-    './platform/window-options': loadTs('../src/main/platform/window-options.ts', { electron }, platform)
+    './platform/window-options': loadTs('../src/main/platform/window-options.ts', { electron }, platform),
+    './window-fade': loadTs('../src/main/window-fade.ts', {}, platform, { WeakMap }),
   }, platform)
 }
 const windows = windowsModule('win32')

@@ -2,12 +2,12 @@ import { randomUUID } from 'crypto'
 import {
   ACTIVITY_RETENTION_MS,
   buildActivitySegments,
-  dedupeActivityEvents,
   sanitizeWindowTitle,
   shouldRunHardFallback,
   utcTenMinuteBucket,
   type ActivityEvent
 } from '../shared/activity-events.ts'
+import { ActivityEventBuffer } from '../shared/activity-event-buffer.ts'
 import {
   assessSemanticCompleteness,
   contextKey,
@@ -128,7 +128,8 @@ export interface RecordContextOptions {
 
 /** 活动事件流的运行态：事件缓冲、语义评估、collector 生命周期与 OCR 门控状态全部收在实例里。 */
 class ActivityTracker {
-  private events: ActivityEvent[] = []
+  private readonly buffer = new ActivityEventBuffer(ACTIVITY_RETENTION_MS, MAX_EVENTS)
+  /** 与缓冲里的事件一一对应：事件离开缓冲时一并删除 */
   private assessments = new Map<string, SemanticAssessment>()
   private startedAtMs = Date.now()
   private lastContext: FrontmostContext | null = null
@@ -214,16 +215,17 @@ class ActivityTracker {
     }
   }
 
+  private get events(): readonly ActivityEvent[] {
+    return this.buffer.events
+  }
+
+  private forgetAssessments(ids: readonly string[]): void {
+    for (const id of ids) this.assessments.delete(id)
+  }
+
   private appendEvent(event: ActivityEvent, nowMs: number): void {
-    const nextEvents = event.suppressed ? [...this.events, event] : dedupeActivityEvents([...this.events, event])
-    const accepted = event.suppressed || nextEvents.some((item) => item.id === event.id)
-    this.events = nextEvents
-      .filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
-      .slice(-MAX_EVENTS)
-    for (const id of this.assessments.keys()) {
-      const assessment = this.events.some((item) => item.id === id)
-      if (!assessment) this.assessments.delete(id)
-    }
+    const { accepted, removedIds } = this.buffer.append(event, nowMs)
+    this.forgetAssessments(removedIds)
     this.lastEventAtMs = event.occurredAtMs
     if (!accepted) return
     try {
@@ -648,9 +650,7 @@ class ActivityTracker {
 
   clearHistoryEvidence(fromMs = -Infinity, toMs = Infinity): void {
     const outside = (at: number): boolean => at < fromMs || at >= toMs
-    this.events = this.events.filter((event) => outside(event.occurredAtMs))
-    const ids = new Set(this.events.map((event) => event.id))
-    for (const id of this.assessments.keys()) if (!ids.has(id)) this.assessments.delete(id)
+    this.forgetAssessments(this.buffer.retain((event) => outside(event.occurredAtMs)))
     this.ocrEvidence = this.ocrEvidence.filter((evidence) => outside(evidence.occurredAtMs))
     if (this.lastCollectorContext && !outside(this.lastCollectorContext.at)) {
       this.lastCollectorContext.context = { ...this.lastCollectorContext.context, windowTitle: '', safeLabel: '', urlHost: undefined }
@@ -684,9 +684,7 @@ class ActivityTracker {
 
   status(input: { eventDriven: boolean; hybridV2: boolean; running: boolean; paused: boolean }): ScreenActivityStatus {
     const nowMs = Date.now()
-    this.events = this.events.filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
-    const activeIds = new Set(this.events.map((item) => item.id))
-    for (const id of this.assessments.keys()) if (!activeIds.has(id)) this.assessments.delete(id)
+    this.forgetAssessments(this.buffer.retain((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS))
     this.ocrEvidence = this.ocrEvidence.filter((item) => item.occurredAtMs >= nowMs - ACTIVITY_RETENTION_MS)
     const tenMinuteSegments = buildActivitySegments(this.events, '10m')
     const sixHourSegments = buildActivitySegments(this.events, '6h')

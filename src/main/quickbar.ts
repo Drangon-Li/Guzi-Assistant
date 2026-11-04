@@ -6,6 +6,7 @@ import { floatingPanelOptions } from './platform/window-options'
 // 对话展开时渲染层汇报内容高度，窗口底边固定向上生长（水平居中贴近屏幕下方，错开系统聚焦搜索）。
 import { app, BrowserWindow, screen } from 'electron'
 import { debugEvent, load, preload } from './windows'
+import { fadeWindow } from './window-fade'
 
 const QB_W = 660
 const QB_H = 58
@@ -13,7 +14,6 @@ const QB_MAX_H = 560
 const FADE_MS = 120
 
 let qbWin: BrowserWindow | null = null
-let fadeTimer: ReturnType<typeof setInterval> | null = null
 let resignHooked = false
 
 function ensureWindow(): BrowserWindow {
@@ -55,28 +55,6 @@ function ensureWindow(): BrowserWindow {
   return win
 }
 
-/** 窗口透明度渐变（连磨砂和原生阴影一起淡入淡出，CSS 动不了这两层）。 */
-function fadeWindow(win: BrowserWindow, from: number, to: number, done?: () => void): void {
-  if (fadeTimer) clearInterval(fadeTimer)
-  const steps = Math.max(1, Math.round(FADE_MS / 16))
-  let i = 0
-  win.setOpacity(from)
-  fadeTimer = setInterval(() => {
-    i++
-    if (win.isDestroyed()) {
-      if (fadeTimer) clearInterval(fadeTimer)
-      fadeTimer = null
-      return
-    }
-    win.setOpacity(from + ((to - from) * i) / steps)
-    if (i >= steps) {
-      if (fadeTimer) clearInterval(fadeTimer)
-      fadeTimer = null
-      done?.()
-    }
-  }, 16)
-}
-
 /** 启动时预创建（隐藏），首次按快捷键即秒开。 */
 export function createQuickBar(): void {
   ensureWindow()
@@ -98,7 +76,7 @@ export function showQuickBar(): void {
   // blur 永不触发 → 点外面关不掉、也打不了字。先把应用抢到前台，再聚焦本窗成为 key window。
   app.focus({ steal: true })
   win.focus()
-  fadeWindow(win, 0, 1)
+  fadeWindow(win, 0, 1, FADE_MS)
   // 焦点看门狗：实测首次抢焦点会间歇性失败（副屏「关不掉」的根源——从未获焦则 blur/resign
   // 都不会来）。250ms 没获焦立刻再抢一次；仍失败则主动收起，绝不让条挂死在屏上。
   setTimeout(() => {
@@ -118,7 +96,7 @@ export function showQuickBar(): void {
 export function hideQuickBar(): void {
   if (!qbWin || qbWin.isDestroyed() || !qbWin.isVisible()) return
   const win = qbWin
-  fadeWindow(win, win.getOpacity(), 0, () => {
+  fadeWindow(win, win.getOpacity(), 0, FADE_MS, () => {
     if (!win.isDestroyed()) {
       win.hide()
       win.setOpacity(1)

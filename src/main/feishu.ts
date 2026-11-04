@@ -1,4 +1,4 @@
-import * as Lark from '@larksuiteoapi/node-sdk'
+import type * as Lark from '@larksuiteoapi/node-sdk'
 import { nativeImage } from 'electron'
 import { getSettings } from './db'
 import { submitFeishu, toJpegDataUrl } from './capture'
@@ -44,7 +44,10 @@ export function ensureFeishu(): void {
 
 async function start(appId: string, appSecret: string): Promise<void> {
   state = { status: 'connecting', detail: '' }
-  client = new Lark.Client({ appId, appSecret })
+  // SDK 连带 axios、protobuf 等一整套依赖，加载一次约 15MB 堆、100ms。
+  // 绝大多数用户没配飞书机器人，配了才加载，别让每个人启动时都背着它。
+  const sdk = await import('@larksuiteoapi/node-sdk')
+  client = new sdk.Client({ appId, appSecret })
 
   // 先校验凭证，否则 WSClient 只会在内部静默重试
   try {
@@ -60,7 +63,7 @@ async function start(appId: string, appSecret: string): Promise<void> {
     return
   }
 
-  const dispatcher = new Lark.EventDispatcher({}).register({
+  const dispatcher = new sdk.EventDispatcher({}).register({
     'im.message.receive_v1': async (data: unknown) => {
       try {
         await handleMessage((data as { message?: FeishuMessage }).message)
@@ -71,7 +74,7 @@ async function start(appId: string, appSecret: string): Promise<void> {
   })
 
   try {
-    const ws = new Lark.WSClient({ appId, appSecret, loggerLevel: Lark.LoggerLevel.error })
+    const ws = new sdk.WSClient({ appId, appSecret, loggerLevel: sdk.LoggerLevel.error })
     ws.start({ eventDispatcher: dispatcher })
     state = { status: 'connected', detail: '长连接已建立，私聊机器人即可转发消息' }
   } catch (e) {

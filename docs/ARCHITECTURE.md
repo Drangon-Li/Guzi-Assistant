@@ -107,7 +107,7 @@ Supabase Edge Function (parse)   ← 密钥只在这里(service-role / relay key
 |---|---|---|
 | 剪贴板 | 全局快捷键（默认 `Alt+C`） | `hotkey.ts` → `capture.ts` |
 | 框选截图 | 菜单/快捷键 | `capture.ts`（`screencapture -i`） |
-| 文件拖拽 | 拖进窗口 | `App.tsx` → `capture:files` |
+| 文件拖拽 | 拖进窗口 | `MainApp.tsx` → `capture:files` |
 | 托盘拖拽 | 拖到菜单栏图标 | `dropbox.ts` |
 | 访达右键 | 「发送到 谷子助手」 | `quickaction.ts` |
 | 飞书机器人 | 转发消息/图 | `feishu.ts` |
@@ -337,7 +337,8 @@ src/
     feishu.ts hotkey.ts quickaction.ts frontapp.ts sensitive.ts dropbox.ts export.ts dailybrief-scheduler.ts env.ts
   preload/               contextBridge 桥接 + 通道白名单
   renderer/src/
-    App.tsx              外壳 + 导航 + 悬浮助手
+    App.tsx              按 hash 分发窗口路由（主界面按需加载）
+    MainApp.tsx          外壳 + 导航 + 悬浮助手
     api.ts               IPC 客户端封装
     supabase.ts          Supabase 客户端 + functionsBase
     pages/               Home / Schedule(含 Timeline 视图) / Reports / Analysis / Account / Market / Settings / PreviewCard / Welcome / Onboarding / ScreenPermissionGate
