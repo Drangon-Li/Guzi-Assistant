@@ -7,6 +7,7 @@ import { floatingPanelOptions } from './platform/window-options'
 import { app, BrowserWindow, screen } from 'electron'
 import { debugEvent, load, preload } from './windows'
 import { fadeWindow } from './window-fade'
+import { whenWindowReady } from './window-ready'
 
 const QB_W = 660
 const QB_H = 58
@@ -67,9 +68,7 @@ export function showQuickBar(): void {
   const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
   const h = win.getBounds().height
   win.setPosition(Math.round(wa.x + (wa.width - QB_W) / 2), Math.round(wa.y + wa.height - h - 60), false)
-  const notify = (): void => win.webContents.send('guzi-assistant:quickbar-show')
-  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', notify)
-  else notify()
+  whenWindowReady(win, () => win.webContents.send('guzi-assistant:quickbar-show'))
   win.setOpacity(0)
   win.show()
   // 其他 App 前台（尤其副屏场景）时单靠 win.focus() 抢不到跨应用焦点：窗口从未获焦 →

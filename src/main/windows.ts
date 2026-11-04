@@ -4,6 +4,7 @@ import { join } from 'path'
 import { getPetBadgeBounds } from './pet/pet-window'
 import { floatingPanelOptions } from './platform/window-options'
 import { fadeWindow } from './window-fade'
+import { trackWindowReadiness, whenWindowReady } from './window-ready'
 import { isContentResetting } from './content-lifecycle'
 
 export const appState = { quitting: false }
@@ -20,6 +21,7 @@ export const preload = join(__dirname, '../preload/index.js')
 
 export function load(win: BrowserWindow, hash: string): void {
   exitWindows.add(win)
+  trackWindowReadiness(win)
   win.once('closed', () => exitWindows.delete(win))
   if (process.platform !== 'darwin') {
     const updateBackground = (): void => {
@@ -67,7 +69,8 @@ export function focusMain(route?: string): void {
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
-  if (route) win.webContents.send('guzi-assistant:navigate', route)
+  // 主窗可能刚被新建（页面还没订阅）：等渲染层就绪再导航
+  if (route) whenWindowReady(win, () => win.webContents.send('guzi-assistant:navigate', route))
 }
 
 /**
@@ -110,7 +113,17 @@ const PREVIEW_BATCH_H = 420
 const PREVIEW_MIN_H = 96
 const PREVIEW_MAX_H = 520
 const PREVIEW_FADE_MS = 140
+/**
+ * 预览卡隐藏后空闲这么久就关窗，释放一个渲染进程（约 80–100MB）。
+ * 持续监控频繁弹卡时窗口一直复用；下次弹卡再建，首条内容由就绪握手保证送达。
+ */
+const PREVIEW_IDLE_CLOSE_MS = 2 * 60_000
+let previewIdleTimer: ReturnType<typeof setTimeout> | null = null
 
+function cancelPreviewIdleClose(): void {
+  if (previewIdleTimer) clearTimeout(previewIdleTimer)
+  previewIdleTimer = null
+}
 
 export function getPreviewWindow(): BrowserWindow {
   if (previewWin && !previewWin.isDestroyed()) return previewWin
@@ -137,6 +150,7 @@ export function getPreviewWindow(): BrowserWindow {
 
 /** 弹出预览/通知卡，不抢焦点。桌宠可见时贴到桌宠图标旁（气泡感），否则回退右下角默认位置。 */
 export function showPreview(payload: unknown): void {
+  cancelPreviewIdleClose()
   const win = getPreviewWindow()
   const batch = !!(payload as { localBatch?: unknown } | null)?.localBatch
   // 首帧用预估高度，渲染层 ResizeObserver 汇报实际内容高度后再校正；
@@ -152,8 +166,7 @@ export function showPreview(payload: unknown): void {
     win.showInactive()
     fadeWindow(win, 0, 1, PREVIEW_FADE_MS)
   }
-  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
-  else send()
+  whenWindowReady(win, send)
 }
 
 /** 渲染层内容高度变化：底边固定（贴桌宠/右下角都是底对齐），向上调整窗口高度。 */
@@ -212,6 +225,11 @@ export function hidePreview(): void {
     if (win.isDestroyed()) return
     win.hide()
     win.setOpacity(1)
+    cancelPreviewIdleClose()
+    previewIdleTimer = setTimeout(() => {
+      previewIdleTimer = null
+      if (!win.isDestroyed() && !win.isVisible()) win.close()
+    }, PREVIEW_IDLE_CLOSE_MS)
   })
 }
 

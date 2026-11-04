@@ -7,7 +7,7 @@ import type { ReminderCardItem, TaskRecord } from '@shared/types'
 import { dueReminders, reminderWhenLabel } from '@shared/task-reminder'
 import { getSettings, listReminderCandidates, markTaskReminded } from './db'
 import { applyPetPersistentSay } from './pet/controller'
-import { prewarmReminderWindow, showReminders } from './reminder-window'
+import { showReminders } from './reminder-window'
 import { focusMain } from './windows'
 
 const TICK_MS = 30_000
@@ -93,7 +93,6 @@ function announce(items: ReminderCardItem[], overflow: number): void {
 
 export function startTaskReminder(): void {
   stopTaskReminder()
-  prewarmReminderWindow()
   firstRun = setTimeout(() => {
     firstRun = null
     tick()

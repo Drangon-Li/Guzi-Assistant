@@ -80,6 +80,8 @@ export const api = {
   previewCancel: (captureId: string) => inv<void>('preview:cancel', captureId),
   previewHide: () => inv<void>('preview:hide'),
   previewResize: (height: number) => inv<void>('preview:resize', height),
+  /** 本窗口的推送订阅已挂好（见 main/window-ready.ts） */
+  windowReady: () => inv<void>('window:ready'),
 
   getSource: (id: string) => inv<SourceRecord | null>('source:get', id),
   deleteSource: (id: string) => inv<void>('source:delete', id),

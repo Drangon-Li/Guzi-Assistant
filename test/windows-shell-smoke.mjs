@@ -180,7 +180,7 @@ assert.equal(macMain.submissions.length, 0)
 function windowsModule(platform) {
   const nativeTheme = Object.assign(new EventEmitter(), { shouldUseDarkColors: false })
   class Window extends EventEmitter {
-    constructor(options) { super(); this.options = options; this.visible = false; this.minimized = false; this.webContents = { send() {} } }
+    constructor(options) { super(); this.options = options; this.visible = false; this.minimized = false; this.webContents = Object.assign(new EventEmitter(), { send() {} }) }
     isDestroyed() { return false }
     isVisible() { return this.visible }
     isMinimized() { return this.minimized }
@@ -199,6 +199,7 @@ function windowsModule(platform) {
     './content-lifecycle': { isContentResetting: () => false },
     './platform/window-options': loadTs('../src/main/platform/window-options.ts', { electron }, platform),
     './window-fade': loadTs('../src/main/window-fade.ts', {}, platform, { WeakMap }),
+    './window-ready': loadTs('../src/main/window-ready.ts', {}, platform, { WeakMap, WeakSet })
   }, platform)
 }
 const windows = windowsModule('win32')

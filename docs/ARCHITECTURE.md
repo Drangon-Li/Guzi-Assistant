@@ -314,6 +314,7 @@ src/
   main/                  Electron 主进程
     index.ts             应用生命周期 / 托盘 / 单实例
     windows.ts           主窗 + 预览窗
+    window-ready.ts      渲染层就绪握手：推给窗口的消息在订阅挂好前排队（窗口因此可以按需创建/销毁）
     ipc.ts               IPC 入口；handler 按领域拆在 ipc/（settings voice capture task activity app + register 包装）
     db.ts                SQLite 数据层出口（barrel，只做 re-export；调用方一律 from './db'）
     db/                  按表的领域拆分：connection(建表/句柄) settings sources tasks

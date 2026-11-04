@@ -17,6 +17,7 @@ import { scanOnce, screenActivityStatus } from '../screenwatch'
 import { acceptDetection, acceptLocal, acceptLocalBatch, acceptSuggestion, dismissDetection } from '../detection-cards'
 import { hidePreview, resizePreview, showPreview } from '../windows'
 import { hideQuickBar, resizeQuickBar } from '../quickbar'
+import { markWindowReady } from '../window-ready'
 import { trackExitWork, isExitPreparing } from '../exit-lifecycle'
 import {
   assertContentEpoch,
@@ -62,6 +63,7 @@ export function registerCaptureIpc(): void {
     clearPendings()
     hidePreview()
   })
+  ipcMain.handle('window:ready', (e) => markWindowReady(e.sender))
   ipcMain.handle('preview:resize', (_e, height: number) => {
     if (typeof height === 'number' && Number.isFinite(height)) resizePreview(height)
   })

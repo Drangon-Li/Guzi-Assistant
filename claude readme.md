@@ -158,6 +158,13 @@ if (!cols.includes('新列')) db.exec('ALTER TABLE 表名 ADD COLUMN 新列 ... 
 | 预览卡 | — | `#/preview` |
 | 调试 | — | `#/debug` |
 
+**主进程往窗口推消息一律走 `whenWindowReady(win, …)`**（`main/window-ready.ts`）：渲染层在 effect 里挂好订阅后调
+`api.windowReady()`，主进程把在那之前的消息排队、就绪后按序补发。直接 `webContents.send` 会在窗口刚建、
+订阅还没挂上时把消息丢掉。新增一个接收推送的窗口时，渲染层要在订阅 effect **之后**加一行 `useEffect(() => { void api.windowReady() }, [])`。
+
+有了握手，窗口不必为了不丢消息而常驻：提醒卡到点才建、处理完就关；预览卡隐藏后空闲 2 分钟关窗。
+快捷提问条和桌宠对话框仍然启动时预建——它们由快捷键/点击唤起，要求秒开。
+
 ### 捕获与解析
 
 - `capture.ts` — 捕获入口
@@ -365,6 +372,7 @@ console.log(b.includes(Buffer.from('某个新加的中文串','utf8')))"
 | 要改的东西 | 落点 |
 |---|---|
 | 新增 IPC 通道 | `shared/ipc-channels.ts` 登记 → `main/ipc/<领域>.ts` 注册 → `renderer/src/api.ts` 调用 |
+| 主进程往窗口推消息 | `whenWindowReady(win, () => win.webContents.send(…))`，渲染层订阅后 `api.windowReady()` |
 | 新增插件 | `shared/plugin-registry.ts` + `main/plugins/<id>/` + `renderer/src/plugins/<id>/`，注册进两个 index |
 | 插件加一个后端能力 | 该插件 `index.ts` 的 `handlers` 加 key，自动注册 |
 | 让助手会做新动作 | 插件 manifest 的 `assistantActions` + 主进程模块的 `assistantActions` 实现 |

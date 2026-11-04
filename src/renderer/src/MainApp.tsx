@@ -250,6 +250,9 @@ export default function MainApp(): React.JSX.Element | null {
     }
   }, [refresh])
 
+  // 订阅已挂好，告诉主进程可以推了（排队的消息此时补发）。effect 按声明顺序执行，必须放在订阅之后
+  useEffect(() => { void api.windowReady() }, [])
+
   // 切页过渡：旧页快速淡出，新页走 animate-page（淡入 + 轻微上移）。
   // 淡出压到 100ms——纯淡出没有信息量，拖长了只会让切页显得迟钝。
   useEffect(() => {
