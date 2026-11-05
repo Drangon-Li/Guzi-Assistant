@@ -313,7 +313,7 @@
             <div>
               <h3>使用 AI 时，相关内容会发送给模型服务</h3>
               <p>
-                当你请求 AI 识别或分析，相关文字、截图或文件内容会发送至所选模型服务。你可以登录使用托管服务，也可以配置自己的 OpenAI 兼容 API。费用与数据处理规则以所选服务说明为准。
+                当你请求 AI 识别或分析，相关文字、截图或文件内容会发送至你配置的模型服务（OpenAI 兼容或 Anthropic 协议）。当前版本为本地模式，不需要账号；云端托管服务暂停，后续恢复。费用与数据处理规则以所选服务说明为准。
               </p>
             </div>
           </div>
@@ -342,15 +342,15 @@
               <p>适用于 Apple Silicon 芯片<br>需要 macOS 12 或更新版本</p>
               <a
                 class="button button-light download-link"
-                href="https://github.com/Drangon-Li/guzi-assistant-releases/releases/download/v0.14.0/GuziAssistant-0.14.0-arm64.dmg"
+                href="https://github.com/Drangon-Li/Guzi-Assistant/releases/download/v0.15.0/GuziAssistant-0.15.0-arm64.dmg"
               >
                 下载 macOS 版
                 <span aria-hidden="true">↓</span>
               </a>
               <div class="release-links">
-                <span>v0.14.0</span>
+                <span>v0.15.0</span>
                 <a
-                  href="https://github.com/Drangon-Li/guzi-assistant-releases/releases/tag/v0.14.0"
+                  href="https://github.com/Drangon-Li/Guzi-Assistant/releases/tag/v0.15.0"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -378,7 +378,7 @@
               Windows 版本说明
               <span aria-hidden="true">↗</span>
             </a>
-            <p class="download-note">可登录使用托管服务，也可配置自己的模型服务。<br>AI 处理的相关内容会发送至所选服务，费用以服务说明为准。</p>
+            <p class="download-note">当前为本地模式：在设置里配置自己的模型服务即可使用，不需要账号。<br>AI 处理的相关内容会发送至该服务，费用以服务说明为准。</p>
           </div>
         </div>
       </section>
@@ -391,14 +391,14 @@
           <details>
             <summary>开始使用，需要自己配置 AI 模型吗？<span aria-hidden="true"></span></summary>
             <div class="faq-answer">
-              <p>你可以登录使用内置托管服务，也可以配置自己的 OpenAI 兼容 API。AI 识别与分析的相关内容会发送至所选服务，费用以相应服务说明为准。</p>
+              <p>需要。当前版本为本地模式，不需要账号：在「设置 → 助手 → 模型」里填写自己的 OpenAI 兼容或 Anthropic 模型 API 即可，捕获、屏幕感知、日报摘要和助手对话都用它。AI 识别与分析的相关内容会发送至该服务，费用以相应服务说明为准。云端托管服务暂停，后续恢复。</p>
             </div>
           </details>
           <details id="privacy-faq">
             <summary>哪些数据会发送给模型服务？<span aria-hidden="true"></span></summary>
             <div class="faq-answer">
               <p>
-                待办、笔记和活动记录保存在本地。使用 AI 识别或分析时，与该请求相关的文字、截图或文件内容会发送至你选择的托管服务或自配模型服务。请在使用前了解所选服务的数据处理规则，并按需调整采集设置。
+                待办、笔记和活动记录保存在本地。使用 AI 识别或分析时，与该请求相关的文字、截图或文件内容会发送至你配置的模型服务。请在使用前了解所选服务的数据处理规则，并按需调整采集设置。
               </p>
             </div>
           </details>
@@ -408,7 +408,7 @@
               <p>
                 macOS 应用适用于 Apple Silicon 芯片，需要 macOS 12 或更新版本；剪贴板自动捕获需要 macOS 15.4 或更新版本。macOS 版尚未完成 Apple 公证，首次打开请参考
                 <a
-                  href="https://github.com/Drangon-Li/guzi-assistant-releases/releases/tag/v0.14.0"
+                  href="https://github.com/Drangon-Li/Guzi-Assistant/releases/tag/v0.15.0"
                   target="_blank"
                   rel="noopener noreferrer"
                 >

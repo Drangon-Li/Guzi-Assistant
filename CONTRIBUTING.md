@@ -53,4 +53,6 @@ macOS 正式版通过 `.github/workflows/macos-release.yml` 发布到本仓库�
 
 1. 在 PR 里提升 `package.json` 版本，合并后在 `main` 的合并提交上打 `vX.Y.Z` 标签并推送——自动构建隔离的测试草稿。
 2. 测试草稿通过后，手动触发工作流：`tag=vX.Y.Z`、`publish=true`、`confirmation=publish-vX.Y.Z`。
-3. **迁移版本（源码仓库公开后的第一个正式版）额外勾选 `bridge_legacy`**，让 v0.13.0–v0.14.0 的旧安装通过旧仓库 `guzi-assistant-releases` 的更新源升级到本仓库的版本；确认旧版本能检查到更新后，归档旧仓库并删除 `RELEASE_REPO_TOKEN`。
+3. 发布说明在发布后用 `gh release edit` 换成中文标题和说明（格式参照已有版本）。
+
+旧发布仓库 `guzi-assistant-releases` 的迁移已在 v0.15.0 完成：那里的 latest 是指向本仓库的桥接更新源，仓库已归档、`RELEASE_REPO_TOKEN` 已删除。**以后发布不要勾选 `bridge_legacy`**（没有令牌时发布脚本会在开始前直接报错），也不要删除旧仓库——尚未升级的 v0.13.0 / v0.14.0 仍从那里读更新源。
