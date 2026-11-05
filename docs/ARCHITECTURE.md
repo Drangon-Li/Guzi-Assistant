@@ -404,6 +404,8 @@ npm run pack:mac    # 生成 arm64 DMG + ZIP
 
 ## 十、托管后端部署（Supabase + 云雾）
 
+> **当前暂停（本地模式）**：`src/shared/hosted-service.ts` 的 `HOSTED_SERVICE_ENABLED = false`，客户端默认不连托管后端，账号、托管解析网关、计费与应用内反馈都不出现，解析走用户在设置里配置的模型。恢复时把它改回 `true`，并先在库上执行 `server/db/migrations/20261105_restrict_rpc_execute.sql`。构建时指定 `VITE_GUZI_ASSISTANT_SUPABASE_*` 的自建后端不受这个开关影响。Windows 版的「检查更新」仍读 Supabase Storage 的 `latest-win-x64.json`，托管后端恢复前不可用。
+
 ```bash
 # 1. 数据库（一次性）：在 Supabase SQL Editor 跑 server/db/schema.sql
 # 2. Edge Function 密钥：

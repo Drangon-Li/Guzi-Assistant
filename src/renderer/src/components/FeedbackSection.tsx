@@ -48,7 +48,9 @@ export default function FeedbackSection(): React.JSX.Element {
   return (
     <Section title="联系我们" desc="使用中的问题、建议、想要的功能，都可以在这里直接告诉我们。">
       {!hasBackend || !supabase ? (
-        <p className="py-2 text-sm text-slate-400">托管服务未接入，暂无法在应用内反馈。</p>
+        <p className="py-2 text-sm leading-6 text-slate-400">
+          本地模式下没有应用内反馈通道。欢迎到 GitHub 仓库 Drangon-Li/Guzi-Assistant 的 Issues 提问题和建议；安全问题请按仓库里的 SECURITY.md 私密报告。
+        </p>
       ) : !session ? (
         <p className="py-2 text-sm text-slate-400">登录后即可在应用内直接反馈（个人页 → 账户）。</p>
       ) : (

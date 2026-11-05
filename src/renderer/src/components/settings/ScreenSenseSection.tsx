@@ -7,6 +7,7 @@ import { permissionLabel } from '../../../../shared/platform'
 import { isMac } from '../../platform'
 import { Section, Toggle } from '../ui'
 import HistoryDataSection from './HistoryDataSection'
+import { hasBackend } from '../../supabase'
 
 interface Props {
   settings: AppSettings
@@ -113,7 +114,8 @@ export default function ScreenSenseSection({
                 <span>
                   待办自动识别
                   <span className="ml-2 text-xs text-slate-400">
-                    在聊天 / 邮件 / 浏览器 / 文档 / 日历里定期看一次屏幕文字抓待办，会消耗积分
+                    在聊天 / 邮件 / 浏览器 / 文档 / 日历里定期看一次屏幕文字抓待办，
+                    {hasBackend ? '会消耗积分' : '每次检测会调用你配置的模型 API'}
                   </span>
                 </span>
                 <Toggle
@@ -152,7 +154,7 @@ export default function ScreenSenseSection({
                 <span>
                   工作记录
                   <span className="ml-2 text-xs text-slate-400">
-                    识别时顺带记下「在做什么」，供「日报」页生成工作日报（不额外耗积分）
+                    把每 10 分钟的活动摘要按时间线整理成「在做什么」，供「日报」页生成工作日报（不额外调用模型）
                   </span>
                 </span>
                 <Toggle
@@ -189,7 +191,12 @@ export default function ScreenSenseSection({
                 <span>
                   日程深度确认
                   <span className="ml-2 text-xs text-slate-400">
-                    检出日程候选后把截图发视觉模型二次确认，更准；注意此时<b>截图会上传云端</b>、额外耗积分
+                    检出日程候选后把截图发视觉模型二次确认，更准；注意此时
+                    {hasBackend ? (
+                      <><b>截图会上传云端</b>、额外耗积分</>
+                    ) : (
+                      <><b>截图会发给你配置的读图模型</b>、额外消耗 API 额度</>
+                    )}
                   </span>
                 </span>
                 <Toggle

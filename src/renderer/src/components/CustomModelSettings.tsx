@@ -5,6 +5,7 @@ import { api } from '../api'
 import { trackExitSave, useExitParticipant } from '../exit-lifecycle'
 import { API_FORMATS, normalizeApiFormat, type ApiFormat } from '@shared/api-formats'
 import { Toggle } from './ui'
+import { hasBackend } from '../supabase'
 
 const input =
   'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none'
@@ -332,7 +333,8 @@ export default function CustomModelSettings(): React.JSX.Element {
 
       {saveError && <p className="text-xs text-amber-600">{saveError}</p>}
 
-      <label className="flex items-center justify-between gap-4 border-t border-slate-200 pt-3">
+      {/* 本地模式没有托管服务可替代：只要填好就直接使用，这个开关不起作用 */}
+      {hasBackend && <label className="flex items-center justify-between gap-4 border-t border-slate-200 pt-3">
         <span>
           启用自定义模型
           <span className="ml-2 text-xs text-slate-400">
@@ -348,7 +350,7 @@ export default function CustomModelSettings(): React.JSX.Element {
             save({ useCustomModel: next })
           }}
         />
-      </label>
+      </label>}
 
       <p className="text-xs text-slate-400">
         支持 OpenAI Responses、OpenAI Chat 和 Anthropic 协议，默认自动识别。

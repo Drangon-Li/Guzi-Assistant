@@ -4,6 +4,7 @@ import type { AppSettings } from '@shared/types'
 import CustomModelSettings from '../CustomModelSettings'
 import PetSettings from '../PetSettings'
 import { Section } from '../ui'
+import { hasBackend } from '../../supabase'
 
 interface Props {
   settings: AppSettings
@@ -40,7 +41,14 @@ export default function AssistantSection({
         </label>
       </Section>
 
-      <Section title="自定义模型" desc="用自己的 API 驱动谷子助手的解析与对话，替代内置托管服务。">
+      <Section
+        title={hasBackend ? '自定义模型' : '模型'}
+        desc={
+          hasBackend
+            ? '用自己的 API 驱动谷子助手的解析与对话，替代内置托管服务。'
+            : '本地模式下，捕获解析、屏幕感知、日报摘要和助手对话都使用这里配置的模型 API，必须先填好才能用。'
+        }
+      >
         <CustomModelSettings />
       </Section>
 

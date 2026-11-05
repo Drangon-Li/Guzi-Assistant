@@ -4,6 +4,7 @@ import { api } from '../api'
 import { clearExitSaveError, trackExitSave, useExitParticipant } from '../exit-lifecycle'
 import { fillFromPlaceholder, IDENTITIES, IDENTITY_PROFILE_FIELDS } from '../labels'
 import AccountSection from '../components/AccountSection'
+import { hasBackend } from '../supabase'
 import PersonalMemory from '../components/PersonalMemory'
 
 interface Props {
@@ -96,10 +97,18 @@ export default function Account({ onProfileChange }: Props): React.JSX.Element {
       <h1 className="text-lg font-semibold">个人</h1>
 
       <Section title="账户">
-        <p className="mb-3 text-xs leading-5 text-slate-400">
-          解析能力由 谷子助手 云端提供，登录即用，无需配置模型或密钥。
-        </p>
-        <AccountSection />
+        {hasBackend ? (
+          <>
+            <p className="mb-3 text-xs leading-5 text-slate-400">
+              解析能力由 谷子助手 云端提供，登录即用，无需配置模型或密钥。
+            </p>
+            <AccountSection />
+          </>
+        ) : (
+          <p className="text-xs leading-5 text-slate-400">
+            当前为本地模式：数据只存在这台电脑上，不需要账号；解析和对话使用你在「设置 → 助手 → 模型」里配置的模型 API。云端账号与托管服务暂停，后续恢复。
+          </p>
+        )}
       </Section>
 
       <Section title="用户档案">

@@ -13,7 +13,9 @@ macOS 桌面端个人事项捕获助手。核心链路是**捕获 → 判断 →
 
 ## 技术栈
 
-Electron 38 + electron-vite + React 19 + TypeScript + Tailwind v4 + better-sqlite3（本地库）+ Supabase（云端后端 / 订阅 / 模型代理）。
+Electron 38 + electron-vite + React 19 + TypeScript + Tailwind v4 + better-sqlite3（本地库）+ Supabase（云端后端 / 订阅 / 模型代理，**当前暂停**）。
+
+**当前是本地模式**：`src/shared/hosted-service.ts` 的 `HOSTED_SERVICE_ENABLED = false`，渲染层 `hasBackend` 为假——没有登录、积分、订阅和应用内反馈，解析只走用户在「设置 → 助手 → 模型」里填的 API。新加的界面文案凡是提到积分、登录、云端，都要按 `hasBackend` 分两套写；恢复托管服务时改回 `true`（`test/hosted-service-smoke.mjs` 会提醒同步）。
 
 ---
 
@@ -334,9 +336,9 @@ console.log(b.includes(Buffer.from('某个新加的中文串','utf8')))"
 
 1. `package.json` 和 `package-lock.json` 版本号一起改（**lockfile 容易漏**）
 2. 提交 → 推分支 → `gh pr create` → 等 CI → `gh pr merge`
-3. `npm run build` + `npx electron-builder --mac -c.electronVersion=…`
-4. `gh release create vX.Y.Z --target main`（**必须 `--target main`，给短 SHA 会报 `target_commitish is invalid`**；上传 244MB 会超前台超时，放后台跑）
-5. `scripts/publish-release.sh "更新说明"` —— 推 DMG 到 Supabase Storage，**这是应用内「检查更新」的数据源，和 GitHub Release 是两条独立渠道**。不跑的话老用户在应用内看不到新版本。会写生产存储桶，需要 supabase CLI 处于 linked 状态。
+3. 在 `main` 的合并提交上打 `vX.Y.Z` 标签并推送 → `macos-release.yml` 自动构建隔离测试草稿
+4. 测试草稿通过后手动触发同一工作流：`publish=true`、`confirmation=publish-vX.Y.Z` → 正式版发到本仓库 Releases，Sparkle 更新源随之指向新版（macOS 应用内更新的唯一数据源）
+5. 细节与一次性的旧仓库桥接（`bridge_legacy`）见 CONTRIBUTING.md「发布」。`scripts/publish-release.sh` 是旧的 Supabase Storage 渠道，只剩 Windows 检查更新在读，托管后端暂停期间不要用
 
 ---
 

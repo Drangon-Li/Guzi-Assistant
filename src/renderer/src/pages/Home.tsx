@@ -7,6 +7,7 @@ import type { SettingsCat } from './Settings'
 import { Section } from '../components/ui'
 import GrainEar from '../components/GrainEar'
 import brandMark from '../assets/agent-avatar.png'
+import { hasBackend } from '../supabase'
 
 const ACTIVE_STATUS = new Set(['not_started', 'scheduled', 'in_progress', 'overdue'])
 
@@ -40,6 +41,8 @@ export default function Home({
   const [overrides, setOverrides] = useState<AppCategoryOverride[]>([])
   const [usage, setUsage] = useState<AppUsageEntry[]>([])
   const [senseOn, setSenseOn] = useState(true)
+  // 本地模式下解析全靠用户自己的模型：没配好之前，捕获、屏幕感知和助手都用不了
+  const [modelReady, setModelReady] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [note, setNote] = useState('')
 
@@ -61,7 +64,10 @@ export default function Home({
 
   useEffect(() => {
     const loadSettings = (): void => {
-      void api.getSettings().then((s) => setSenseOn(s.screenSenseEnabled))
+      void api.getSettings().then((s) => {
+        setSenseOn(s.screenSenseEnabled)
+        setModelReady(Boolean(s.apiBase.trim() && s.apiKey.trim()))
+      })
     }
     loadSettings()
     return api.on('guzi-assistant:settings-updated', loadSettings)
@@ -131,9 +137,24 @@ export default function Home({
         </div>
       </div>
 
+      {!hasBackend && !modelReady && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          <span>还没配置模型：捕获待办、屏幕感知和助手对话都要用你自己的模型 API（OpenAI 兼容或 Anthropic）。</span>
+          <button
+            className="shrink-0 rounded-lg border border-amber-300 px-3 py-1.5 text-xs hover:bg-amber-100"
+            onClick={() => onNavigate('settings', '助手')}
+          >
+            去配置
+          </button>
+        </div>
+      )}
+
       {!senseOn && (
         <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-          <span>屏幕感知未开启：开启后才会自动捕获待办与工作记录（检测走云端，消耗积分）。</span>
+          <span>
+            屏幕感知未开启：开启后才会自动捕获待办与工作记录（
+            {hasBackend ? '检测走云端，消耗积分' : '检测会调用你配置的模型 API'}）。
+          </span>
           <button
             className="shrink-0 rounded-lg border border-amber-300 px-3 py-1.5 text-xs hover:bg-amber-100"
             onClick={() => onNavigate('settings', '屏幕感知')}
