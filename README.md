@@ -36,7 +36,7 @@
 | macOS Apple Silicon | `GuziAssistant-<版本>-arm64.zip` | 供应用内更新（Sparkle）使用，更新包带 Ed25519 签名校验 |
 | Windows x64 | `GuziAssistant-<版本>-win-x64.exe` / `.zip` | 安装包 / 免安装版 |
 
-v0.13.0–v0.14.0 的 macOS 安装包发布在旧仓库 [guzi-assistant-releases](https://github.com/Drangon-Li/guzi-assistant-releases/releases)；之后的版本都在本仓库，已安装的旧版本会通过应用内更新自动迁移过来。
+v0.13.0–v0.14.0 的 macOS 安装包在已归档的旧仓库 [guzi-assistant-releases](https://github.com/Drangon-Li/guzi-assistant-releases/releases)；从 v0.15.0 起都在本仓库，已安装的旧版本在应用内检查更新即可升级过来。
 
 macOS 安装包是 ad-hoc 签名，没有 Apple Developer ID 签名或公证。首次打开如果遇到 Gatekeeper 提示，请在 Finder 中右键「谷子助手.app」并选择「打开」，再确认提示。
 
