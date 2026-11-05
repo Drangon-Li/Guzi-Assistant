@@ -1,29 +1,24 @@
 /**
  * Supabase 客户端（#69 账号体系 / 数据库即后端架构）。
- * URL + publishable key 是设计上可公开的客户端值（数据由 RLS 保护），故内置我方托管后端默认值，
- * 注册登录即用、零配置；自建后端用 VITE_GUZI_ASSISTANT_SUPABASE_* 覆盖。
+ * 连哪个后端由 @shared/hosted-service 决定：托管服务开启时回落到维护者的托管后端；
+ * 当前是本地模式，只有构建时用 VITE_GUZI_ASSISTANT_SUPABASE_* 指定自建后端才会连。
  * 旧 VITE_ESHELL_SUPABASE_* 仅作升级兼容回退。
- * 两者皆空才 supabase=null、hasBackend=false（账号/托管解析不可用，本地功能仍可用）。
+ * 两者皆空则 supabase=null、hasBackend=false：账号/托管解析不可用，解析走用户自己配置的模型。
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { firstNonBlank } from '@shared/env-value'
+import { resolveBackend } from '@shared/hosted-service'
 
-// 我方托管后端（project rtgypddrknuylecqejmp）。publishable key 安全暴露于客户端。
-const DEFAULT_URL = 'https://rtgypddrknuylecqejmp.supabase.co'
-const DEFAULT_ANON_KEY = 'sb_publishable_KBP637mcafctZX9LczEK3w_S--3WBEq'
-
-const url =
-  firstNonBlank(
+const { url, anonKey } = resolveBackend({
+  url: firstNonBlank(
     import.meta.env.VITE_GUZI_ASSISTANT_SUPABASE_URL as string | undefined,
     import.meta.env.VITE_ESHELL_SUPABASE_URL as string | undefined
-  ) ||
-  DEFAULT_URL
-const anonKey =
-  firstNonBlank(
+  ),
+  anonKey: firstNonBlank(
     import.meta.env.VITE_GUZI_ASSISTANT_SUPABASE_ANON_KEY as string | undefined,
     import.meta.env.VITE_ESHELL_SUPABASE_ANON_KEY as string | undefined
-  ) ||
-  DEFAULT_ANON_KEY
+  )
+})
 
 /** 托管后端是否已配置（决定是否显示账号/充值入口） */
 export const hasBackend = Boolean(url && anonKey)

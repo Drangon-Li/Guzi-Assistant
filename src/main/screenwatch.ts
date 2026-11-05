@@ -347,7 +347,7 @@ async function watchTick(): Promise<void> {
     // 解析服务未就绪（未登录且未配直连 API/无档案）→ 静默跳过，不白跑截图/OCR/云调用
     if (!cloudReady()) {
       if (!loop.cloudBlockLogged) {
-        debugEvent('skip', '解析服务未就绪（未登录或未完成档案），监控暂停')
+        debugEvent('skip', '解析服务未就绪（未配置模型/未登录，或未完成档案），监控暂停')
         loop.cloudBlockLogged = true
       }
       return

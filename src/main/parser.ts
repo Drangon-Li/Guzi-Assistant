@@ -18,6 +18,7 @@ import {
   type CanonicalMessage
 } from '@shared/api-formats'
 import { getSession } from './session'
+import { HOSTED_SERVICE_ENABLED } from '@shared/hosted-service'
 import { modelClient } from './model-client'
 
 export type { ParsedItem }
@@ -76,7 +77,9 @@ async function viaDirect(
   const model = modelForAction(action, settings)
   if (!apiBase || !apiKey)
     throw new Error(
-      useCustomModel ? '自定义模型未配置完整，请在设置 → 助手里填写 API 地址与 Key' : '请先登录以使用解析服务'
+      HOSTED_SERVICE_ENABLED && !useCustomModel
+        ? '请先登录以使用解析服务'
+        : '还没配置模型：请在「设置 → 助手 → 模型」里填写 API 地址与 Key'
     )
 
   const input = rawInput as CanonicalMessage[]

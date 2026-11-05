@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import brandMark from '../assets/agent-avatar.png'
+import { hasBackend } from '../supabase'
 
 interface Props {
   onDone: () => void
@@ -81,7 +82,10 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
                 <li>· 所有数据存在本机，设置页可一键清除</li>
               </ul>
               <p className="text-xs leading-5 text-slate-400">
-                屏幕感知默认关闭（检测走云端、消耗积分）。稍后可在「设置 → 屏幕感知」里开启。
+                {hasBackend
+                  ? '屏幕感知默认关闭（检测走云端、消耗积分）。'
+                  : '屏幕感知默认关闭（检测会调用你配置的模型 API）。'}
+                稍后可在「设置 → 屏幕感知」里开启。
               </p>
             </>
           )}
@@ -96,12 +100,21 @@ export default function Welcome({ onDone }: Props): React.JSX.Element {
                     约 2 分钟，让 AI 知道「你是谁」，判断任务归属才准
                   </span>
                 </li>
-                <li className="rounded-xl border border-slate-200 px-4 py-3">
-                  <span className="font-medium">2. 登录账号</span>
-                  <span className="ml-2 text-xs text-slate-400">
-                    在「个人」页注册登录，注册即送 7 天全功能试用
-                  </span>
-                </li>
+                {hasBackend ? (
+                  <li className="rounded-xl border border-slate-200 px-4 py-3">
+                    <span className="font-medium">2. 登录账号</span>
+                    <span className="ml-2 text-xs text-slate-400">
+                      在「个人」页注册登录，注册即送 7 天全功能试用
+                    </span>
+                  </li>
+                ) : (
+                  <li className="rounded-xl border border-slate-200 px-4 py-3">
+                    <span className="font-medium">2. 配置模型</span>
+                    <span className="ml-2 text-xs text-slate-400">
+                      在「设置 → 助手 → 模型」填你自己的模型 API（OpenAI 兼容或 Anthropic），解析和对话都用它；数据只存在本机
+                    </span>
+                  </li>
+                )}
                 <li className="rounded-xl border border-slate-200 px-4 py-3">
                   <span className="font-medium">3. 日常使用</span>
                   <span className="ml-2 text-xs text-slate-400">
