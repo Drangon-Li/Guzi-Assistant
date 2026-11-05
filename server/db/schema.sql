@@ -231,3 +231,19 @@ create policy "own feedback read"   on public.feedback for select using (auth.ui
 --     expires_at = greatest(public.subscriptions.expires_at, now())
 --       + make_interval(days => (select purchased_balance * 30 / 1000 from public.credits c where c.user_id = public.subscriptions.user_id));
 -- update public.credits set purchased_balance = 0 where purchased_balance > 0;
+
+-- ── RPC 权限：security definer 函数只给服务端调用（见 migrations/20261105_restrict_rpc_execute.sql）──
+-- Supabase 默认把 public 里函数的 EXECUTE 授予 anon / authenticated，经 /rest/v1/rpc 可直接调用；
+-- 这些函数绕过 RLS 改余额与会员，客户端绝不能直接调。网关与支付回调都用 service_role。
+revoke execute on function public.handle_new_user()                         from public, anon, authenticated;
+revoke execute on function public.deduct_credits(uuid, int, text)           from public, anon, authenticated;
+revoke execute on function public.add_credits(uuid, int, text, text)        from public, anon, authenticated;
+revoke execute on function public.activate_membership(uuid, int, text)      from public, anon, authenticated;
+revoke execute on function public.activate_subscription(uuid, text, int, text) from public, anon, authenticated;
+revoke execute on function public.consume_quota(uuid, int)                  from public, anon, authenticated;
+grant execute on function public.deduct_credits(uuid, int, text)            to service_role;
+grant execute on function public.add_credits(uuid, int, text, text)         to service_role;
+grant execute on function public.activate_membership(uuid, int, text)       to service_role;
+grant execute on function public.activate_subscription(uuid, text, int, text) to service_role;
+grant execute on function public.consume_quota(uuid, int)                   to service_role;
+alter default privileges in schema public revoke execute on functions from public, anon, authenticated;
