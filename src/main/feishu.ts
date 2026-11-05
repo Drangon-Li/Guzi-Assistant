@@ -1,8 +1,9 @@
-import * as Lark from '@larksuiteoapi/node-sdk'
+import type * as Lark from '@larksuiteoapi/node-sdk'
 import { nativeImage } from 'electron'
 import { getSettings } from './db'
 import { submitFeishu, toJpegDataUrl } from './capture'
 import type { FeishuStatus, ParseSummary } from '@shared/types'
+import { flattenPost, restoreMentions, type FeishuMention } from '@shared/feishu-message'
 import { captureContentEpoch, isContentEpochCurrent, isContentResetting } from './content-lifecycle'
 
 let state: FeishuStatus = { status: 'disabled', detail: '' }
@@ -16,6 +17,8 @@ interface FeishuMessage {
   chat_type: string
   message_type: string
   content: string
+  /** 正文里 @_user_N 占位符对应的真名 */
+  mentions?: FeishuMention[]
 }
 
 export function feishuStatus(): FeishuStatus {
@@ -44,7 +47,10 @@ export function ensureFeishu(): void {
 
 async function start(appId: string, appSecret: string): Promise<void> {
   state = { status: 'connecting', detail: '' }
-  client = new Lark.Client({ appId, appSecret })
+  // SDK 连带 axios、protobuf 等一整套依赖，加载一次约 15MB 堆、100ms。
+  // 绝大多数用户没配飞书机器人，配了才加载，别让每个人启动时都背着它。
+  const sdk = await import('@larksuiteoapi/node-sdk')
+  client = new sdk.Client({ appId, appSecret })
 
   // 先校验凭证，否则 WSClient 只会在内部静默重试
   try {
@@ -60,7 +66,7 @@ async function start(appId: string, appSecret: string): Promise<void> {
     return
   }
 
-  const dispatcher = new Lark.EventDispatcher({}).register({
+  const dispatcher = new sdk.EventDispatcher({}).register({
     'im.message.receive_v1': async (data: unknown) => {
       try {
         await handleMessage((data as { message?: FeishuMessage }).message)
@@ -71,7 +77,7 @@ async function start(appId: string, appSecret: string): Promise<void> {
   })
 
   try {
-    const ws = new Lark.WSClient({ appId, appSecret, loggerLevel: Lark.LoggerLevel.error })
+    const ws = new sdk.WSClient({ appId, appSecret, loggerLevel: sdk.LoggerLevel.error })
     ws.start({ eventDispatcher: dispatcher })
     state = { status: 'connected', detail: '长连接已建立，私聊机器人即可转发消息' }
   } catch (e) {
@@ -95,9 +101,9 @@ async function handleMessage(msg: FeishuMessage | undefined): Promise<void> {
   let imageDataUrl: string | undefined
   if (msg.message_type === 'text') {
     const content = JSON.parse(msg.content) as { text?: string }
-    text = content.text?.replace(/@_user_\d+/g, '').trim()
+    text = restoreMentions(content.text ?? '', msg.mentions).trim()
   } else if (msg.message_type === 'post') {
-    text = flattenPost(JSON.parse(msg.content))
+    text = flattenPost(JSON.parse(msg.content), msg.mentions)
   } else if (msg.message_type === 'image') {
     const content = JSON.parse(msg.content) as { image_key?: string }
     if (content.image_key) imageDataUrl = await downloadImage(msg.message_id, content.image_key)
@@ -110,19 +116,6 @@ async function handleMessage(msg: FeishuMessage | undefined): Promise<void> {
   const summary = await submitFeishu({ text, imageDataUrl })
   if (!isContentEpochCurrent(epoch)) return
   await reply(msg.chat_id, summaryText(summary))
-}
-
-interface PostNode {
-  tag: string
-  text?: string
-  href?: string
-}
-
-function flattenPost(content: { title?: string; content?: PostNode[][] }): string {
-  const lines = (content.content ?? []).map((line) =>
-    line.map((node) => node.text ?? node.href ?? '').join('')
-  )
-  return [content.title ?? '', ...lines].filter(Boolean).join('\n')
 }
 
 async function downloadImage(messageId: string, fileKey: string): Promise<string> {

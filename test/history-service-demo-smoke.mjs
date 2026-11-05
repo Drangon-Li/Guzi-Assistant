@@ -25,12 +25,8 @@ const stubs={
     export const getHistorySummaryIndex=()=>d.summaryIndex;
     export const listFocusTaskCandidates=()=>[];
     export const listKnownAppNames=()=>[];
-    export const removeHistoryWorkRecord=()=>{};
-    export const removeHistoryWorkRecords=()=>[];
-    export const upsertHistoryWorkRecord=(r)=>d.work.push(r);
     export const getDb=()=>d.db;
     export const listActivityIntervals=()=>d.intervals;
-    export const usesTimelineForDay=()=>false;
     export const removeTimelineWorkRecords=()=>{};
     export const upsertTimelineWorkRecord=(r)=>d.work.push(r);
     export {addOcrEvidence,listOcrEvidence} from './db/activity.ts';`,
@@ -80,7 +76,7 @@ try{
   for(const [name,source]of Object.entries(stubs))compile(name,source)
   db=new Database(':memory:')
   const d=globalThis.historyServiceDemo={
-    temp,db,settings:{historyV2Enabled:true,historyDerivedWorkEnabled:false,screenSenseWorkLog:false,
+    temp,db,settings:{historyV2Enabled:true,screenSenseWorkLog:false,
       screenSenseExcludedApps:[],historyExcludedApps:[],historyIncludedHosts:[],historyExcludedHosts:[],apiBase:'',apiKey:''},
     segmentIndex:index(),summaryIndex:index(),summarizers:[],intervals:[],work:[],boundaries:[],clears:[],deletedRanges:[],unboundedClears:0,broadcasts:[],invalidations:0
   }

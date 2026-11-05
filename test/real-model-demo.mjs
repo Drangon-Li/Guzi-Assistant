@@ -104,8 +104,9 @@ const stubs = {
   'src/main/session.ts': `export const getSession=()=>({functionsBase:'',token:null});`,
   'electron': `export const app={getPath:()=>globalThis.${stateKey}.temp};`,
   'src/main/capture.ts': selectedDeclarations('src/main/capture.ts', ['LIST_EXTRACTION_RULES', 'SCREEN_LIST_EXTRACTION_RULES', 'SCREEN_NOT_SCHEDULE_RULES', 'HINTS']),
-  'src/main/work-records.ts': `import { ACTIVITY_SUMMARY_RULES } from '../shared/semantic-work.ts';\n${selectedDeclarations('src/main/work-records.ts', ['workSummaryHint'])}`,
-  'src/main/detection-cards.ts': selectedDeclarations('src/main/detection-cards.ts', ['parsedToExtraction'])
+  'src/main/detection-cards.ts': selectedDeclarations('src/main/detection-cards.ts', ['parsedToExtraction']),
+  // ocr.ts 在 Windows 上动态加载这条分支；macOS demo 走 Apple Vision，用不到
+  'src/main/platform/windows-ocr.ts': `export const windowsOcrImageDetailed=async()=>{throw new Error('Windows OCR 不在 macOS demo 范围')};`
 }
 const compiled = new Set()
 const dest = (name) => join(temp, name === 'electron' ? 'electron.mjs' : name.replace(/\.ts$/, '.mjs'))
@@ -176,14 +177,14 @@ try {
   const parser = await load('src/main/parser.ts')
   const parsing = await load('src/shared/parsing.ts')
   const { HINTS } = await load('src/main/capture.ts')
-  const { workSummaryHint } = await load('src/main/work-records.ts')
   const { parsedToExtraction } = await load('src/main/detection-cards.ts')
   const { detectionQueueDecision } = await load('src/shared/detection-gate.ts')
   const { HistorySummarizer, summarizeTenMinuteSegment } = await load('src/main/history/summarizer.ts')
   const { modelForAction } = await load('src/shared/model-configuration.ts')
   await load('src/main/ocr.ts')
   const queue = (items) => items.filter((item) => detectionQueueDecision(item, parsedToExtraction(item).strong) === 'queue')
-  const screenHint = `${HINTS.screen_scan}\n${workSummaryHint('', ['开发演示助手'])}`
+  // 屏幕识别只抽待办；工作描述改由 History 摘要派生（下面的 History 用例覆盖）
+  const screenHint = HINTS.screen_scan
   const today = parsing.localNow().slice(0, 10)
   const dueDate = new Date()
   dueDate.setDate(dueDate.getDate() + 2)
@@ -201,11 +202,11 @@ try {
     { name: '纯通知不生成本人任务', expected: { count: 0 },
       text: `合成演示通知中心，今天 ${today}：公司官网新闻已发布；系统升级已完成；同事昨天分享了风景照片。以上仅供知悉，无需报名、回复、提交或参加。已读。`,
       verify: ({ items }) => checks({ '无任务候选': items.length === 0, '无入队任务': queue(items).length === 0 }) },
-    { name: '混合日程和当前工作活动', expected: { meetingStart: `${dueDay}T10:00`, workFocus: '开发演示助手', workMustNotBecomeTask: true },
+    { name: '混合日程和当前工作活动', expected: { meetingStart: `${dueDay}T10:00`, workMustNotBecomeTask: true },
       text: `合成演示屏幕，今天 ${today}。左侧是今天负责人发给林小谷的新消息：林小谷，请于 ${dueDay} 上午10:00参加需求评审会，地点合成会议室A。右侧代码编辑器正在修改演示助手的任务识别模块 parser.ts，编辑内容是标题匹配与时间解析，终端显示单元测试正在运行。这些代码与命令是当前活动。`,
-      verify: ({ items, raw }) => checks({ '会议时间正确': queue(items).some((i) => /评审/.test(i.title) && i.start_time === `${dueDay}T10:00` && i.belongs_to_user === 'yes'), '代码与测试不生成待办': items.every((i) => !/修改|单元测试|parser\.ts|时间解析|标题匹配/.test(i.title)), '工作描述存在': Boolean(parsing.parseWorkSummary(raw)), '工作标签稳定': parsing.parseFocusTask(raw) === '开发演示助手' }) }
+      verify: ({ items }) => checks({ '会议时间正确': queue(items).some((i) => /评审/.test(i.title) && i.start_time === `${dueDay}T10:00` && i.belongs_to_user === 'yes'), '代码与测试不生成待办': items.every((i) => !/修改|单元测试|parser\.ts|时间解析|标题匹配/.test(i.title)) }) }
   ]
-  assert.ok(HINTS.screen_scan.includes('不可信') && screenHint.includes('work_summary'))
+  assert.ok(HINTS.screen_scan.includes('不可信'))
   assert.equal(queue([parsing.normalizeItem({ title: '他人任务', belongs_to_user: 'no', confidence: 1, suggested_action: 'add' })]).length, 0)
   assert.equal(editingCompletionCheck([{ progress: '已完成标题匹配逻辑的编辑，并运行测试，尚无结果' }]).pass, false)
   assert.equal(editingCompletionCheck([{ progress: '正在编辑标题匹配逻辑，并已运行测试，尚无结果' }]).pass, true)
@@ -230,7 +231,7 @@ try {
     assert.equal(document.timeRange.endAt, snapshot.events.at(-1).occurred_at)
   }
   report.productionModules = [...compiled].filter((name) => !(name in stubs))
-  report.promptSources = ['src/main/capture.ts:HINTS', 'src/main/work-records.ts:workSummaryHint', 'src/shared/parsing.ts:buildInstructions', 'src/main/history/summary-prompt.ts']
+  report.promptSources = ['src/main/capture.ts:HINTS', 'src/shared/parsing.ts:buildInstructions', 'src/main/history/summary-prompt.ts']
   if (!live) {
     report.cases = textCases.map(({ name, expected }) => ({ case: name, expected, actual: null, pass: null, status: 'fixture-and-production-imports-validated; model not called' }))
     report.cases.push({ case: 'History区间和稳定标签', expected: historyExpected, actual: null, pass: null, status: 'production-summarizer-import-validated; model not called' })
@@ -241,7 +242,7 @@ try {
     const model = modelForAction('parse_text', settings)
     for (const fixture of textCases) await runCase(fixture.name, fixture.expected, model, async () => {
       const result = await parser.parseToItemsRaw({ text: fixture.text, hint: screenHint, signal: AbortSignal.timeout(timeoutMs) })
-      return { actual: { input: fixture.text, items: result.items, matchedCounts: fixture.matchedCounts?.(result.items), queuedItems: queue(result.items), workSummary: parsing.parseWorkSummary(result.raw), focusTask: parsing.parseFocusTask(result.raw), raw: result.raw }, checks: fixture.verify(result) }
+      return { actual: { input: fixture.text, items: result.items, matchedCounts: fixture.matchedCounts?.(result.items), queuedItems: queue(result.items), raw: result.raw }, checks: fixture.verify(result) }
     })
     await runCase('History区间和稳定标签', historyExpected, model, async () => {
       const start = historyStart

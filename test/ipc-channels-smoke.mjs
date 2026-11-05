@@ -30,7 +30,8 @@ const invoke = uniq([...INVOKE_CHANNELS])
 const event = uniq([...EVENT_CHANNELS])
 
 // 1) 主进程 ipcMain.handle 注册的通道（\s 跨行匹配 assistant:* 那种换行写法）
-const handlers = uniq(all(read('src/main/ipc.ts'), /ipcMain\.handle\(\s*['"]([^'"]+)['"]/g))
+// 主进程注册按领域拆在 src/main/ipc/ 下，入口 src/main/ipc.ts 只负责挂上
+const handlers = uniq(all(read('src/main/ipc.ts') + readDir('src/main/ipc'), /ipcMain\.handle\(\s*['"]([^'"]+)['"]/g))
 check(
   'INVOKE 清单 == ipcMain.handle 注册集',
   eq(handlers, invoke),

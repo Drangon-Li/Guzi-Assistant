@@ -8,7 +8,6 @@ import {
   markActivityScan,
   recordOcrEvidence,
   recordFrontmostContext,
-  configureSemanticWorkClassifier,
   startActivityCollector,
   stopActivityCollector,
   resetActivityGate
@@ -24,21 +23,21 @@ const START = 1_000_000
 const context = { name: 'Code', bundleId: 'com.microsoft.VSCode', windowTitle: 'project.ts' }
 
 resetActivityGate(START)
-check('观察器就绪前自动扫描 fail-closed', activityScanDecision(true, 45, START).reason === 'waiting')
+check('观察器就绪前自动扫描 fail-closed', activityScanDecision(45, START).reason === 'waiting')
 // 健康态由显式来源标记（生产路径为 sampleTick 读取前台上下文成功 / collector 事件），
 // recordFrontmostContext 本身不再隐式置 healthy。
 markActivityObserverHealthy()
 recordFrontmostContext(context, { suppressed: false, nowMs: START + 1000 })
-check('首次上下文触发事件扫描', activityScanDecision(true, 45, START + 1000).reason === 'event')
+check('首次上下文触发事件扫描', activityScanDecision(45, START + 1000).reason === 'event')
 markActivityScan('event', START + 1000)
-check('扫描后门控关闭', !activityScanDecision(true, 45, START + 20_000).run)
-check('静止到兜底间隔后扫描', activityScanDecision(true, 45, START + 46_000).reason === 'hard_fallback')
+check('扫描后门控关闭', !activityScanDecision(45, START + 20_000).run)
+check('静止到兜底间隔后扫描', activityScanDecision(45, START + 46_000).reason === 'hard_fallback')
 
 recordFrontmostContext(
   { name: 'Password Manager', bundleId: 'com.password', windowTitle: 'Secret' },
   { suppressed: true, nowMs: Date.now() }
 )
-const status = getScreenActivityStatus({ eventDriven: true, hybridV2: true, running: true, paused: false })
+const status = getScreenActivityStatus({ running: true, paused: false })
 check('被抑制上下文不进入摘要', !status.latestSummary?.includes('Secret'))
 check(
   '浏览器私密窗口会被识别',
@@ -52,15 +51,6 @@ check(
   '普通应用标题不误判私密浏览',
   !isPrivateBrowsingContext({ name: 'Code', bundleId: 'com.microsoft.VSCode', windowTitle: 'private.ts' })
 )
-
-let semanticCalls = 0
-configureSemanticWorkClassifier(() => { semanticCalls += 1 })
-recordFrontmostContext(
-  { name: 'Keychain', bundleId: 'com.example.keychain', windowTitle: 'Credentials', focusedRole: 'AXSecureTextField' },
-  { suppressed: true, privacyState: 'secure', nowMs: Date.now() + 2 }
-)
-configureSemanticWorkClassifier(null)
-check('secure 事件不进入工作归类', semanticCalls === 0)
 
 const oauthTitle = 'Sign in - http://localhost:4312/callback?state=secret-state&code=secret-code'
 const oauthEvent = recordFrontmostContext(
@@ -131,8 +121,7 @@ check(
 )
 
 markActivityObserverFailure('helper failed')
-check('观察器失败后停止自动截图', activityScanDecision(true, 45).reason === 'observer_unavailable')
-check('关闭事件驱动时保留固定间隔模式', activityScanDecision(false, 45).reason === 'interval')
+check('观察器失败后停止自动截图', activityScanDecision(45).reason === 'observer_unavailable')
 
 const deferred = () => {
   let resolve
@@ -184,7 +173,7 @@ starts[0]?.onHealth({
 })
 check(
   '旧 collector 的迟到 health 回调不会恢复全局状态',
-  getScreenActivityStatus({ eventDriven: true, hybridV2: true, running: true, paused: false }).collector === 'stopped'
+  getScreenActivityStatus({ running: true, paused: false }).collector === 'stopped'
 )
 starts[0]?.onEvent({
   type: 'heartbeat',
@@ -197,7 +186,7 @@ starts[0]?.onEvent({
 })
 check(
   '旧 collector 的迟到 event 回调不会更新全局心跳',
-  getScreenActivityStatus({ eventDriven: true, hybridV2: true, running: true, paused: false }).lastHeartbeatAt === null
+  getScreenActivityStatus({ running: true, paused: false }).lastHeartbeatAt === null
 )
 
 let postStartHandleStops = 0

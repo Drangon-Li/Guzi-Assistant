@@ -91,6 +91,9 @@ export default function QuickBar(): React.JSX.Element {
     })
   }, [])
 
+  // 订阅已挂好，告诉主进程可以推了（排队的消息此时补发）。effect 按声明顺序执行，必须放在订阅之后
+  useEffect(() => { void api.windowReady() }, [])
+
   // 开窗时取回上次的对话。窗口是预创建的，所以这一次就够，之后靠下面那个 effect 落库
   useEffect(() => {
     void api.chatHistory<Msg>(SCOPE).then((rows) => {

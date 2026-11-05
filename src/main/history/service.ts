@@ -8,12 +8,9 @@ import {
   getHistorySummaryIndex,
   getSettings,
   listFocusTaskCandidates,
-  listKnownAppNames,
-  removeHistoryWorkRecord,
-  removeHistoryWorkRecords,
-  upsertHistoryWorkRecord
+  listKnownAppNames
 } from '../db'
-import { getDb, listActivityIntervals, usesTimelineForDay, removeTimelineWorkRecords, upsertTimelineWorkRecord, addOcrEvidence, listOcrEvidence } from '../db'
+import { getDb, listActivityIntervals, removeTimelineWorkRecords, upsertTimelineWorkRecord, addOcrEvidence, listOcrEvidence } from '../db'
 import { getSession } from '../session'
 import { broadcast, debugEvent } from '../windows'
 import { configureHistoryHealthProvider, clearActivityHistoryEvidence } from '../activity-tracker'
@@ -21,8 +18,7 @@ import { privacyForContext } from '../privacy.ts'
 import type { HistoryEvent } from './event-schema.ts'
 import { HistorySegmentStore } from './event-store.ts'
 import { HistorySummarizer, runHistorySummaryAfterStoreStart, type SummaryRunResult } from './summarizer.ts'
-import { deriveHistoryWorkRecord, deriveTimelineWorkRecords } from './work-derivation.ts'
-import { dayKey } from '../../shared/work-report.ts'
+import { deriveTimelineWorkRecords } from './work-derivation.ts'
 import { configureActivityHistoryAllowed, resetUsageTimelineBoundary } from '../usage-sampler.ts'
 import { deleteActivityHistoryRange } from '../db/activity-retention.ts'
 import { HistoryQueryService } from './query-service.ts'
@@ -35,12 +31,6 @@ import {
   type HistoryQueryOptions,
   type HistorySearchOptions
 } from '@shared/history'
-
-/** 两个 History 开关独立回滚：派生路径只有在事件流和派生开关都开启时生效。 */
-export function historyDerivedWorkActive(): boolean {
-  const settings = getSettings()
-  return settings.historyV2Enabled && (settings.historyDerivedWorkEnabled || usesTimelineForDay(dayKey(new Date())))
-}
 
 let historyStore: HistorySegmentStore | null = null
 let historyCleanupTimer: ReturnType<typeof setInterval> | null = null
@@ -209,27 +199,18 @@ function ensureHistorySummarizer(store: HistorySegmentStore): HistorySummarizer 
       supplementalEvents: ocrEventsForRange,
       policyKey: historyPolicyKey,
       focusTaskCandidates: listFocusTaskCandidates,
+      // 工作记录的唯一来源：每个 10 分钟摘要按当段活动区间切成记录，整段覆盖写入（幂等）
       onTenMinuteSummary: (document, sourceHash) => {
-        if (historyMutationPending > 0) return
-        const settings = getSettings()
-        if (!settings.screenSenseWorkLog) return
-        const timeline = usesTimelineForDay(dayKey(new Date(document.bucketStart)))
-        if (!timeline && !settings.historyDerivedWorkEnabled) return
-        const derived = deriveHistoryWorkRecord(document, sourceHash, listKnownAppNames())
+        if (historyMutationPending > 0 || !getSettings().screenSenseWorkLog) return
         const segmentId = document.sourceSegmentId ?? document.sourceSegmentIds[0] ?? document.id
         try {
-          if (timeline) {
-            const rows = deriveTimelineWorkRecords(document, sourceHash,
-              listActivityIntervals(Date.parse(document.bucketStart), Date.parse(document.bucketEnd), { historyOnly: true }),
-              listKnownAppNames())
-            getDb().transaction(() => {
-              removeTimelineWorkRecords(segmentId)
-              for (const row of rows) upsertTimelineWorkRecord(row)
-            })()
-            return
-          }
-          if (derived) upsertHistoryWorkRecord(derived)
-          else if (segmentId) removeHistoryWorkRecord(segmentId)
+          const rows = deriveTimelineWorkRecords(document, sourceHash,
+            listActivityIntervals(Date.parse(document.bucketStart), Date.parse(document.bucketEnd), { historyOnly: true }),
+            listKnownAppNames())
+          getDb().transaction(() => {
+            removeTimelineWorkRecords(segmentId)
+            for (const row of rows) upsertTimelineWorkRecord(row)
+          })()
         } catch (error) {
           debugEvent('error', `History 工作记录派生失败：${error instanceof Error ? error.message : String(error)}`)
         }
@@ -311,22 +292,9 @@ async function deleteHistoryRangeInternal(fromMs: number, toMs: number): Promise
   return serializeHistoryMutation(async () => {
     resetUsageTimelineBoundary('history_deleted')
     const summaryIndex = getHistorySummaryIndex()
-    const summariesBefore = summaryIndex.list()
-    const summaryIds = summariesBefore
+    const summaryIds = summaryIndex.list()
       .filter((record) => summaryOverlapsRange(record, fromMs, toMs))
       .map((record) => record.id)
-    const segmentIdsFromSummaries = summariesBefore
-      .filter((record) => summaryIds.includes(record.id))
-      .flatMap((record) => record.sourceSegmentIds)
-    // A 6-hour summary may overlap a narrow delete range while referencing
-    // segments outside it. Only work records whose own segment intersects the
-    // requested range are eligible for removal.
-    const segmentIdsInRange = new Set(
-      getHistorySegmentIndex()
-        .list()
-        .filter((record) => summaryOverlapsRange(record, fromMs, toMs))
-        .map((record) => record.id)
-    )
     const { store, temporary } = await createTemporaryHistoryStore()
     let deletedSegmentIds: string[] = []
     try {
@@ -338,19 +306,13 @@ async function deleteHistoryRangeInternal(fromMs: number, toMs: number): Promise
       }
     }
     for (const id of summaryIds) summaryIndex.remove(id)
-    const workRecordIds = removeHistoryWorkRecords([
-      ...new Set([
-        ...deletedSegmentIds,
-        ...segmentIdsFromSummaries.filter((segmentId) => segmentIdsInRange.has(segmentId))
-      ])
-    ])
-    const timelineWorkIds = deleteActivityHistoryRange(fromMs, toMs)
+    const workRecordIds = deleteActivityHistoryRange(fromMs, toMs)
     clearActivityHistoryEvidence(fromMs, toMs)
     return {
       range: { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() },
       deletedSegmentIds,
       deletedSummaryIds: summaryIds,
-      deletedWorkRecordIds: [...new Set([...workRecordIds, ...timelineWorkIds])]
+      deletedWorkRecordIds: [...new Set(workRecordIds)]
     }
   })
 }
@@ -361,9 +323,7 @@ async function clearHistoryInternal(): Promise<HistoryDeleteResult> {
     const fromMs = toMs - 1 - 48 * 60 * 60 * 1000
     resetUsageTimelineBoundary('history_cleared')
     const summaryIndex = getHistorySummaryIndex()
-    const summaries = summaryIndex.list()
-    const summaryIds = summaries.map((record) => record.id)
-    const summarySegmentIds = summaries.flatMap((record) => record.sourceSegmentIds)
+    const summaryIds = summaryIndex.list().map((record) => record.id)
     const indexedSegmentIds = getHistorySegmentIndex().list().map((record) => record.id)
     const { store, temporary } = await createTemporaryHistoryStore()
     let deletedSegmentIds: string[] = []
@@ -376,14 +336,13 @@ async function clearHistoryInternal(): Promise<HistoryDeleteResult> {
       }
     }
     for (const id of summaryIds) summaryIndex.remove(id)
-    const workRecordIds = removeHistoryWorkRecords([...new Set([...deletedSegmentIds, ...indexedSegmentIds, ...summarySegmentIds])])
-    const timelineWorkIds = deleteActivityHistoryRange(fromMs, toMs)
+    const workRecordIds = deleteActivityHistoryRange(fromMs, toMs)
     clearActivityHistoryEvidence(fromMs, toMs)
     return {
       range: null,
       deletedSegmentIds: [...new Set([...deletedSegmentIds, ...indexedSegmentIds])].sort(),
       deletedSummaryIds: summaryIds,
-      deletedWorkRecordIds: [...new Set([...workRecordIds, ...timelineWorkIds])]
+      deletedWorkRecordIds: [...new Set(workRecordIds)]
     }
   })
 }

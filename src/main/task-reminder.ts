@@ -4,10 +4,10 @@
 // 且天然抗休眠；合盖唤醒再补一次 tick 兜住「睡过去的那段」。
 import { Notification, powerMonitor } from 'electron'
 import type { ReminderCardItem, TaskRecord } from '@shared/types'
-import { dueReminders, reminderWhenLabel } from '@shared/task-reminder'
+import { dueReminders, isDayDeadline, reminderWhenLabel } from '@shared/task-reminder'
 import { getSettings, listReminderCandidates, markTaskReminded } from './db'
 import { applyPetPersistentSay } from './pet/controller'
-import { prewarmReminderWindow, showReminders } from './reminder-window'
+import { showReminders } from './reminder-window'
 import { focusMain } from './windows'
 
 const TICK_MS = 30_000
@@ -61,6 +61,7 @@ function tick(): void {
       title: task.title,
       eventIso: reminder.eventIso,
       kind: reminder.kind,
+      dayDeadline: isDayDeadline(task),
       location: task.location,
       notes: task.notes,
       priority: task.priority
@@ -93,7 +94,6 @@ function announce(items: ReminderCardItem[], overflow: number): void {
 
 export function startTaskReminder(): void {
   stopTaskReminder()
-  prewarmReminderWindow()
   firstRun = setTimeout(() => {
     firstRun = null
     tick()

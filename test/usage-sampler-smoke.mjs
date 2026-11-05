@@ -11,10 +11,8 @@ const temp = mkdtempSync(join(tmpdir(), 'guzi-usage-demo-'))
 const modules = ['src/main/usage-sampler.ts', 'src/shared/activity-timeline.ts', 'src/shared/work-report.ts']
 const stubs = {
   'test/electron.ts': 'export const powerMonitor = globalThis.demo.power;',
-  'src/main/db.ts': `export const addAppUsage = (day, app, seconds) => globalThis.demo.usage.push({day,app,seconds});
-    export const addAppSwitch = (fromApp,toApp,atMs) => globalThis.demo.switches.push({fromApp,toApp,atMs});`,
-  'src/main/db/activity-timeline.ts': `export const persistActivityIntervals = (rows) => rows.forEach((r) => globalThis.demo.rows.set(r.id,r));
-    export const usesTimelineForDay = () => globalThis.demo.unified;`,
+  'src/main/db.ts': 'export const addAppUsage = (day, app, seconds) => globalThis.demo.usage.push({day,app,seconds});',
+  'src/main/db/activity-timeline.ts': 'export const persistActivityIntervals = (rows) => rows.forEach((r) => globalThis.demo.rows.set(r.id,r));',
   'src/main/frontapp.ts': 'export const getFrontmostContext = async () => globalThis.demo.pending ?? globalThis.demo.context;',
   'src/main/activity-tracker.ts': 'export const markActivityObserverFailure = () => {}; export const markActivityObserverHealthy = () => {}; export const recordFrontmostContext = () => {}; export const getCollectorCaptureSafety = () => globalThis.demo.safety ?? ({blocked:false,urlHost:null});',
   'src/main/privacy.ts': `export const isOwnApp = (app) => app === 'Own';
@@ -44,7 +42,7 @@ try {
   for (const name of modules) compile(name, readFileSync(join(root, name), 'utf8'))
   for (const [name, source] of Object.entries(stubs)) compile(name, source)
   const base = new Date(2026, 9, 18, 9).getTime()
-  globalThis.demo = { power: new EventEmitter(), usage: [], switches: [], rows: new Map(), unified: true,
+  globalThis.demo = { power: new EventEmitter(), usage: [], rows: new Map(),
     context: { name: 'A', bundleId: 'com.a', windowTitle: '' }, time: 0, idle: 0, paused: false }
   demo.power.getSystemIdleTime = () => demo.idle
   Date.now = () => base + demo.time
@@ -55,6 +53,8 @@ try {
   const drain = () => new Promise((resolve) => setImmediate(resolve))
   const tick = async (time, app) => { demo.time = time; if (app) demo.context = { name: app, bundleId: `com.${app}`, windowTitle: '' }; timer(); await drain() }
   const total = () => demo.usage.reduce((sum, row) => sum + row.seconds, 0)
+  // 应用切换由数据层从相邻活跃区间推出，这里直接看采样器写出的区间
+  const activeRows = () => [...demo.rows.values()].filter((r) => r.state === 'active')
   sampler.startUsageSampler(() => demo.paused)
   await drain()
   await tick(5_000)
@@ -62,7 +62,7 @@ try {
   await tick(15_000, 'A')
   await tick(20_000)
   assert.equal(total(), 20)
-  assert.deepEqual(demo.switches.filter((s) => s.toApp).map((s) => s.toApp), ['A', 'B', 'A'])
+  assert.deepEqual(activeRows().map((r) => r.appName), ['A', 'B', 'A'])
   demo.time = 22_000
   demo.power.emit('lock-screen')
   await tick(25_000)
@@ -73,8 +73,8 @@ try {
   await tick(3_600_000)
   await tick(3_605_000)
   assert.equal(total(), 25)
-  assert.equal(demo.switches.some((s) => s.toApp === '' && s.atMs === base + 20_000), true)
-  console.log('✓ 真实sampler回放A→B→A、首App、lock/unlock：无睡眠补记，最后switch有有限关闭边界')
+  assert.equal(activeRows().find((r) => r.endMs === base + 20_000)?.appName, 'A')
+  console.log('✓ 真实sampler回放A→B→A、首App、lock/unlock：无睡眠补记，锁屏前的活跃区间有有限关闭边界')
   demo.paused = true
   await tick(3_610_000)
   demo.paused = false

@@ -1,10 +1,12 @@
-// app_usage / app_switches / app_categories：前台应用时长、切换事件与分类覆盖（只存应用名与时刻）。
+// 前台应用时长、切换与分类覆盖（只存应用名与时刻）。
+//
+// 90 天内的时长和切换都直接从 activity_intervals 现算；app_usage 是按天累计的长期汇总，
+// 只在时间线过了保留期之后才被读取。
 import { getDb } from './connection.ts'
-import { localNowSec } from '@shared/parsing'
 import { dayKey } from '@shared/work-report'
 import type { AppCategoryOverride, AppSwitchRecord, AppUsageEntry } from '@shared/types'
 import { activityUsage } from '../../shared/activity-timeline.ts'
-import { listActivityIntervals, usesTimelineForDay } from './activity-timeline.ts'
+import { listActivityIntervals } from './activity-timeline.ts'
 
 // ---------- app_usage（前台应用使用时长，按天累计；只存应用名与秒数，不存内容）----------
 
@@ -16,7 +18,7 @@ export function addAppUsage(day: string, app: string, seconds: number): void {
 
 /** 某天各应用使用时长，按时长降序。 */
 export function appUsageSummary(day: string): AppUsageEntry[] {
-  if (usesTimelineUsageForDay(day)) {
+  if (withinIntervalRetention(day)) {
     const fromMs = new Date(`${day}T00:00:00`).getTime()
     const d = new Date(fromMs)
     const toMs = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime()
@@ -31,14 +33,14 @@ export function appUsageSummary(day: string): AppUsageEntry[] {
 export function appUsageRange(fromDay: string, toDay: string): (AppUsageEntry & { day: string })[] {
   const legacy = getDb().prepare('SELECT day, app, seconds FROM app_usage WHERE day >= ? AND day <= ? ORDER BY day')
     .all(fromDay, toDay) as (AppUsageEntry & { day: string })[]
-  const result = legacy.filter((row) => !usesTimelineUsageForDay(row.day))
+  const result = legacy.filter((row) => !withinIntervalRetention(row.day))
   const fromMs = new Date(`${fromDay}T00:00:00`).getTime()
   const end = new Date(`${toDay}T00:00:00`)
   const toMs = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1).getTime()
   const byDay = new Map<string, ReturnType<typeof listActivityIntervals>>()
   for (const interval of listActivityIntervals(fromMs, toMs)) {
     const day = dayKey(new Date(interval.startMs))
-    if (!usesTimelineUsageForDay(day)) continue
+    if (!withinIntervalRetention(day)) continue
     const items = byDay.get(day) ?? []
     items.push(interval)
     byDay.set(day, items)
@@ -47,33 +49,21 @@ export function appUsageRange(fromDay: string, toDay: string): (AppUsageEntry & 
   return result.sort((a, b) => a.day.localeCompare(b.day))
 }
 
-// ---------- app_switches（前台应用切换事件；只存应用名与时刻，不存内容。注意力分析素材）----------
-
-export function addAppSwitch(fromApp: string | null, toApp: string, atMs?: number): void {
-  // 秒级时间戳：同一分钟内多次切换需稳定排序，短停留判定也依赖亚分钟精度
-  getDb().prepare('INSERT INTO app_switches (ts, from_app, to_app) VALUES (?, ?, ?)').run(
-    atMs == null ? localNowSec() : localTimestamp(atMs),
-    fromApp,
-    toApp
-  )
-}
+// ---------- 应用切换（注意力分析素材）：由时间线里相邻的活跃区间推出 ----------
 
 export function listAppSwitchesSince(sinceDay: string): AppSwitchRecord[] {
-  const legacy = getDb().prepare(
-    'SELECT ts, from_app AS fromApp, to_app AS toApp FROM app_switches WHERE ts >= ? ORDER BY ts'
-  ).all(sinceDay) as AppSwitchRecord[]
-  const result = legacy.filter((item) => !usesTimelineForDay(item.ts.slice(0, 10)))
+  const result: AppSwitchRecord[] = []
   const intervals = listActivityIntervals(new Date(`${sinceDay.slice(0, 10)}T00:00:00`).getTime(), Date.now() + 1)
   let previous: typeof intervals[number] | null = null
   for (const interval of intervals) {
-    if (interval.state !== 'active' || !interval.appName || !usesTimelineForDay(dayKey(new Date(interval.startMs)))) continue
+    if (interval.state !== 'active' || !interval.appName) continue
     result.push({ ts: localTimestamp(interval.startMs), endTs: localTimestamp(interval.endMs),
       activeMs: interval.endMs - interval.startMs,
       fromApp: previous?.endMs === interval.startMs && previous.sessionId === interval.sessionId ? previous.appName : null,
       toApp: interval.appName })
     previous = interval
   }
-  return result.sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+  return result
 }
 
 // ---------- app_categories（应用生产力分类的用户覆盖；默认规则在 shared/attention.ts）----------
@@ -106,7 +96,7 @@ function localTimestamp(atMs: number): string {
   return `${dayKey(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`
 }
 
-function usesTimelineUsageForDay(day: string): boolean {
-  const oldestPartialDay = dayKey(new Date(Date.now() - 90 * 86_400_000))
-  return day > oldestPartialDay && usesTimelineForDay(day)
+/** 这一天的时间线还完整保留着（最早那天可能被保留期截掉一半，按汇总表算） */
+function withinIntervalRetention(day: string): boolean {
+  return day > dayKey(new Date(Date.now() - 90 * 86_400_000))
 }

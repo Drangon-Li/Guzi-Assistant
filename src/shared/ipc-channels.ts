@@ -31,6 +31,7 @@ export const INVOKE_CHANNELS = [
   'preview:cancel',
   'preview:hide',
   'preview:resize',
+  'window:ready',
   'tasks:list',
   'tasks:update',
   'tasks:bulk',

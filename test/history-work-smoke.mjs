@@ -171,16 +171,15 @@ check('本地摘要不再把窗口标题当作 focusTask', callbackDocument?.foc
 await summarizer.close()
 
 const historyService = readFileSync(new URL('../src/main/history/service.ts', import.meta.url), 'utf8')
-const workRecords = readFileSync(new URL('../src/main/work-records.ts', import.meta.url), 'utf8')
 // 数据层按领域拆到 src/main/db/ 下，这里把整个目录拼起来断言，避免钉死在某个文件上。
 const db = readdirSync(new URL('../src/main/db/', import.meta.url))
   .filter((f) => f.endsWith('.ts'))
   .map((f) => readFileSync(new URL(`../src/main/db/${f}`, import.meta.url), 'utf8'))
   .join('\n')
-check('History 总开关保留，统一模式可接管派生',
-  /historyV2Enabled && \(settings\.historyDerivedWorkEnabled \|\| usesTimelineForDay/.test(historyService) && /historyDerivedWorkEnabled !== undefined/.test(readFileSync(new URL('../src/main/ipc.ts', import.meta.url), 'utf8')))
-check('旧 OCR 路径明确标记 legacy', /derivedBy: 'legacy'/.test(workRecords) && /DEFAULT 'legacy'/.test(db))
-check('语义不足的 hard fallback 保留旧 OCR 记录', /hard_fallback_incomplete/.test(workRecords))
+check('工作记录只由 10 分钟摘要按时间线派生，没有派生开关和旧写入路径',
+  /onTenMinuteSummary[\s\S]*deriveTimelineWorkRecords/.test(historyService) &&
+    !/historyDerivedWorkEnabled|upsertHistoryWorkRecord/.test(historyService + db))
+check('工作记录列表只展示时间线记录（加区间空档）', /filter\(\(record\) => record\.derivedBy === 'timeline'\)/.test(db) && /timeline-unknown-/.test(db))
 check('work_records 迁移包含 History 追溯字段',
   /segment_id TEXT/.test(db) && /start_at TEXT/.test(db) && /end_at TEXT/.test(db) && /summary_hash TEXT/.test(db) && /derived_by TEXT/.test(db))
 

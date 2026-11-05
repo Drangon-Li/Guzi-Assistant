@@ -7,6 +7,8 @@ const ACTIVE_STATUS = new Set<TaskStatus>(['not_started', 'scheduled', 'in_progr
 const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2, unknown: 3 }
 /** 只有日期没有时分的任务，按当天这个钟点提醒 */
 const DATE_ONLY_HOUR = 9
+/** 只给了日期的截止，解析约定把时刻补成这个（见 parsing.ts timeRules） */
+const DAY_DEADLINE_TIME = '23:59'
 /** 事件时刻前后这个范围内算「正点」 */
 const ONTIME_TOLERANCE_MS = 60_000
 const MAX_OFFSET_MIN = 1440
@@ -65,6 +67,16 @@ function eventIsoOf(task: ReminderTask): string | null {
   return raw ? normalizeEventIso(raw) : null
 }
 
+/**
+ * 整天截止：没有开始时刻、截止是某天 23:59——原文只说了「X 日前」。按「截止前 N 分钟」会落到半夜 23:54，
+ * 人早就下班了也来不及做；这类改按当天早上（DATE_ONLY_HOUR）提醒，截止时刻本身照旧用于文案与逾期判断。
+ */
+export function isDayDeadline(task: { startTime: string | null; dueTime: string | null }): boolean {
+  return !task.startTime && !!task.dueTime && task.dueTime.slice(11, 16) === DAY_DEADLINE_TIME
+}
+
+const startOfDay = (ms: number): number => new Date(ms).setHours(0, 0, 0, 0)
+
 function clampOffset(minutes: number): number {
   if (!Number.isFinite(minutes)) return 0
   return Math.min(MAX_OFFSET_MIN, Math.max(0, Math.round(minutes)))
@@ -81,7 +93,7 @@ function humanGap(ms: number): string {
 
 /** 提醒卡与系统通知共用的时间文案。主进程和渲染层都调它，口径只有一处。 */
 export function reminderWhenLabel(
-  item: { eventIso: string; kind: DueReminder['kind'] },
+  item: { eventIso: string; kind: DueReminder['kind']; dayDeadline?: boolean },
   now: Date
 ): string {
   const eventIso = normalizeEventIso(item.eventIso)
@@ -91,6 +103,11 @@ export function reminderWhenLabel(
   if (eventMs === null) return hhmm
   const diff = eventMs - now.getTime()
   if (item.kind === 'catchup' || diff < -ONTIME_TOLERANCE_MS) return `已逾期 ${humanGap(-diff)}`
+  if (item.dayDeadline && diff > ONTIME_TOLERANCE_MS) {
+    // 早上提醒「今天截止」比「15 小时后」更直接；提前量设到前一天时就是「明天截止」
+    const days = Math.round((startOfDay(eventMs) - startOfDay(now.getTime())) / 86_400_000)
+    return `${days === 0 ? '今天' : days === 1 ? '明天' : `${days} 天后`}截止 · ${hhmm}`
+  }
   if (item.kind === 'ontime' || Math.abs(diff) <= ONTIME_TOLERANCE_MS) return hhmm ? `现在 · ${hhmm}` : '现在'
   return hhmm ? `${humanGap(diff)}后 · ${hhmm}` : `${humanGap(diff)}后`
 }
@@ -125,9 +142,13 @@ export function dueReminders(
       targetIso = task.snoozedUntil
       kind = 'snooze' // 用户自己按的稍后，必须兑现，不受 catchup 窗口限制
     } else {
-      const targetMs = eventMs - clampOffset(task.remindOffsetMin ?? opts.defaultOffsetMin) * 60_000
+      const dayDeadline = isDayDeadline(task)
+      // 提醒锚点：一般就是事件时刻；整天截止锚在截止当天早上
+      const anchorMs = dayDeadline ? new Date(eventMs).setHours(DATE_ONLY_HOUR, 0, 0, 0) : eventMs
+      const targetMs = anchorMs - clampOffset(task.remindOffsetMin ?? opts.defaultOffsetMin) * 60_000
       if (targetMs > nowMs) continue
-      if (nowMs - targetMs > catchupMs) continue
+      // 补提醒窗口从「本该提醒的时刻」起算；整天截止从截止时刻起算——当天截止前随时开机都补得上
+      if (nowMs - (dayDeadline ? eventMs : targetMs) > catchupMs) continue
       targetIso = localIso(targetMs)
       if (task.remindedAt === targetIso) continue
       kind =

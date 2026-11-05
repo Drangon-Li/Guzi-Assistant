@@ -5,6 +5,7 @@ import { anchorWindowNearPet, appState, load, preload } from '../windows'
 import { extractPetDropText, submitExternalFiles } from '../capture'
 import { floatingPanelOptions } from '../platform/window-options'
 import { captureContentEpoch, isContentEpochCurrent } from '../content-lifecycle'
+import { whenWindowReady } from '../window-ready'
 
 const CHAT_W = 380
 /** 初始高度。开起来就按正文实际需要调整（resizePetChat），这只是还没量到内容前的样子。 */
@@ -138,15 +139,11 @@ async function handlePetDrop(paths: string[]): Promise<void> {
   injectPetChat({ display: `📎 拖入文件：${extracted.name}`, content }, epoch)
 }
 
-/** 打开对话框并注入一条用户消息（窗口未加载完则等 load 再送）。 */
+/** 打开对话框并注入一条用户消息（渲染层还没挂好订阅就排队到就绪再送）。 */
 function injectPetChat(payload: { display: string; content: string }, epoch: number): void {
   showPetChat()
   const win = ensureWindow()
-  if (win.webContents.isLoading()) {
-    win.webContents.once('did-finish-load', () => {
-      if (isContentEpochCurrent(epoch)) win.webContents.send('guzi-assistant:pet-chat-drop', payload)
-    })
-  } else {
-    win.webContents.send('guzi-assistant:pet-chat-drop', payload)
-  }
+  whenWindowReady(win, () => {
+    if (isContentEpochCurrent(epoch)) win.webContents.send('guzi-assistant:pet-chat-drop', payload)
+  })
 }

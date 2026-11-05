@@ -9,7 +9,6 @@ import { privacyForContext } from './privacy'
 import { getCollectorCaptureSafety } from './activity-tracker'
 import { captureVerifiedWindow, snapshotContext, type ScreenSnapshot } from './screen-snapshot.ts'
 import pdfParse from 'pdf-parse'
-import mammoth from 'mammoth'
 import { detectSensitive, redactSensitive } from '@shared/sensitive'
 import { createSource, deleteSourceRow, findDuplicateTitle, getProfile } from './db'
 import { createTaskFromItem, scheduledStatus } from './task-ingest'
@@ -209,6 +208,8 @@ async function extractFromFile(filePath: string): Promise<{ text?: string; image
     return { text: text.slice(0, 20000) }
   }
   if (ext === '.docx') {
+    // mammoth 加载就要 ~4MB 堆，只有拖进 Word 文档时才用得到
+    const { default: mammoth } = await import('mammoth')
     const { value } = await mammoth.extractRawText({ path: filePath })
     return { text: value.slice(0, 20000) }
   }

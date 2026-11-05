@@ -130,6 +130,8 @@ export interface ReminderCardItem {
   /** 事件真正发生的时刻（本地 ISO） */
   eventIso: string
   kind: 'ahead' | 'ontime' | 'catchup' | 'snooze'
+  /** 只给了日期的截止（23:59）：早上提醒，文案说「今天截止」 */
+  dayDeadline: boolean
   location: string | null
   notes: string[]
   priority: Priority
@@ -211,12 +213,8 @@ export interface AppSettings {
   screenSenseContinuous: boolean
   /** 持续监控门控轮询间隔（秒），默认 5 */
   screenSenseIntervalSec: number
-  /** 事件驱动截图门：前台 App/窗口变化时扫描，静止时仅按兜底间隔扫描。默认 true */
-  screenSenseEventDriven: boolean
-  /** 事件驱动模式的硬兜底截图间隔（秒），限制 30-60，默认 45 */
+  /** 截图由前台 App/窗口变化驱动；静止时按这个硬兜底间隔（秒）补扫，限制 30-60，默认 45 */
   screenSenseFallbackIntervalSec: number
-  /** Hybrid History v2：语义完整时不截图，语义不足才按矩阵补 OCR；关闭即回 legacy。 */
-  screenSenseHybridV2: boolean
   /** 应用排除名单（#40 隐私门）：这些 App 在前台时连截图都不做，默认空（不排除） */
   screenSenseExcludedApps: string[]
   /** @deprecated History include 名单，保留用于旧数据库兼容；新 UI 只使用黑名单。 */
@@ -267,12 +265,8 @@ export interface AppSettings {
   todoScanEnabled: boolean
   /** 待办识别扫描的最小间隔（秒），60-600。默认 180 */
   todoScanIntervalSec: number
-  /** Computer History 2.0 原始事件双写；默认关闭，第一阶段不改变旧派生链路。 */
+  /** History 总开关（原生活动采集 + 时间线 + 工作记录派生）。默认开启，设置页不暴露 */
   historyV2Enabled: boolean
-  /** Computer History 2.0 从 10 分钟摘要派生工作记录；需与 historyV2Enabled 同时开启。 */
-  historyDerivedWorkEnabled: boolean
-  activityTimelineMode: 'legacy' | 'shadow' | 'unified'
-  activityTimelineCutoverAt: string | null
   /** 未来可选的文本捕获；默认关闭，第一阶段 schema 永不保存原始文本。 */
   historyCaptureText: boolean
   /** 语音纪要总开关。默认 false（opt-in：要占麦克风、音频要出设备去转录） */
@@ -300,19 +294,10 @@ export interface ScanResult {
 
 export interface ScreenActivityStatus {
   screenshotPauseReason?: string | null
-  activityTimelineComparison?: {
-    legacySeconds: number
-    timelineSeconds: number
-    deltaSeconds: number
-    comparable: boolean
-    comparisonFromMs: number | null
-  }
-  eventDriven: boolean
   running: boolean
   paused: boolean
   observer: 'waiting' | 'healthy' | 'unavailable'
   observerDetail: string | null
-  hybridV2: boolean
   collector: 'starting' | 'healthy' | 'degraded' | 'stopped'
   collectorDetail: string | null
   collectorRestartCount: number
@@ -340,17 +325,12 @@ export interface ScreenActivityStatus {
   latestOcrEvidenceCount: number
   lastEventAt: string | null
   lastScanAt: string | null
-  lastScanReason: 'event' | 'hard_fallback' | 'interval' | 'manual' | 'semantic_only' | null
+  lastScanReason: 'event' | 'hard_fallback' | 'manual' | 'semantic_only' | null
   pendingEvent: boolean
   rawEventCount: number
   tenMinuteSegmentCount: number
   sixHourSegmentCount: number
   latestSummary: string | null
-  workClassificationStatus: 'idle' | 'pending' | 'ok' | 'error' | 'unavailable'
-  workClassificationSource: 'accessibility' | 'ocr' | null
-  workClassificationAt: string | null
-  workClassificationDetail: string | null
-  workClassificationCount: number
   history: HistoryStoreHealth
 }
 

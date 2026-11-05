@@ -1,8 +1,10 @@
 import { app, BrowserWindow, nativeTheme, screen } from 'electron'
-import { appendFileSync } from 'fs'
+import { appendFileSync, renameSync, statSync } from 'fs'
 import { join } from 'path'
 import { getPetBadgeBounds } from './pet/pet-window'
 import { floatingPanelOptions } from './platform/window-options'
+import { fadeWindow } from './window-fade'
+import { trackWindowReadiness, whenWindowReady } from './window-ready'
 import { isContentResetting } from './content-lifecycle'
 
 export const appState = { quitting: false }
@@ -19,6 +21,7 @@ export const preload = join(__dirname, '../preload/index.js')
 
 export function load(win: BrowserWindow, hash: string): void {
   exitWindows.add(win)
+  trackWindowReadiness(win)
   win.once('closed', () => exitWindows.delete(win))
   if (process.platform !== 'darwin') {
     const updateBackground = (): void => {
@@ -66,7 +69,8 @@ export function focusMain(route?: string): void {
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
-  if (route) win.webContents.send('guzi-assistant:navigate', route)
+  // 主窗可能刚被新建（页面还没订阅）：等渲染层就绪再导航
+  if (route) whenWindowReady(win, () => win.webContents.send('guzi-assistant:navigate', route))
 }
 
 /**
@@ -109,8 +113,17 @@ const PREVIEW_BATCH_H = 420
 const PREVIEW_MIN_H = 96
 const PREVIEW_MAX_H = 520
 const PREVIEW_FADE_MS = 140
+/**
+ * 预览卡隐藏后空闲这么久就关窗，释放一个渲染进程（约 80–100MB）。
+ * 持续监控频繁弹卡时窗口一直复用；下次弹卡再建，首条内容由就绪握手保证送达。
+ */
+const PREVIEW_IDLE_CLOSE_MS = 2 * 60_000
+let previewIdleTimer: ReturnType<typeof setTimeout> | null = null
 
-let previewFadeTimer: ReturnType<typeof setInterval> | null = null
+function cancelPreviewIdleClose(): void {
+  if (previewIdleTimer) clearTimeout(previewIdleTimer)
+  previewIdleTimer = null
+}
 
 export function getPreviewWindow(): BrowserWindow {
   if (previewWin && !previewWin.isDestroyed()) return previewWin
@@ -135,30 +148,9 @@ export function getPreviewWindow(): BrowserWindow {
   return previewWin
 }
 
-/** 窗口透明度渐变（磨砂和原生阴影只能整窗淡入淡出，CSS 动不了这两层）。 */
-function fadePreview(win: BrowserWindow, from: number, to: number, done?: () => void): void {
-  if (previewFadeTimer) clearInterval(previewFadeTimer)
-  const steps = Math.max(1, Math.round(PREVIEW_FADE_MS / 16))
-  let i = 0
-  win.setOpacity(from)
-  previewFadeTimer = setInterval(() => {
-    i++
-    if (win.isDestroyed()) {
-      if (previewFadeTimer) clearInterval(previewFadeTimer)
-      previewFadeTimer = null
-      return
-    }
-    win.setOpacity(from + ((to - from) * i) / steps)
-    if (i >= steps) {
-      if (previewFadeTimer) clearInterval(previewFadeTimer)
-      previewFadeTimer = null
-      done?.()
-    }
-  }, 16)
-}
-
 /** 弹出预览/通知卡，不抢焦点。桌宠可见时贴到桌宠图标旁（气泡感），否则回退右下角默认位置。 */
 export function showPreview(payload: unknown): void {
+  cancelPreviewIdleClose()
   const win = getPreviewWindow()
   const batch = !!(payload as { localBatch?: unknown } | null)?.localBatch
   // 首帧用预估高度，渲染层 ResizeObserver 汇报实际内容高度后再校正；
@@ -172,10 +164,9 @@ export function showPreview(payload: unknown): void {
     if (win.isVisible()) return
     win.setOpacity(0)
     win.showInactive()
-    fadePreview(win, 0, 1)
+    fadeWindow(win, 0, 1, PREVIEW_FADE_MS)
   }
-  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
-  else send()
+  whenWindowReady(win, send)
 }
 
 /** 渲染层内容高度变化：底边固定（贴桌宠/右下角都是底对齐），向上调整窗口高度。 */
@@ -230,11 +221,15 @@ export function repositionPreviewNearPet(): void {
 export function hidePreview(): void {
   if (!previewWin || previewWin.isDestroyed() || !previewWin.isVisible()) return
   const win = previewWin
-  fadePreview(win, win.getOpacity(), 0, () => {
-    if (!win.isDestroyed()) {
-      win.hide()
-      win.setOpacity(1)
-    }
+  fadeWindow(win, win.getOpacity(), 0, PREVIEW_FADE_MS, () => {
+    if (win.isDestroyed()) return
+    win.hide()
+    win.setOpacity(1)
+    cancelPreviewIdleClose()
+    previewIdleTimer = setTimeout(() => {
+      previewIdleTimer = null
+      if (!win.isDestroyed() && !win.isVisible()) win.close()
+    }, PREVIEW_IDLE_CLOSE_MS)
   })
 }
 
@@ -270,21 +265,39 @@ export function debugIsOpen(): boolean {
   return !!debugWin && !debugWin.isDestroyed()
 }
 
+/**
+ * 诊断日志超过上限就轮转成 .1（只留一份旧的）。持续监控每几秒就写几行，
+ * 不设上限的话常年开着屏幕感知会一直长下去。仍用同步追加：崩溃前最后几行最有排查价值。
+ */
+const DEBUG_LOG_MAX_BYTES = 2 * 1024 * 1024
+let debugLogPath: string | null = null
+let debugLogBytes = -1 // -1 = 还没读过现有文件大小
+
+function appendDebugLog(line: string): void {
+  try {
+    debugLogPath ??= join(app.getPath('userData'), 'screen-sense-debug.log')
+    if (debugLogBytes < 0) {
+      try { debugLogBytes = statSync(debugLogPath).size } catch { debugLogBytes = 0 }
+    }
+    if (debugLogBytes > DEBUG_LOG_MAX_BYTES) {
+      // 清除数据会删掉日志，计数可能偏大——那只是提前轮转一次，rename 失败也照常归零
+      try { renameSync(debugLogPath, `${debugLogPath}.1`) } catch { /* 文件已不在 */ }
+      debugLogBytes = 0
+    }
+    appendFileSync(debugLogPath, line)
+    debugLogBytes += Buffer.byteLength(line)
+  } catch {
+    /* 日志失败不影响主流程 */
+  }
+}
+
 /** 向调试窗推一条事件（窗没开则忽略，零开销）。 */
 export function debugEvent(stage: string, message: string, extra?: Record<string, unknown>): void {
   if (isContentResetting()) return
   if (debugWin && !debugWin.isDestroyed())
     debugWin.webContents.send('guzi-assistant:debug', { ts: Date.now(), stage, message, ...extra })
   // 诊断：同时落盘到 userData/screen-sense-debug.log（排除带大图的 screenshot），便于离线排查
-  try {
-    if (stage !== 'screenshot')
-      appendFileSync(
-        join(app.getPath('userData'), 'screen-sense-debug.log'),
-        `[${new Date().toISOString()}] ${stage}: ${message}\n`
-      )
-  } catch {
-    /* 日志失败不影响主流程 */
-  }
+  if (stage !== 'screenshot') appendDebugLog(`[${new Date().toISOString()}] ${stage}: ${message}\n`)
 }
 
 export function broadcast(channel: string, payload?: unknown): void {

@@ -12,7 +12,6 @@ import { createSqliteHistorySegmentIndex } from '../history/segment-index.ts'
 import type { HistorySegmentIndex } from '../history/segment-index.ts'
 import { createSqliteHistorySummaryIndex } from '../history/summary-index.ts'
 import type { HistorySummaryIndex } from '../history/summary-index.ts'
-import { dayKey } from '@shared/work-report'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
@@ -160,12 +159,6 @@ export function initDb(): void {
       note TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS app_switches (
-      ts TEXT NOT NULL,
-      from_app TEXT,
-      to_app TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_app_switches_ts ON app_switches(ts);
     CREATE TABLE IF NOT EXISTS app_categories (
       app TEXT PRIMARY KEY,
       category TEXT NOT NULL
@@ -227,9 +220,8 @@ export function initDb(): void {
   db.exec(
     "DELETE FROM app_usage WHERE app IN ('Electron', 'GuziAssistant', 'Guzi Assistant', 'EShell', 'Gooz', '谷子助手', '纸壳助手')"
   )
-  // 切换事件只服务注意力分析，90 天后没有回看价值，启动时滚动清理
-  const switchCutoff = dayKey(new Date(Date.now() - 90 * 86_400_000))
-  db.prepare('DELETE FROM app_switches WHERE ts < ?').run(switchCutoff)
+  // 应用切换改由时间线推出，旧的切换事件表不再读写；开发库里残留的整表删掉，免得清除数据时漏掉
+  db.exec('DROP TABLE IF EXISTS app_switches')
   db.prepare('DELETE FROM ocr_evidence WHERE occurred_at < ?').run(
     new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
   )

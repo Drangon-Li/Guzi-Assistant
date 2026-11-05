@@ -19,7 +19,7 @@ export interface ParsedItem {
   tags?: string[]
 }
 
-/** 本地时区 ISO 到秒：亚分钟排序场景用（如 app_switches——同一分钟内多次切换需稳定有序） */
+/** 本地时区 ISO 到秒：亚分钟排序场景用（同一分钟内的多条记录需要稳定有序） */
 export function localNowSec(): string {
   const d = new Date()
   const pad = (n: number): string => String(n).padStart(2, '0')
@@ -429,28 +429,6 @@ export function extractJson(text: string): Record<string, unknown> {
   }
   if (best) return best.value
   throw new Error('解析结果 JSON 格式损坏')
-}
-
-/** 从屏幕扫描模型输出中取顶层 work_summary（「在做什么」一句话，工作记录用）；无/非法返回 null */
-export function parseWorkSummary(text: string): string | null {
-  try {
-    const parsed = extractJson(text)
-    const s = typeof parsed.work_summary === 'string' ? parsed.work_summary.trim() : ''
-    return s ? s.slice(0, 200) : null
-  } catch {
-    return null
-  }
-}
-
-/** 从屏幕扫描模型输出中取顶层 focus_task（任务级标签，专注时长用）；无/非法返回 null */
-export function parseFocusTask(text: string): string | null {
-  try {
-    const parsed = extractJson(text)
-    const s = typeof parsed.focus_task === 'string' ? parsed.focus_task.trim() : ''
-    return s ? s.slice(0, 60) : null
-  } catch {
-    return null
-  }
 }
 
 /** 从捕获解析的模型输出中规整 ParsedItem 列表 */

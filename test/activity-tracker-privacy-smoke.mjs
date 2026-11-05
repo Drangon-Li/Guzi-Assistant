@@ -3,7 +3,6 @@ import {
   activityTracker,
   clearActivityHistoryEvidence,
   configureActivityHistoryPersistence,
-  configureSemanticWorkClassifier,
   getCollectorCaptureSafety,
   recordCollectorEvent,
   recordOcrEvidence
@@ -17,7 +16,6 @@ configureActivityHistoryPersistence({
   appendHistoryEvent: (event) => writes.events.push(event),
   addOcrEvidence: (evidence) => writes.ocr.push(evidence)
 })
-configureSemanticWorkClassifier(null)
 const privacy = (context) => {
   const decision = decideHistoryPrivacy({ appName: context.name, bundleId: context.bundleId,
     windowTitle: context.windowTitle, focusedRole: context.focusedRole,
@@ -91,7 +89,6 @@ try {
   console.log('✓ 真实tracker：range按[start,end)清事件/OCR/语义评估并保留范围外内容；range/all清正文host但保留即时安全屏蔽')
 } finally {
   configureActivityHistoryPersistence(null)
-  configureSemanticWorkClassifier(null)
   clearActivityHistoryEvidence()
 }
 console.log('\n隐私回归测试通过（内存side-effect stubs，无collector/截图/用户数据）')

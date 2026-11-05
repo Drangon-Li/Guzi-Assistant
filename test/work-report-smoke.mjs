@@ -17,7 +17,6 @@ import {
   memoryToPlain,
   plainToMemory
 } from '../src/shared/work-report.ts'
-import { parseWorkSummary, parseFocusTask } from '../src/shared/parsing.ts'
 
 let failed = 0
 function check(name, ok) {
@@ -219,19 +218,6 @@ check(
   '往返一致',
   memoryToPlain(plainToMemory('身份 A\n项目 B')) === '身份 A\n项目 B'
 )
-
-// ---- parseFocusTask ----
-check('focus_task 正常解析', parseFocusTask('{"items":[],"focus_task":"开发纸壳助手"}') === '开发纸壳助手')
-check('focus_task 缺失 → null', parseFocusTask('{"items":[]}') === null)
-
-// ---- parseWorkSummary ----
-check('正常解析', parseWorkSummary('{"items":[],"work_summary":"在浏览器查资料"}') === '在浏览器查资料')
-check('带前后噪声可解析', parseWorkSummary('前缀 {"items":[],"work_summary":"写代码"} 后缀') === '写代码')
-check('null 值 → null', parseWorkSummary('{"items":[],"work_summary":null}') === null)
-check('缺字段 → null', parseWorkSummary('{"items":[]}') === null)
-check('空串 → null', parseWorkSummary('{"work_summary":"  "}') === null)
-check('坏 JSON → null', parseWorkSummary('not json') === null)
-check('超长截断到 200', parseWorkSummary(`{"work_summary":"${'长'.repeat(300)}"}`)?.length === 200)
 
 console.log(failed ? `\n${failed} 项未通过` : '\n全部通过')
 process.exit(failed ? 1 : 0)

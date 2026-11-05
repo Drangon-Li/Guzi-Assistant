@@ -45,7 +45,9 @@ TS 分两个 project：`tsconfig.node.json`（main + preload + shared + server�
 
 `src/shared/ipc-channels.ts` 是唯一登记处。新增通道必须写进 `INVOKE_CHANNELS` / `EVENT_CHANNELS`，否则 preload 白名单会拒绝调用。`test/ipc-channels-smoke.mjs` 会校验这张表和源码里实际注册/调用的一致。
 
-主进程注册在 `src/main/ipc.ts`（约 100 个 handler）。
+主进程注册按领域拆在 `src/main/ipc/` 下（`settings` `voice` `capture` `task` `activity` `app`，共约 115 个 handler），
+`src/main/ipc.ts` 只是入口。所有 handler 都经 `ipc/register.ts` 的 `ipcMain` 包装注册（内容纪元校验 + 退出期在途工作登记），
+**不要直接用 electron 的 `ipcMain.handle`**。
 
 ### 2. 插件的"声明"和"实现"必须两边都有
 
@@ -106,6 +108,10 @@ TS 分两个 project：`tsconfig.node.json`（main + preload + shared + server�
 
 `src/main/db/connection.ts` 是唯一持有 Database 句柄的地方，其余模块用 `getDb()` 取，不各自开库。
 
+`getSettings()` 带缓存（它在每条活动事件、每轮屏幕监控里都会被调好几次），只在 `saveSettings()` 里失效。
+所以 **AppSettings 的键只能经 `saveSettings()` 写**，别直接往 settings 表里写；返回值是共享快照，**不要原地修改**。
+插件状态（`plugin:*`）和活动对照行（`activityTimelineComparison:*`）不在 AppSettings 里，不受影响。
+
 ### 核心表
 
 `profile` `settings` `sources` `tasks` `detections` `work_records` `app_usage` `reports` `chat_messages` `personal_memory` `focus_tasks` `detection_notes` `app_switches` `app_categories` `activity_segments` `ocr_evidence` `voice_sessions` `voice_segments`
@@ -152,6 +158,13 @@ if (!cols.includes('新列')) db.exec('ALTER TABLE 表名 ADD COLUMN 新列 ... 
 | 预览卡 | — | `#/preview` |
 | 调试 | — | `#/debug` |
 
+**主进程往窗口推消息一律走 `whenWindowReady(win, …)`**（`main/window-ready.ts`）：渲染层在 effect 里挂好订阅后调
+`api.windowReady()`，主进程把在那之前的消息排队、就绪后按序补发。直接 `webContents.send` 会在窗口刚建、
+订阅还没挂上时把消息丢掉。新增一个接收推送的窗口时，渲染层要在订阅 effect **之后**加一行 `useEffect(() => { void api.windowReady() }, [])`。
+
+有了握手，窗口不必为了不丢消息而常驻：提醒卡到点才建、处理完就关；预览卡隐藏后空闲 2 分钟关窗。
+快捷提问条和桌宠对话框仍然启动时预建——它们由快捷键/点击唤起，要求秒开。
+
 ### 捕获与解析
 
 - `capture.ts` — 捕获入口
@@ -191,7 +204,15 @@ macOS 需要 `NSMicrophoneUsageDescription`（`electron-builder.yml`），
 
 `src/main/history/` 一整套：`service.ts`（生命周期）、`event-store.ts`、`summarizer.ts`、`query-service.ts`、`work-derivation.ts`、`retention.ts`。
 
-事件采集由 `activity-tracker.ts` 负责，`history/` 只管存储与派生。工作记录有两条路径共用 `work_records` 表，靠 `derived_by` / `segment_id` / `summary_hash` 区分和幂等去重。
+事件采集由 `activity-tracker.ts` 负责，`history/` 只管存储与派生。
+
+**活动时间线（`activity_intervals`，保留 90 天）是唯一的计时来源**：应用时长、应用切换、工作记录都从它派生。
+- 应用时长：90 天内直接从区间现算；`app_usage` 只是采样器从区间投影出的按天汇总，过了保留期才被读取
+- 应用切换：由相邻的活跃区间推出（没有单独的切换表）
+- 工作记录：**只由 10 分钟摘要按区间派生**（`derived_by = 'timeline'`，`history/service.ts` 的 `onTenMinuteSummary`），
+  区间里没被摘要覆盖的空档显示成「使用 X，暂无活动描述」。屏幕 OCR 只用来找待办，不再顺带写工作记录
+
+以前的「原计时 / 后台对照 / 统一计时」三种模式、旧 OCR 工作记录、Accessibility 语义归类和几个隐藏回滚开关都已删除（产品未上线，没有存量数据）。
 
 ### 对外 MCP 服务
 
@@ -199,7 +220,7 @@ macOS 需要 `NSMicrophoneUsageDescription`（`electron-builder.yml`），
 
 ### 调度器
 
-`report-scheduler.ts`（日报）、`dailybrief-scheduler.ts`（每日简报）、`task-reminder.ts`（任务提醒，30 秒 tick）、`wellness-reminder.ts`、`usage-sampler.ts`（前台应用采样）。
+`report-scheduler.ts`（日报）、`dailybrief-scheduler.ts`（每日简报）、`task-reminder.ts`（任务提醒，30 秒 tick；事件前按提前量提醒，只给了日期的截止——无开始时刻、截止 23:59——锚在当天 09:00，截止前开机都会补）、`wellness-reminder.ts`、`usage-sampler.ts`（前台应用采样）。
 
 ---
 
@@ -207,11 +228,11 @@ macOS 需要 `NSMicrophoneUsageDescription`（`electron-builder.yml`），
 
 ### 路由
 
-`App.tsx` 先看 hash 决定是不是独立窗口（`/preview` `/reminder` `/debug` `/petchat` `/quickbar`），否则进主界面。
+`App.tsx` 只做路由：先看 hash 决定是不是独立窗口（`/preview` `/reminder` `/debug` `/petchat` `/quickbar`），否则按需加载主界面 `MainApp.tsx`。**小窗组件必须保持同步 import**——主进程在 `did-finish-load` 后立刻推第一条消息，组件若还在等分块就会丢消息；主界面整套（页面、插件、Supabase 客户端、录音）只在主窗口里求值。
 
-主导航：**今日 / 日程 / 日报 / 分析 / 个人**（`App.tsx:55` 的 `NAV`）。设置和市场固定在侧边栏底部，不在主导航里。插件页由 `PLUGIN_UI[page]?.Page` 渲染。
+主导航：**今日 / 日程 / 日报 / 分析 / 个人**（`MainApp.tsx` 的 `NAV`）。设置和市场固定在侧边栏底部，不在主导航里。插件页由 `PLUGIN_UI[page]?.Page` 渲染。
 
-页面跳转统一走 `App.tsx` 的 `navigate(page, cat?)`，第二个参数只对设置页有意义
+页面跳转统一走 `MainApp.tsx` 的 `navigate(page, cat?)`，第二个参数只对设置页有意义
 （深链到某个分区，如首页「去设置开启」直接落到屏幕感知）。每次导航都重设，
 所以从侧栏进设置不会残留上一次的分区。
 
@@ -235,6 +256,7 @@ npm run test              # 全部默认用例（无需 API，CI 用这个）
 node test/run.mjs history # 只跑文件名含 history 的
 node test/run.mjs --all   # 连需要 .env/API 的一起跑
 node test/run.mjs --verbose
+npm run test:scenarios    # 日常场景端到端（离线回放）；加 -- --run --config <chmod 600 的 JSON> 打真实模型
 ```
 
 `test/run.mjs` 自动发现 `test/*-smoke.mjs`，**新增用例不用改 package.json**。测试直接 import `.ts` 源码。
@@ -333,9 +355,9 @@ console.log(b.includes(Buffer.from('某个新加的中文串','utf8')))"
 - **textarea 高度不能按 `'\n'` 个数算**，长文本软折行时行数仍是 1，框子不会长高。用 `autoGrow()` 读 `scrollHeight`
 - **`⌘⏎` 在 textarea 里不会自己插换行**（只有 `⇧⏎` 会），必须手动插；插完 React 重渲染会把光标甩到末尾，要在下一帧放回去
 - **body 全局禁用了文字选择**，需要选中的区域要显式 `select-text` / `user-select: text`
-- **嵌套的 drop 区域不要 `stopPropagation`**，否则 `App.tsx` 的 `handleDrop` 收不到，拖放遮罩会卡住不消失
+- **嵌套的 drop 区域不要 `stopPropagation`**，否则 `MainApp.tsx` 的 `handleDrop` 收不到，拖放遮罩会卡住不消失
 - **CSP 是 `img-src 'self' data:`**，图片要以 data URL 回读
-- **`h-full` 在 `App.tsx` 的 `animate-page` 容器里解析成 `auto`**（那个 div 是块级、高度由内容撑）。需要满高的插件页用 `h-screen`，不要改共用容器——会影响所有核心页的滚动
+- **`h-full` 在 `MainApp.tsx` 的 `animate-page` 容器里解析成 `auto`**（那个 div 是块级、高度由内容撑）。需要满高的插件页用 `h-screen`，不要改共用容器——会影响所有核心页的滚动
 - **contentEditable 里新起的行常常是 `<div>` 而不是 `<p>`**（Chromium 的 `defaultParagraphSeparator` 就是 div）。记事本的 `currentBlock()` 曾因白名单漏了 DIV，导致 slash 菜单、Markdown 输入规则、公式块级渲染在新打的行上**一起静默失效**——载入时的渲染照常工作，所以症状像「有时行有时不行」。凡是靠标签白名单找块的地方都要留兜底
 - **contentEditable 里空的块元素不是合法落点**，浏览器会把光标弹到上一行。新建空块必须塞一个 `<br>`；而落光标时「内容末尾」等于落在 `<br>` 之后（又跑下一行），空块要显式落块首
 - **中文输入法激活时 `keydown` 上报的 `key` 不可靠**（常见 `Process` / keyCode 229）。要判具体字符的输入规则挂 `beforeinput`，按 `inputType === 'insertText' && data === '…'` 判断，组合输入期间是 `insertCompositionText`，天然不会误命中
@@ -350,14 +372,15 @@ console.log(b.includes(Buffer.from('某个新加的中文串','utf8')))"
 
 | 要改的东西 | 落点 |
 |---|---|
-| 新增 IPC 通道 | `shared/ipc-channels.ts` 登记 → `main/ipc.ts` 注册 → `renderer/src/api.ts` 调用 |
+| 新增 IPC 通道 | `shared/ipc-channels.ts` 登记 → `main/ipc/<领域>.ts` 注册 → `renderer/src/api.ts` 调用 |
+| 主进程往窗口推消息 | `whenWindowReady(win, () => win.webContents.send(…))`，渲染层订阅后 `api.windowReady()` |
 | 新增插件 | `shared/plugin-registry.ts` + `main/plugins/<id>/` + `renderer/src/plugins/<id>/`，注册进两个 index |
 | 插件加一个后端能力 | 该插件 `index.ts` 的 `handlers` 加 key，自动注册 |
 | 让助手会做新动作 | 插件 manifest 的 `assistantActions` + 主进程模块的 `assistantActions` 实现 |
 | 加数据库字段 | 对应 `db/*.ts` 的 `initTables` 走增量迁移；插件表在插件自己的 `initTables` |
 | 改任务字段映射 | `main/task-ingest.ts` 一处（三条接受流共用） |
 | 改助手提示词 | `shared/parsing.ts` 的 `buildAssistantInstructions()` |
-| 改主界面导航 | `renderer/src/App.tsx` 的 `NAV` |
+| 改主界面导航 | `renderer/src/MainApp.tsx` 的 `NAV` |
 | 改聊天输入行为 | `components/AssistantChat.tsx`（桌宠+悬浮助手）和 `pages/QuickBar.tsx`（快捷提问，**是另一份代码**） |
 | 加共用控件 | `renderer/src/components/ui.tsx` |
 | 加纯逻辑 + 单测 | `shared/xxx.ts` + `test/xxx-smoke.mjs`（自动发现，不用改 package.json） |

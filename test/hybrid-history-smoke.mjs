@@ -32,7 +32,6 @@ check('私密状态绝对抑制', assessSemanticCompleteness({ appName: 'Safari'
 check('上下文 key 稳定归一', contextKey({ appName: ' Code ', bundleId: 'COM.X', windowTitle: ' A  B ' }) === 'code|com.x|a b')
 
 const base = {
-  hybridEnabled: true,
   semantic: assessSemanticCompleteness({ appName: 'Code' }),
   nowMs: 100_000,
   active: true,
@@ -64,7 +63,6 @@ check(
 )
 check('observer 连续失败不恢复周期截图', !decideOcrTrigger({ ...base, observerHealthy: false, observerFailureCount: 2, highValueEvent: true }).run)
 check('secure/privacy 永不 OCR', !decideOcrTrigger({ ...base, semantic: assessSemanticCompleteness({ privacyState: 'secure' }), hardFallback: true }).run)
-check('legacy 开关保留旧事件触发', decideOcrTrigger({ ...base, hybridEnabled: false, highValueEvent: false }).reason === 'legacy_event')
 
 // ---- 待办识别独立触发通道 ----
 const completeCtx = { ...base, semantic: complete }

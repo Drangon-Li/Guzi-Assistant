@@ -66,8 +66,6 @@ export interface HybridActivitySegment extends ActivitySegment {
 export type OcrTriggerReason =
   | 'manual'
   | 'todo_scan'
-  | 'legacy_event'
-  | 'legacy_hard_fallback'
   | 'partial_high_value'
   | 'partial_retry'
   | 'empty_active'
@@ -75,7 +73,6 @@ export type OcrTriggerReason =
   | 'hard_fallback_incomplete'
 
 export interface OcrTriggerInput {
-  hybridEnabled: boolean
   semantic: SemanticAssessment
   nowMs: number
   active: boolean
@@ -180,12 +177,6 @@ export function contextKey(input: Pick<SemanticContextInput, 'appName' | 'bundle
 /** Hybrid v2 OCR matrix. Privacy and rate gates are absolute and deterministic. */
 export function decideOcrTrigger(input: OcrTriggerInput): OcrTriggerDecision {
   if (input.manual) return { run: input.screenAllowed, reason: 'manual' }
-  if (!input.hybridEnabled) {
-    return {
-      run: input.screenAllowed,
-      reason: input.hardFallback ? 'legacy_hard_fallback' : 'legacy_event'
-    }
-  }
   if (input.semantic.privacyState !== 'normal') return { run: false, reason: 'privacy_suppressed' }
   if (!input.active) return { run: false, reason: 'inactive' }
   if (!input.screenAllowed) return { run: false, reason: 'screen_unavailable' }

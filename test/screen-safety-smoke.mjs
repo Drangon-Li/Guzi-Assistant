@@ -119,9 +119,9 @@ const fixture = {
   current: snapshot(), now: Date.now(), capture: 0, model: 0, ocr: 0, writes: 0,
   ocrError: false, modelError: false, onModel: null, modelItems: [], tick: null,
   semanticGate: true, collectorBlocked: false, restoreTarget: null, restores: 0, restoreShowsOwn: false, excludedApp: null, capturedWindowIds: [],
-  settings: { screenSenseKeepShots: false, screenSensePopup: false, screenSenseWorkLog: false,
-    screenSenseVlmConfirm: false, screenSenseEventDriven: true, screenSenseFallbackIntervalSec: 300,
-    screenSenseHybridV2: true, todoScanEnabled: true, todoScanIntervalSec: 300, historyV2Enabled: false }
+  settings: { screenSenseKeepShots: false, screenSensePopup: false,
+    screenSenseVlmConfirm: false, screenSenseFallbackIntervalSec: 300,
+    todoScanEnabled: true, todoScanIntervalSec: 300, historyV2Enabled: false }
 }
 globalThis.__screenFixture = fixture
 const mocks = {
@@ -129,16 +129,15 @@ const mocks = {
   './capture': `export const HINTS={screen_scan:'',screen_scan_confirm:''}, emptyParseSummary=()=>({}); export async function captureScreenSilently(snapshot){f.capturedWindowIds.push(snapshot.windowId);f.capture++; return '/fake.png'}`,
   './ocr': `export async function ocrImageDetailed(){f.ocr++; if(f.ocrError)throw Error('OCR failed'); return [{text:'demo OCR',x:0,y:0,w:1,h:1}]}`,
   './parser': `export const cloudReady=()=>true; export async function parseToItemsRaw(){f.model++; if(f.onModel)await f.onModel(); if(f.modelError)throw Error('network failed'); return {items:f.modelItems,raw:{}}}`,
-  './db': `export const getSettings=()=>f.settings, listFocusTaskCandidates=()=>[], getSource=()=>null, compareActivityUsage=()=>({legacySeconds:0,timelineSeconds:0,deltaSeconds:0,stateSeconds:{},endReasons:{},historyExcludedSeconds:0}), addOcrEvidence=()=>{f.writes++};`,
+  './db': `export const getSettings=()=>f.settings, getSource=()=>null, addOcrEvidence=()=>{f.writes++};`,
   './report-scheduler': 'export const applyReportSchedule=()=>{};',
   './windows': `export const debugEvent=()=>{},debugIsOpen=()=>false,hideMainForCapture=()=>{if(!f.restoreTarget)return null;f.current=f.restoreTarget;let done=false;return()=>{if(!done){f.restores++;if(f.restoreShowsOwn)f.current={...f.current,name:'Own'}}done=true}},showPreview=()=>{},isPreviewVisible=()=>false;`,
   './pet/controller': `export const applyExternalPetSay=()=>{},isPetVisible=()=>false,setPetScanning=()=>{};`,
   './hotkey': `export const initScanHotkey=()=>{},unregisterScanHotkey=()=>{};`,
   './frontapp': `export const getScreenSnapshot=async()=>({...f.current,observedAtMs:Date.now()});`,
   './shotvault': `export const saveShotTempFromPng=()=>{f.writes++},deleteShot=()=>{},listShotIds=()=>[],sweepTempShots=()=>{};`,
-  './activity-tracker': `export const activityScanDecision=()=>({run:f.semanticGate,reason:f.semanticGate?'event':'waiting'}),getScreenActivityStatus=()=>({}),markActivityScan=()=>{},configureActivityHistoryPersistence=()=>{},configureSemanticWorkClassifier=()=>{},getHybridSemanticState=()=>({assessment:{score:100},contextKey:'demo'}),markOcrFallback=()=>{},recordOcrEvidence=()=>{f.writes++},recordScreenChange=()=>{},resetActivityGate=()=>{},startActivityCollector=()=>{},stopActivityCollector=()=>{},getCollectorCaptureSafety=()=>({blocked:f.collectorBlocked,reason:f.collectorBlocked?'collector secure':null});`,
+  './activity-tracker': `export const activityScanDecision=()=>({run:f.semanticGate,reason:f.semanticGate?'event':'waiting'}),getScreenActivityStatus=()=>({}),markActivityScan=()=>{},configureActivityHistoryPersistence=()=>{},getHybridSemanticState=()=>({assessment:{score:100},contextKey:'demo'}),markOcrFallback=()=>{},recordOcrEvidence=()=>{f.writes++},recordScreenChange=()=>{},resetActivityGate=()=>{},startActivityCollector=()=>{},stopActivityCollector=()=>{},getCollectorCaptureSafety=()=>({blocked:f.collectorBlocked,reason:f.collectorBlocked?'collector secure':null});`,
   './detection-cards': `export const buildDetectionCards=()=>[],parsedToExtraction=x=>x,showDetectedCards=()=>{},sweepCompletedDetections=()=>{};`,
-  './work-records': `export const legacyWorkSummaryHint=()=>'',maybeAddWorkRecord=()=>{},resetWorkRecordThrottle=()=>{},scheduleSemanticWork=()=>{},shouldPersistLegacyOcrWork=()=>false,stopSemanticWorkClassifier=()=>{},workSummaryHint=()=>'';`,
   './privacy': `export const privacyForContext=context=>({suppressed:context.name==='Own'||context.name===f.excludedApp,privacyState:context.name==='Own'?'own':context.name===f.excludedApp?'excluded':'normal'});`,
   './usage-sampler': `export const IDLE_SKIP_SEC=60,startUsageSampler=()=>{},stopUsageSampler=()=>{};`,
   './history/service.ts': `export const appendHistoryEventIfRunning=()=>{},appendOcrEvidenceIfAllowed=()=>{},historyContentAllowed=()=>true,getHistoryContentEpoch=()=>1,startHistoryPersistence=()=>{},stopHistoryPersistence=()=>{};`,
@@ -148,8 +147,6 @@ const mocks = {
   '@shared/shot-retention': `export const expiredShotIds=()=>[];`,
   '@shared/phash': `export const dhash=()=>1n,hamming=(a,b)=>a===b?0:64,bgraToGray=()=>[],textHash=text=>text;`,
   '@shared/detection-gate': `export const detectionQueueDecision=()=> 'queue';`,
-  '@shared/work-report': `export const dayKey=()=> '2026-10-18';`,
-  '@shared/parsing': `export const parseFocusTask=()=>null,parseWorkSummary=()=>null;`,
   '@shared/hybrid-history': `export const decideOcrTrigger=()=>({run:f.semanticGate,reason:'todo_scan'});`,
   'fs/promises': `export const unlink=async()=>{};`
 }

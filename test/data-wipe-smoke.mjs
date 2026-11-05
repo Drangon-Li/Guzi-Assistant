@@ -45,8 +45,7 @@ function fixture() {
     enabledPlugins: '["pomodoro","notebook"]',
     'plugin:notebook:prefs': '{"fontScale":1.2}',
     'plugin:pomodoro:prefs': '{"autoStart":true}',
-    'plugin:pomodoro:continuation': '{"taskTitle":"private title"}',
-    'activityTimelineComparison:2026-10-24': '{"legacySeconds":100}'
+    'plugin:pomodoro:continuation': '{"taskTitle":"private title"}'
   }
   const insert = db.prepare('INSERT INTO settings(key,value) VALUES (?,?)')
   for (const [key, value] of Object.entries(settings)) insert.run(key, value)
@@ -69,7 +68,7 @@ function fixture() {
     assert.equal(db.prepare('SELECT count(*) AS n FROM sources_fts_idx').get().n, 0)
     for (const [key, value] of Object.entries(settings)) {
       const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key)
-      if (key.startsWith('activityTimelineComparison:') || key === 'plugin:pomodoro:continuation') assert.equal(row, undefined)
+      if (key === 'plugin:pomodoro:continuation') assert.equal(row, undefined)
       else assert.equal(row.value, value)
     }
     assert.deepEqual(db.prepare("SELECT name,sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY name").all(), beforeSchema)
@@ -100,11 +99,12 @@ function fixture() {
       writeFileSync(join(dir, name, 'private-content'), 'private')
     }
     writeFileSync(join(dir, 'screen-sense-debug.log'), 'private title')
+    writeFileSync(join(dir, 'screen-sense-debug.log.1'), 'rotated private title')
     mkdirSync(join(dir, 'pet'))
     writeFileSync(join(dir, 'pet', 'prefs.json'), '{"scale":1}')
     for (const name of ['eshell.db', '.env', 'update-check.json', 'external-import.pdf']) writeFileSync(join(dir, name), 'keep')
     await load('main/content-files').clearUserContentFiles(dir)
-    for (const name of [...contentNames, 'screen-sense-debug.log']) assert.equal(existsSync(join(dir, name)), false, name)
+    for (const name of [...contentNames, 'screen-sense-debug.log', 'screen-sense-debug.log.1']) assert.equal(existsSync(join(dir, name)), false, name)
     for (const name of ['eshell.db', '.env', 'update-check.json', 'external-import.pdf', 'pet/prefs.json']) assert.ok(existsSync(join(dir, name)), name)
     console.log('✓ 只删除应用管理的截图/录音/笔记图片/历史/投递清单/日志，保留配置和外部导入原件')
   } finally { rmSync(dir, { recursive: true, force: true }) }

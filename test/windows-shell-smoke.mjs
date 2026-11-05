@@ -23,7 +23,7 @@ function loadTs(file, dependencies, platform = 'win32', globals = {}) {
 }
 
 const { win32, posix } = require('node:path')
-for (const name of ['activity-timeline-db-smoke.mjs', 'usage-sampler-smoke.mjs', 'task-chain-demo-smoke.mjs', 'history-service-demo-smoke.mjs', 'semantic-work-privacy-smoke.mjs', 'real-model-demo.mjs']) {
+for (const name of ['activity-timeline-db-smoke.mjs', 'usage-sampler-smoke.mjs', 'task-chain-demo-smoke.mjs', 'history-service-demo-smoke.mjs', 'real-model-demo.mjs']) {
   const source = readFileSync(new URL(name, import.meta.url), 'utf8')
   const expression = source.match(/let target\s*=\s*([^\n]+)/)?.[1]
   assert(expression, `Missing module resolver in ${name}`)
@@ -180,7 +180,7 @@ assert.equal(macMain.submissions.length, 0)
 function windowsModule(platform) {
   const nativeTheme = Object.assign(new EventEmitter(), { shouldUseDarkColors: false })
   class Window extends EventEmitter {
-    constructor(options) { super(); this.options = options; this.visible = false; this.minimized = false; this.webContents = { send() {} } }
+    constructor(options) { super(); this.options = options; this.visible = false; this.minimized = false; this.webContents = Object.assign(new EventEmitter(), { send() {} }) }
     isDestroyed() { return false }
     isVisible() { return this.visible }
     isMinimized() { return this.minimized }
@@ -197,7 +197,9 @@ function windowsModule(platform) {
     electron,
     './pet/pet-window': { getPetBadgeBounds: () => null },
     './content-lifecycle': { isContentResetting: () => false },
-    './platform/window-options': loadTs('../src/main/platform/window-options.ts', { electron }, platform)
+    './platform/window-options': loadTs('../src/main/platform/window-options.ts', { electron }, platform),
+    './window-fade': loadTs('../src/main/window-fade.ts', {}, platform, { WeakMap }),
+    './window-ready': loadTs('../src/main/window-ready.ts', {}, platform, { WeakMap, WeakSet })
   }, platform)
 }
 const windows = windowsModule('win32')

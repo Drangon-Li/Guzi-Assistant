@@ -15,7 +15,7 @@ const settings =
   read('../src/renderer/src/pages/Settings.tsx') +
   readDir('../src/renderer/src/components/settings/', '.tsx')
 const settingsUi = read('../src/renderer/src/components/ui.tsx')
-const app = read('../src/renderer/src/App.tsx')
+const app = read('../src/renderer/src/MainApp.tsx')
 const historyService = read('../src/main/history/service.ts')
 const privacy = read('../src/main/privacy.ts')
 const db = readDir('../src/main/db/', '.ts')
@@ -46,11 +46,11 @@ const checks = [
     (historyService.match(/broadcast\('guzi-assistant:history-updated'\)/g) ?? []).length >= 4 &&
       /api\.on\('guzi-assistant:history-updated'/.test(activity) &&
       /api\.on\('guzi-assistant:history-updated'/.test(settings)],
-  // History v2 改为默认开启（设置页已不暴露开关）；派生工作记录仍默认关，两者可独立回滚。
-  ['History v2 默认开启、派生工作记录默认关闭且可独立回滚',
+  // History v2 默认开启（设置页不暴露开关）；工作记录只从时间线派生，不再有派生开关和计时方式切换。
+  ['History v2 默认开启，工作记录只走时间线派生，设置页不再有计时方式切换',
     /historyV2Enabled: map\.historyV2Enabled !== 'false'/.test(db) &&
-      /historyDerivedWorkEnabled: map\.historyDerivedWorkEnabled === 'true'/.test(db) &&
-      /historyV2Enabled && \(settings\.historyDerivedWorkEnabled \|\| usesTimelineForDay/.test(historyService)]
+      !/historyDerivedWorkEnabled|activityTimelineMode/.test(db + settings) &&
+      /deriveTimelineWorkRecords/.test(historyService)]
 ]
 
 for (const [name, ok] of checks) {

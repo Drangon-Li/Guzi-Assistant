@@ -233,6 +233,9 @@ export default function PreviewCard(): React.JSX.Element | null {
     })
   }, [])
 
+  // 订阅已挂好，告诉主进程可以推了（排队的消息此时补发）。effect 按声明顺序执行，必须放在订阅之后
+  useEffect(() => { void api.windowReady() }, [])
+
   // 自动隐藏秒数随设置实时更新
   useEffect(() => {
     const load = (): void =>

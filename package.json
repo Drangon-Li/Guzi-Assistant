@@ -1,7 +1,7 @@
 {
   "name": "guzi-assistant",
   "productName": "谷子助手",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "谷子助手个人事项捕获助手",
   "main": "out/main/index.js",
   "private": true,
@@ -16,7 +16,8 @@
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "test": "node test/run.mjs",
     "test:unit": "node test/run.mjs",
-    "test:demo": "node test/run.mjs task-chain-demo screen-safety activity-timeline usage-sampler semantic-work-privacy history-boundary-demo history-service-demo activity-tracker-privacy",
+    "test:demo": "node test/run.mjs task-chain-demo screen-safety activity-timeline usage-sampler history-boundary-demo history-service-demo activity-tracker-privacy",
+    "test:scenarios": "ELECTRON_RUN_AS_NODE=1 electron test/daily-scenarios-live.mjs",
     "test:parser": "node test/run.mjs parser",
     "prepare:mac": "node scripts/prepare-sparkle.mjs",
     "pack:mac": "node scripts/build-macos-release.mjs",
