@@ -17,6 +17,10 @@ on:
         description: For stable publication, type publish-vX.Y.Z
         type: string
         default: ''
+      bridge_legacy:
+        description: One-time migration - also point the legacy guzi-assistant-releases feed at this release
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -79,7 +83,7 @@ jobs:
             node scripts/build-macos-release.mjs --channel test --skip-build \
               --app-id "cn.shilong.gooz.update-test.ci-${GITHUB_RUN_ID}" \
               --profile-dir "/private/tmp/guzi-update-ci-${GITHUB_RUN_ID}" \
-              --feed-url "https://github.com/Drangon-Li/guzi-assistant-releases/releases/download/${RELEASE_TAG}-test-${GITHUB_RUN_ID}/appcast-mac-arm64.xml"
+              --feed-url "https://github.com/Drangon-Li/Guzi-Assistant/releases/download/${RELEASE_TAG}-test-${GITHUB_RUN_ID}/appcast-mac-arm64.xml"
           fi
       - name: Verify archives and sign Sparkle update
         run: node scripts/sign-macos-release.mjs --channel "$CHANNEL"
@@ -101,6 +105,8 @@ jobs:
     needs: build
     runs-on: macos-15
     timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -117,7 +123,7 @@ jobs:
       - name: Upload isolated test draft and verify remote bytes
         run: node scripts/publish-macos-release.mjs
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
 
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.publish
@@ -125,6 +131,8 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 20
     environment: macos-release
+    permissions:
+      contents: write
     concurrency:
       group: macos-stable-publication
       cancel-in-progress: false
@@ -142,7 +150,10 @@ jobs:
           name: macos-arm64-release-${{ github.run_id }}
           path: release
       - name: Publish stable only after remote archive verification
-        run: node scripts/publish-macos-release.mjs --publish --confirm "$CONFIRMATION"
+        run: node scripts/publish-macos-release.mjs --publish --confirm "$CONFIRMATION" $BRIDGE
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
-          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          # 只有一次性迁移时才把跨仓库令牌交给这一步；旧仓库归档后可删除这个 Secret
+          BRIDGE: ${{ inputs.bridge_legacy && '--bridge-legacy' || '' }}
+          LEGACY_GH_TOKEN: ${{ inputs.bridge_legacy && secrets.RELEASE_REPO_TOKEN || '' }}

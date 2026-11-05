@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict'
 import { createHash, createPublicKey, verify } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { isAbsolute, basename } from 'node:path'
+import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { isAbsolute, basename, join } from 'node:path'
 
-export const releaseRepository = 'Drangon-Li/guzi-assistant-releases'
 export const sourceRepository = 'Drangon-Li/Guzi-Assistant'
+/** 源码仓库公开后，安装包与 Sparkle 更新源直接发布在源码仓库的 Releases 里，不再另设发布仓库。 */
+export const releaseRepository = sourceRepository
+/**
+ * v0.13.0–v0.14.0 发布在这里，这些安装包写死从它读更新源。迁移版本发布时用 --bridge-legacy
+ * 在这里放一份指向新仓库安装包的更新源，老用户升到迁移版本后就改读新仓库；之后本仓库归档即可。
+ */
+export const legacyReleaseRepository = 'Drangon-Li/guzi-assistant-releases'
 export const stableAppId = 'cn.shilong.gooz'
 export const stableFeed = `https://github.com/${releaseRepository}/releases/latest/download/appcast-mac-arm64.xml`
+export const legacyStableFeed = `https://github.com/${legacyReleaseRepository}/releases/latest/download/appcast-mac-arm64.xml`
 export const feedName = 'appcast-mac-arm64.xml'
 export const checksumName = 'mac-arm64-SHA256SUMS.txt'
 export const provenanceName = 'mac-arm64-provenance.json'
@@ -76,31 +84,32 @@ export function readOptionalGitHubRelease(read) {
   }
 }
 
-export function readGitHubReleaseByTag(gh, tag) {
-  const pages = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${releaseRepository}/releases?per_page=100`]))
+export function readGitHubReleaseByTag(gh, tag, repository = releaseRepository) {
+  const pages = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repository}/releases?per_page=100`]))
   assert(Array.isArray(pages) && pages.every(Array.isArray), 'Expected paginated GitHub release lists')
   const matches = pages.flat().filter((release) => release.tag_name === tag)
   assert(matches.length <= 1, `Multiple GitHub releases use tag: ${tag}`)
   if (!matches.length) return undefined
   const { id } = matches[0]
   assert(Number.isSafeInteger(id) && id > 0, 'GitHub release must have a valid ID')
-  const release = JSON.parse(gh(['api', `repos/${releaseRepository}/releases/${id}`]))
+  const release = JSON.parse(gh(['api', `repos/${repository}/releases/${id}`]))
   assert.equal(release.id, id, 'GitHub release ID changed during lookup')
   assert.equal(release.tag_name, tag, 'GitHub release tag changed during lookup')
   return release
 }
 
 export function validateStableContinuity(previous, current) {
-  const validate = (record) => {
+  const validate = (record, repositories) => {
     assert.equal(record.channel, 'stable')
-    assert.equal(record.repository, releaseRepository)
+    assert(repositories.includes(record.repository), `Unexpected release repository: ${record.repository}`)
     assert.equal(record.appId, stableAppId)
     publicKeyBytes(record.publicKey)
     validateTag(record.releaseTag, record.version)
   }
-  validate(current)
+  validate(current, [releaseRepository])
   if (!previous) return 'first-release'
-  validate(previous)
+  // 迁移版本的上一个正式版还在旧发布仓库：签名密钥与版本递增照样要连续
+  validate(previous, [releaseRepository, legacyReleaseRepository])
   assert.equal(current.publicKey, previous.publicKey, 'Stable signing key changes require a dedicated key migration; automatic publication is blocked')
   const before = previous.version.split('.').map(BigInt)
   const after = current.version.split('.').map(BigInt)
@@ -120,3 +129,31 @@ export function parseArguments(argv, booleans = []) {
   }
   return options
 }
+
+/**
+ * 旧安装（v0.13.0–v0.14.0）写死从旧发布仓库的 latest 读更新源。在那里放一份同样的 appcast——
+ * 它的下载地址指向源码仓库刚发布的 ZIP，EdDSA 签名照常校验——老用户升到这个版本后就改读新仓库。
+ * gh 需带旧仓库写权限；已发布过就只核对字节，不覆盖。返回旧仓库里这个发布的地址。
+ */
+export async function bridgeLegacyFeed({ gh, directory, temporary, tag, zip }) {
+  const feed = await readFile(join(directory, feedName), 'utf8')
+  assert(feed.includes(`https://github.com/${releaseRepository}/releases/download/${tag}/${zip}`), 'Bridged feed must point at the archive just published in the source repository')
+  const bridged = [feedName, provenanceName, checksumName]
+  const notes = join(temporary, 'bridge-notes.txt')
+  await writeFile(notes, `谷子助手已迁移到开源仓库 https://github.com/${releaseRepository} 。\n\n本发布只用于把旧版本（v0.13.0–v0.14.0）的应用内更新引导到新地址，安装包请到 https://github.com/${releaseRepository}/releases/tag/${tag} 下载。\n`)
+  const existing = readGitHubReleaseByTag(gh, tag, legacyReleaseRepository)
+  if (!existing) gh(['release', 'create', tag, '--repo', legacyReleaseRepository, '--draft', '--title', `谷子助手 ${tag} · 迁移到开源仓库`, '--notes-file', notes])
+  if (!existing || existing.draft) {
+    const present = (existing?.assets ?? []).map((asset) => asset.name)
+    for (const name of present) assert(bridged.includes(name), `Unexpected legacy draft attachment: ${name}`)
+    const missing = bridged.filter((name) => !present.includes(name))
+    if (missing.length) gh(['release', 'upload', tag, '--repo', legacyReleaseRepository, ...missing.map((name) => join(directory, name))])
+  }
+  const downloaded = join(temporary, 'legacy-bridge')
+  gh(['release', 'download', tag, '--repo', legacyReleaseRepository, '--dir', downloaded])
+  assert.deepEqual((await readdir(downloaded)).sort(), [...bridged].sort(), 'Legacy bridge assets are incomplete')
+  for (const name of bridged) assert.equal(await sha256(join(downloaded, name)), await sha256(join(directory, name)), `Legacy bridge bytes changed: ${name}`)
+  if (!existing || existing.draft) gh(['release', 'edit', tag, '--repo', legacyReleaseRepository, '--draft=false', '--prerelease=false', '--latest'])
+  return `https://github.com/${legacyReleaseRepository}/releases/tag/${tag}`
+}
+
