@@ -398,7 +398,7 @@ npm run pack:dir    # 生成未签名的 arm64 .app 目录
 npm run pack:mac    # 生成 arm64 DMG + ZIP
 ```
 
-当前公开版本是 [v0.2.0](https://github.com/Chinese-Dragon-Li/Guzi-Assistant/releases/tag/v0.2.0)。安装包未使用 Apple Developer ID 签名或公证；Apple Silicon Mac 首次打开如遇 Gatekeeper，请在 Finder 中右键选择「打开」。
+安装包发布在本仓库的 [Releases](https://github.com/Drangon-Li/Guzi-Assistant/releases)（v0.13.0–v0.14.0 的 macOS 版在旧仓库 `guzi-assistant-releases`，旧安装由迁移版本经应用内更新带过来）。macOS 安装包是 ad-hoc 签名，未使用 Apple Developer ID 签名或公证；Apple Silicon Mac 首次打开如遇 Gatekeeper，请在 Finder 中右键选择「打开」。
 
 ---
 

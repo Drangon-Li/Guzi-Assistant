@@ -1,0 +1,16 @@
+谷子助手 (Guzi Assistant)
+Copyright 2026 The Guzi Assistant Authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party software and assets under their own licenses:
+
+- Sparkle (MIT) - macOS in-app updates. The pinned upstream license ships in
+  the application bundle at Contents/Resources/licenses/Sparkle-LICENSE.txt.
+- openpets (MIT) - desktop pet window scaffolding.
+  See src/main/pet/THIRD_PARTY_NOTICES.md.
+- Guten OCR (MIT) and PaddleOCR PP-OCRv4 models (Apache-2.0) - Windows offline
+  OCR. See windows-runtime/THIRD-PARTY-NOTICES.txt, GUTEN-OCR-LICENSE.txt and
+  PADDLEOCR-LICENSE.txt.
+- npm dependencies are distributed under the licenses declared in their own
+  package metadata.

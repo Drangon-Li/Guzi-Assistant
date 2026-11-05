@@ -16,3 +16,4 @@ build/native/
 build/windows-ocr/
 build/sparkle/
 /index.js
+signing/*.asc

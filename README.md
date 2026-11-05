@@ -26,14 +26,17 @@
 
 ## 下载
 
-前往 [Releases](https://github.com/Chinese-Dragon-Li/Guzi-Assistant/releases) 下载安装包：
+前往 [Releases](https://github.com/Drangon-Li/Guzi-Assistant/releases) 下载安装包：
 
-| 平台 | 产物 | 当前状态 |
+| 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| macOS Apple Silicon | `.dmg` | GitHub 发布版（未签名） |
-| macOS Apple Silicon | `.zip` | GitHub 发布版（未签名） |
+| macOS Apple Silicon（macOS 12+） | `GuziAssistant-<版本>-arm64.dmg` | 首次安装用；之后在「设置 → 关于」里检查更新，应用内升级 |
+| macOS Apple Silicon | `GuziAssistant-<版本>-arm64.zip` | 供应用内更新（Sparkle）使用，更新包带 Ed25519 签名校验 |
+| Windows x64 | `GuziAssistant-<版本>-win-x64.exe` / `.zip` | 安装包 / 免安装版 |
 
-安装包未使用 Apple Developer ID 签名或公证。首次打开如果遇到 Gatekeeper 提示，请在 Finder 中右键「谷子助手.app」并选择「打开」，再确认提示。
+v0.13.0–v0.14.0 的 macOS 安装包发布在旧仓库 [guzi-assistant-releases](https://github.com/Drangon-Li/guzi-assistant-releases/releases)；之后的版本都在本仓库，已安装的旧版本会通过应用内更新自动迁移过来。
+
+macOS 安装包是 ad-hoc 签名，没有 Apple Developer ID 签名或公证。首次打开如果遇到 Gatekeeper 提示，请在 Finder 中右键「谷子助手.app」并选择「打开」，再确认提示。
 
 部分功能需要额外的系统权限：屏幕感知需要「屏幕录制」，活动历史需要「辅助功能」和「输入监控」，剪贴板自动捕获需要 macOS 15.4 及以上。
 
@@ -96,3 +99,15 @@ IPC 通道以 `src/shared/ipc-channels.ts` 为单一事实源，主进程注册�
 
 - [架构与实现参考](docs/ARCHITECTURE.md) —— 整体架构、每条链路的实现细节、数据模型、部署
 - [设计文档](docs/superpowers/specs/) —— 各功能的设计决策与取舍记录
+
+## 参与贡献
+
+欢迎提 Issue 和 Pull Request，流程与本地验证要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。开发和跑默认测试都不需要任何密钥；解析可以在设置里填你自己的 OpenAI 兼容 API。
+
+安全问题请不要开公开 Issue，按 [SECURITY.md](SECURITY.md) 私密报告。
+
+## 许可证
+
+[Apache License 2.0](LICENSE)。第三方组件与资产的许可见 [NOTICE](NOTICE)。
+
+内置的托管解析与计费服务（`supabase/functions/`、`server/`）是维护者运营的线上服务；代码同样以 Apache-2.0 开源，自建时请在 `.env` 里换成你自己的后端与模型。

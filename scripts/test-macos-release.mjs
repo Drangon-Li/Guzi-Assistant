@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, sign } from 'node:crypto'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { createRequire } from 'node:module'
 import { buildConfig } from './build-macos-release.mjs'
-import { checksumName, feedName, provenanceName, readGitHubReleaseByTag, readOptionalGitHubRelease, releaseRepository, sha256, sourceRepository, stableAppId, stableFeed, validateExistingDraft, validateStableContinuity, validateTag, validateUpdateConfig, verifySignature } from './macos-release.mjs'
+import { bridgeLegacyFeed, checksumName, feedName, legacyReleaseRepository, provenanceName, readGitHubReleaseByTag, readOptionalGitHubRelease, releaseRepository, sha256, sourceRepository, stableAppId, stableFeed, validateExistingDraft, validateStableContinuity, validateTag, validateUpdateConfig, verifySignature } from './macos-release.mjs'
 import { verifyRelease } from './verify-macos-release.mjs'
 
 const keys = generateKeyPairSync('ed25519')
@@ -16,7 +17,7 @@ const isolated = { ...stable, channel: 'test', appId: 'cn.shilong.gooz.update-te
 
 test('stable package preserves bundle identity, rejects fallback keys and test data overrides', () => {
   assert.deepEqual(validateUpdateConfig(stable), stable)
-  for (const change of [{ publicKey: undefined }, { publicKey: Buffer.alloc(32).toString('base64') }, { publicKey: 'not-a-key' }, { appId: isolated.appId }, { profileDir: isolated.profileDir }, { repository: sourceRepository }, { feedUrl: isolated.feedUrl }]) assert.throws(() => validateUpdateConfig({ ...stable, ...change }))
+  for (const change of [{ publicKey: undefined }, { publicKey: Buffer.alloc(32).toString('base64') }, { publicKey: 'not-a-key' }, { appId: isolated.appId }, { profileDir: isolated.profileDir }, { repository: legacyReleaseRepository }, { feedUrl: isolated.feedUrl }]) assert.throws(() => validateUpdateConfig({ ...stable, ...change }))
 })
 
 test('test packages require independent app identity, temporary profile and nonproduction feed', () => {
@@ -74,6 +75,16 @@ test('stable key rotation, same versions and rollback versions fail closed', () 
   assert.throws(() => validateStableContinuity(previous, { ...next, publicKey: wrong }), /dedicated key migration/)
   for (const version of ['0.13.0', '0.12.99', '0.0.1']) assert.throws(() => validateStableContinuity(previous, { ...next, version, releaseTag: `v${version}` }), /rollback requires repackaging/)
   assert.throws(() => validateStableContinuity(previous, { ...next, channel: 'test' }))
+})
+
+test('the migration release continues from the legacy release repository and nowhere else', () => {
+  assert.equal(releaseRepository, sourceRepository, 'releases now live in the public source repository')
+  const legacy = { ...stable, repository: legacyReleaseRepository, version: '0.14.0', releaseTag: 'v0.14.0' }
+  const next = { ...stable, version: '0.15.0', releaseTag: 'v0.15.0' }
+  assert.equal(validateStableContinuity(legacy, next), 'upgrade')
+  assert.throws(() => validateStableContinuity({ ...legacy, repository: 'someone/else' }, next), /Unexpected release repository/)
+  assert.throws(() => validateStableContinuity(next, { ...next, repository: legacyReleaseRepository, version: '0.16.0', releaseTag: 'v0.16.0' }), /Unexpected release repository/)
+  assert.throws(() => validateStableContinuity(legacy, { ...next, version: '0.14.0', releaseTag: 'v0.14.0' }), /rollback requires repackaging/)
 })
 
 test('only an explicit GitHub HTTP 404 indicates an absent stable release', () => {
@@ -165,6 +176,9 @@ test('workflow keeps write token and signing secret scoped to their steps', asyn
   const require = createRequire(import.meta.url)
   const workflow = require('js-yaml').load(await readFile(new URL('../.github/workflows/macos-release.yml', import.meta.url), 'utf8'))
   assert.deepEqual(workflow.permissions, { contents: 'read' })
+  // 只有上传草稿与正式发布这两个任务能写源码仓库的 Releases；构建与签名任务只读
+  assert.equal(workflow.jobs.build.permissions, undefined)
+  for (const name of ['draft', 'publish']) assert.deepEqual(workflow.jobs[name].permissions, { contents: 'write' })
   assert.equal(workflow.jobs.publish.environment, 'macos-release')
   assert.deepEqual(workflow.jobs.publish.concurrency, { group: 'macos-stable-publication', 'cancel-in-progress': false })
   assert.match(workflow.jobs.publish.if, /workflow_dispatch/)
@@ -174,8 +188,66 @@ test('workflow keeps write token and signing secret scoped to their steps', asyn
     assert(!JSON.stringify(job.env ?? {}).includes('RELEASE_REPO_TOKEN'))
     for (const step of job.steps) {
       if (JSON.stringify(step).includes('secrets.SPARKLE_PRIVATE_KEY')) assert.match(step.run, /sign-macos-release/)
-      if (JSON.stringify(step).includes('secrets.RELEASE_REPO_TOKEN')) assert.match(step.run, /publish-macos-release/)
+      if (JSON.stringify(step).includes('secrets.RELEASE_REPO_TOKEN')) {
+        // 跨仓库令牌只在一次性桥接旧更新源时交给正式发布那一步
+        assert.match(step.run, /publish-macos-release.*--publish/)
+        assert.match(step.env.LEGACY_GH_TOKEN, /^\$\{\{ inputs\.bridge_legacy && secrets\.RELEASE_REPO_TOKEN \|\| '' \}\}$/)
+        assert(!String(step.env.GH_TOKEN).includes('RELEASE_REPO_TOKEN'))
+      }
     }
   }
   assert(workflow.jobs.build.steps.some((step) => step.run === 'node scripts/test-macos-app-update.mjs' && !step['continue-on-error']))
 })
+
+test('legacy feed bridge uploads only feed records, verifies remote bytes and never overwrites a published bridge', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'guzi-update-bridge-'))
+  try {
+    const zip = 'GuziAssistant-0.15.0-arm64.zip'
+    await writeFile(join(directory, feedName), `<enclosure url="https://github.com/${releaseRepository}/releases/download/v0.15.0/${zip}"/>`)
+    await writeFile(join(directory, provenanceName), '{"releaseTag":"v0.15.0"}')
+    await writeFile(join(directory, checksumName), 'sums\n')
+    await writeFile(join(directory, zip), 'archives stay in the source repository')
+    const releases = []
+    let tamper = null
+    const calls = []
+    const gh = (args) => {
+      calls.push(args)
+      if (args[0] === 'api') {
+        assert.match(args.at(-1), new RegExp(`^repos/${legacyReleaseRepository}/releases`))
+        if (args.includes('--paginate')) return JSON.stringify([releases.map(({ id, tag_name }) => ({ id, tag_name }))])
+        const id = Number(args.at(-1).split('/').pop())
+        const { files, ...release } = releases.find((r) => r.id === id)
+        return JSON.stringify(release)
+      }
+      const [, verb, tag] = args
+      assert.equal(args[args.indexOf('--repo') + 1], legacyReleaseRepository)
+      const release = releases.find((r) => r.tag_name === tag)
+      if (verb === 'create') releases.push({ id: releases.length + 1, tag_name: tag, draft: true, assets: [], files: {} })
+      if (verb === 'upload') for (const file of args.slice(args.indexOf('--repo') + 2)) { release.files[basename(file)] = readFileSync(file); release.assets.push({ name: basename(file) }) }
+      if (verb === 'download') {
+        const dir = args[args.indexOf('--dir') + 1]
+        mkdirSync(dir, { recursive: true })
+        for (const [name, bytes] of Object.entries(release.files)) writeFileSync(join(dir, name), tamper === name ? 'tampered' : bytes)
+      }
+      if (verb === 'edit') release.draft = false
+      return ''
+    }
+    const run = async () => {
+      const temporary = await mkdtemp(join(tmpdir(), 'guzi-update-bridge-tmp-'))
+      try { return await bridgeLegacyFeed({ gh, directory, temporary, tag: 'v0.15.0', zip }) } finally { await rm(temporary, { recursive: true, force: true }) }
+    }
+    assert.equal(await run(), `https://github.com/${legacyReleaseRepository}/releases/tag/v0.15.0`)
+    assert.deepEqual(releases[0].assets.map((a) => a.name).sort(), [checksumName, feedName, provenanceName].sort(), 'archives are never copied to the legacy repository')
+    assert.equal(releases[0].draft, false)
+    assert(calls.some((args) => args[1] === 'edit' && args.includes('--latest')), 'the bridge becomes the legacy latest release so old feeds resolve to it')
+    const before = calls.length
+    await run()
+    assert(!calls.slice(before).some((args) => ['create', 'upload', 'edit'].includes(args[1])), 'a published bridge is only re-verified, never overwritten')
+    tamper = feedName
+    await assert.rejects(run(), /Legacy bridge bytes changed/)
+    tamper = null
+    await writeFile(join(directory, feedName), `<enclosure url="https://github.com/${legacyReleaseRepository}/releases/download/v0.15.0/${zip}"/>`)
+    await assert.rejects(run(), /must point at the archive just published/)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+

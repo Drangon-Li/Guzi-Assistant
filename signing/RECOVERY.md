@@ -4,19 +4,21 @@
 
 **2026-10-26 已成功从 GitHub Actions 的现有签名密钥重建加密备份，并完成解密与签名验证。** 换机恢复首选下列新备份与新密码文件配对，不需要旧 Mac 的钥匙串。新密码不能解密旧 `.asc`。
 
-Git 只允许保存加密备份和公开身份信息。明文密码使用 `*.local.*` 文件名，权限为 `0600`，必须被 Git 忽略；不要强制添加，也不要把整个 `signing/` 目录作为附件分享。**仅有 `.asc`，没有配套密码，无法恢复私钥。** 仓库中的加密备份、恢复工具和说明用于换机恢复；密码只在本机保存，不随仓库同步。
+**源码仓库已公开（2026-11-05），加密备份不再放进 Git。** `.asc` 由维护者保存在仓库之外的私有位置：本机 `~/GuziAssistant-signing-backup/`（目录 `0700`、文件 `0600`），另须在密码管理器或离线加密介质里各留一份；`signing/*.asc` 已加入 `.gitignore`，不要强制添加。明文密码使用 `*.local.*` 文件名，权限为 `0600`，同样必须被 Git 忽略。**仅有 `.asc`，没有配套密码，无法恢复私钥。**
+
+公开前的历史提交里仍有这两份 `.asc`，公开后任何人都能取得。两份的密码都是 43 位随机字符串（约 256 位熵），配合 AES256 与迭代加盐 S2K，离线暴力破解不可行，因此迁移时没有更换签名密钥。若将来怀疑密码泄露，必须按 Sparkle 的换钥流程（用旧钥签名一个携带新公钥的版本）处理，而不是只删文件。
 
 ## 1. 当前备份与账户
 
 | 内容 | 位置或名称 |
 | --- | --- |
-| 首选的新加密备份 | [guzi-assistant-sparkle-production-v1-recovery-20261026.asc](guzi-assistant-sparkle-production-v1-recovery-20261026.asc) |
+| 首选的新加密备份 | `guzi-assistant-sparkle-production-v1-recovery-20261026.asc`（私有位置，不在仓库） |
 | 配套新密码文件 | `signing/guzi-assistant-sparkle-recovery-20261026-passphrase.local.txt`，本机明文、`0600`、不提交 Git |
 | 本次公开验证记录 | [macos-signing-recovery-20261026.json](macos-signing-recovery-20261026.json) |
 | 原始身份与创建时验证记录 | [macos-signing-identity.json](macos-signing-identity.json) |
 | 应用内置公钥 | [../scripts/sparkle-public-key.txt](../scripts/sparkle-public-key.txt) |
 | 私钥在登录钥匙串中的账户 | `cn.shilong.gooz.sparkle.production.v1` |
-| 私有源码仓库的 Actions Secret | `Drangon-Li/Guzi-Assistant` → `SPARKLE_PRIVATE_KEY` |
+| 源码仓库的 Actions Secret | `Drangon-Li/Guzi-Assistant` → `SPARKLE_PRIVATE_KEY` |
 | 同一仓库的 Actions Variable | `SPARKLE_PUBLIC_KEY` |
 
 正式公钥保持不变：
@@ -37,7 +39,7 @@ Git 只允许保存加密备份和公开身份信息。明文密码使用 `*.loc
 
 ## 2. 旧备份与旧钥匙串：仅作历史备用
 
-原备份 [guzi-assistant-sparkle-production-v1.asc](guzi-assistant-sparkle-production-v1.asc) 保持不变，其 SHA256 为：
+原备份 `guzi-assistant-sparkle-production-v1.asc`（私有位置，不在仓库）保持不变，其 SHA256 为：
 
 ```text
 626417a5c18d5915816c4735380ad634fa1977e3f9a31cc03a9e013f2d49f581
@@ -57,7 +59,7 @@ Git 只允许保存加密备份和公开身份信息。明文密码使用 `*.loc
 
 ## 3. 在新 Mac 准备文件与工具
 
-以下命令均从私有源码仓库根目录运行。从源码仓库取得可信源码、新 `.asc` 和本次公开验证记录，并按第 1 节核对哈希。
+以下命令均从源码仓库根目录运行。从源码仓库取得可信源码和本次公开验证记录，再把私有位置里的新 `.asc` 复制到 `signing/`（已被 Git 忽略），并按第 1 节核对哈希。
 
 **密码文件必须单独安全复制到新 Mac，Git 克隆不会携带 `.local.*` 文件。** 使用独立密码管理器或离线加密介质保留另一份可取回的副本，并明确标注配套的新 `.asc` 文件名。复制后限制权限并检查忽略规则；若使用旧版克隆或忽略规则被移除，可加入该克隆的 `.git/info/exclude`：
 
@@ -173,9 +175,9 @@ build/sparkle/bin/generate_keys --account cn.shilong.gooz.sparkle.production.v1 
 
 已有 GitHub Actions Secret 不受换机影响，本次恢复也未修改它。若日后确实执行了第 4 节可选命令重建 `SPARKLE_PRIVATE_KEY`：
 
-1. 在[私有源码仓库 Actions 设置](https://github.com/Drangon-Li/Guzi-Assistant/settings/secrets/actions)确认名称及更新时间。GitHub 不提供原值回读，不能把 Secret 当作可下载的备份。
+1. 在[源码仓库 Actions 设置](https://github.com/Drangon-Li/Guzi-Assistant/settings/secrets/actions)确认名称及更新时间。GitHub 不提供原值回读，不能把 Secret 当作可下载的备份。
 2. 确认 Actions Variable `SPARKLE_PUBLIC_KEY` 与第 1 节及仓库公钥文件一致。它只能保存公开公钥。
-3. `RELEASE_REPO_TOKEN` 是跨仓库上传凭据，与签名身份无关，无需因此重建。私钥 Secret 仍只配置在私有源码仓库，不能上传为 Release 附件。
+3. `RELEASE_REPO_TOKEN` 只用于把旧发布仓库 `guzi-assistant-releases` 的更新源桥接到源码仓库（一次性迁移），与签名身份无关，无需因此重建；旧仓库归档后即可删除。私钥 Secret 只配置在源码仓库，不能上传为 Release 附件，也不会暴露给外部 PR 触发的工作流。
 4. 下一次发版先完成现有草稿构建、签名校验和升级测试，再正式发布。上述换机命令不会推送代码或发布版本。
 
 恢复的是 Sparkle 更新签名身份，不是 Apple Developer ID 证书或公证资格。已发布应用仍信任原公钥，不能通过生成另一套密钥处理密码丢失。命令依据为项目固定版本的 `generate_keys --help`、`sign_update --help` 与 `gh secret set --help`；工具准备逻辑见 [../scripts/prepare-sparkle.mjs](../scripts/prepare-sparkle.mjs)。
