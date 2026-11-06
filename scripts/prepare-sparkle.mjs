@@ -13,7 +13,8 @@ const run = (file, args, options = {}) => execFileSync(file, args, { stdio: 'inh
 async function exists(path) { return access(path).then(() => true, () => false) }
 
 export async function locateNodeHeaders(explicit = process.env.NODE_INCLUDE_DIR) {
-  const electronVersion = (await readFile(join(root, 'node_modules/electron/dist/version'), 'utf8').catch(() => '')).trim()
+  // The package version, not dist/version: since Electron 42 the binary is only downloaded on first use.
+  const electronVersion = JSON.parse(await readFile(join(root, 'node_modules/electron/package.json'), 'utf8').catch(() => '{}')).version || ''
   const nodePrefix = dirname(dirname(await realpath(process.execPath)))
   const candidates = [
     explicit && resolve(explicit),

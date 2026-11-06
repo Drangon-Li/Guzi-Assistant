@@ -5,5 +5,8 @@
   "dependencies": {
     "@gutenye/ocr-node": "1.4.9",
     "@gutenye/ocr-models": "1.4.2"
+  },
+  "overrides": {
+    "sharp": "^0.35.5"
   }
 }
