@@ -56,3 +56,7 @@ macOS 正式版通过 `.github/workflows/macos-release.yml` 发布到本仓库�
 3. 发布说明在发布后用 `gh release edit` 换成中文标题和说明（格式参照已有版本）。
 
 旧发布仓库 `guzi-assistant-releases` 的迁移已在 v0.15.0 完成：那里的 latest 是指向本仓库的桥接更新源，仓库已归档、`RELEASE_REPO_TOKEN` 已删除。**以后发布不要勾选 `bridge_legacy`**（没有令牌时发布脚本会在开始前直接报错），也不要删除旧仓库——尚未升级的 v0.13.0 / v0.14.0 仍从那里读更新源。
+
+### 产品页和官网下载
+
+产品页 a.guzilab.com 不在这个仓库里，由维护者另行管理。发布新版本后，维护者会把安装包同步到国内下载镜像 `download.guzilab.com`，并更新产品页上的下载链接；这一步不需要改动本仓库。
