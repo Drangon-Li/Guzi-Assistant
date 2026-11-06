@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
+import { createRequire } from 'node:module'
 import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
@@ -12,6 +13,9 @@ import { sparkleOutput, sparkleRelease } from './prepare-sparkle.mjs'
 
 if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('Sparkle integration tests require macOS arm64')
 const repository = fileURLToPath(new URL('../', import.meta.url))
+// Since Electron 42 the npm package downloads its binary on first use instead of at install time;
+// require('electron') fetches it when missing and returns .../Electron.app/Contents/MacOS/Electron.
+const electronApp = join(dirname(createRequire(import.meta.url)('electron')), '../..')
 const root = await realpath(await mkdtemp(join(tmpdir(), 'guzi-sparkle-update-')))
 const bundleId = `com.guzi.sparkle.test.${randomUUID().replaceAll('-', '')}`
 const run = (file, args, options = {}) => execFileSync(file, args, { stdio: 'inherit', ...options })
@@ -55,7 +59,7 @@ async function events(name) {
 async function buildBundle(version, publicKey, feedURL) {
   const target = join(root, 'versions', version, 'SparkleTest.app')
   await mkdir(dirname(target), { recursive: true })
-  run('/usr/bin/ditto', [join(repository, 'node_modules/electron/dist/Electron.app'), target])
+  run('/usr/bin/ditto', [electronApp, target])
   run('/usr/bin/ditto', [join(sparkleOutput, 'Sparkle.framework'), join(target, 'Contents/Frameworks/Sparkle.framework')])
   const resources = join(target, 'Contents/Resources/app')
   await mkdir(resources, { recursive: true })

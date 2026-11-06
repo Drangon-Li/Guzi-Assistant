@@ -39,7 +39,7 @@
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.66.1",
     "@supabase/supabase-js": "^2.108.2",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^13.0.3",
     "katex": "^0.18.5",
     "mammoth": "^1.8.0",
     "pdf-parse": "^1.1.1",
@@ -54,7 +54,7 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
-    "electron": "^38.2.0",
+    "electron": "^43.8.7",
     "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.0",
     "puppeteer-core": "^25.1.0",
@@ -63,6 +63,6 @@
     "vite": "^7.1.0"
   },
   "overrides": {
-    "axios": "^1.18.0"
+    "axios": "^1.20.0"
   }
 }
