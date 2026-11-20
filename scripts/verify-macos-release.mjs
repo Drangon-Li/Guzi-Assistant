@@ -5,7 +5,7 @@ import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checksumName, feedName, parseArguments, provenanceName, releaseRepository, sha256, sourceRepository, sparkleLicenseSha256, validateTag, validateUpdateConfig, verifySignature, xml } from './macos-release.mjs'
+import { checksumName, feedName, parseArguments, provenanceName, releaseElectronVersion, releaseRepository, sha256, sourceRepository, sparkleLicenseSha256, validateTag, validateUpdateConfig, verifySignature, xml } from './macos-release.mjs'
 
 const require = createRequire(import.meta.url)
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -34,7 +34,7 @@ export async function verifyBundle(app, expected) {
     if (!file.includes('Sparkle.framework')) assert.deepEqual(architectures, ['arm64'])
   }
   const electron = plist(join(app, 'Contents/Frameworks/Electron Framework.framework/Resources/Info.plist'), 'CFBundleVersion')
-  assert.equal(electron, '38.8.6', 'Release Electron version must be pinned')
+  assert.equal(electron, releaseElectronVersion, 'Release Electron version must be pinned')
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
   return update
 }
@@ -71,7 +71,7 @@ export async function verifyRelease(directory, { archives = true } = {}) {
   assert.equal(provenance.releaseTag, expectedTag)
   assert.equal(provenance.arch, 'arm64')
   assert.equal(provenance.minimumMacOS, '12.0')
-  assert.equal(provenance.electronVersion, '38.8.6')
+  assert.equal(provenance.electronVersion, releaseElectronVersion)
   assert.deepEqual(provenance.sparkle, JSON.parse(await readFile(join(root, 'scripts/sparkle-release.json'), 'utf8')), 'Sparkle provenance must match the pinned upstream release')
   for (const name of [provenance.zip, provenance.dmg]) assert(name && basename(name) === name && /^[-.a-zA-Z0-9]+$/.test(name), 'Invalid archive name')
   assert.equal(provenance.zip, provenance.channel === 'stable' ? `GuziAssistant-${provenance.version}-arm64.zip` : `${provenance.productName}-${provenance.version}-arm64.zip`)

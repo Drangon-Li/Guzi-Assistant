@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checksumName, feedName, parseArguments, provenanceName, releaseRepository, sha256, sourceRepository, validateTag, verifySignature, xml } from './macos-release.mjs'
+import { checksumName, feedName, parseArguments, provenanceName, releaseElectronVersion, releaseRepository, sha256, sourceRepository, validateTag, verifySignature, xml } from './macos-release.mjs'
 import { verifyArchives, verifyRelease } from './verify-macos-release.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -27,7 +27,7 @@ assert.equal(zips.length, 1, 'Release directory must contain exactly one arm64 Z
 const zip = zips[0], dmg = zip.replace(/\.zip$/, '.dmg')
 await stat(join(directory, dmg))
 const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
-const provenance = { schemaVersion: 1, sourceRepository, sourceCommit, sourceTag, repository: releaseRepository, releaseTag, runId, version, channel, arch: 'arm64', minimumMacOS: '12.0', electronVersion: '38.8.6', productName: zip.slice(0, -`-${version}-arm64.zip`.length), publicKey: process.env.SPARKLE_PUBLIC_KEY, zip, dmg, length: (await stat(join(directory, zip))).size, zipSha256: await sha256(join(directory, zip)), dmgSha256: await sha256(join(directory, dmg)), sparkle: JSON.parse(await readFile(join(root, 'scripts/sparkle-release.json'), 'utf8')) }
+const provenance = { schemaVersion: 1, sourceRepository, sourceCommit, sourceTag, repository: releaseRepository, releaseTag, runId, version, channel, arch: 'arm64', minimumMacOS: '12.0', electronVersion: releaseElectronVersion, productName: zip.slice(0, -`-${version}-arm64.zip`.length), publicKey: process.env.SPARKLE_PUBLIC_KEY, zip, dmg, length: (await stat(join(directory, zip))).size, zipSha256: await sha256(join(directory, zip)), dmgSha256: await sha256(join(directory, dmg)), sparkle: JSON.parse(await readFile(join(root, 'scripts/sparkle-release.json'), 'utf8')) }
 // Reject incorrectly built archives before exposing the signing secret to a subprocess.
 const update = await verifyArchives(directory, provenance)
 Object.assign(provenance, { appId: update.appId, feedUrl: update.feedUrl })

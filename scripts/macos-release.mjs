@@ -18,6 +18,8 @@ export const legacyStableFeed = `https://github.com/${legacyReleaseRepository}/r
 export const feedName = 'appcast-mac-arm64.xml'
 export const checksumName = 'mac-arm64-SHA256SUMS.txt'
 export const provenanceName = 'mac-arm64-provenance.json'
+// 发布包内置的 Electron 版本。升级 Electron 时同步修改；test-macos-release.mjs 会对照 package-lock.json 检查。
+export const releaseElectronVersion = '43.8.7'
 export const sparkleLicenseSha256 = '389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe'
 
 export function publicKeyBytes(value) {
