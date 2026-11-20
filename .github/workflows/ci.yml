@@ -85,6 +85,8 @@ jobs:
       - run: npm rebuild better-sqlite3
       - run: npm run typecheck
       - run: npm run test:unit
+      # 发布流水线的策略检查（含 Electron 版本锁定），在 PR 阶段就发现，而不是打标签后才失败
+      - run: node scripts/test-macos-release.mjs
       - run: npm run build
 
   windows:

@@ -7,7 +7,7 @@ import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { createRequire } from 'node:module'
 import { buildConfig } from './build-macos-release.mjs'
-import { bridgeLegacyFeed, checksumName, feedName, legacyReleaseRepository, provenanceName, readGitHubReleaseByTag, readOptionalGitHubRelease, releaseRepository, sha256, sourceRepository, stableAppId, stableFeed, validateExistingDraft, validateStableContinuity, validateTag, validateUpdateConfig, verifySignature } from './macos-release.mjs'
+import { bridgeLegacyFeed, checksumName, feedName, legacyReleaseRepository, provenanceName, releaseElectronVersion, readGitHubReleaseByTag, readOptionalGitHubRelease, releaseRepository, sha256, sourceRepository, stableAppId, stableFeed, validateExistingDraft, validateStableContinuity, validateTag, validateUpdateConfig, verifySignature } from './macos-release.mjs'
 import { verifyRelease } from './verify-macos-release.mjs'
 
 const keys = generateKeyPairSync('ed25519')
@@ -34,6 +34,11 @@ test('builder overrides isolate app naming and preserve explicit test version', 
   assert.equal(config.buildVersion, '2.0.0')
   assert.equal(config.extraMetadata.guziUpdate.profileDir, isolated.profileDir)
   assert.equal(buildConfig({ 'public-key': publicKey }, '0.13.0').extraMetadata.guziUpdate.appId, stableAppId)
+})
+
+test('release Electron pin matches the locked Electron version', () => {
+  const lock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'))
+  assert.equal(releaseElectronVersion, lock.packages['node_modules/electron'].version, 'Update releaseElectronVersion in scripts/macos-release.mjs together with Electron')
 })
 
 test('release tags must be exact stable SemVer and must match package version', () => {
@@ -148,7 +153,7 @@ test('release verifier detects incomplete assets, tampering and wrong provenance
     await writeFile(join(directory, zip), bytes)
     await writeFile(join(directory, dmg), 'DMG fixture')
     const signature = sign(null, bytes, keys.privateKey).toString('base64')
-    const provenance = { sourceRepository, repository: releaseRepository, sourceCommit: 'a'.repeat(40), sourceTag: 'v0.13.0', releaseTag: 'v0.13.0', version: '0.13.0', channel: 'stable', arch: 'arm64', minimumMacOS: '12.0', electronVersion: '38.8.6', publicKey, zip, dmg, length: bytes.length, zipSha256: await sha256(join(directory, zip)), dmgSha256: await sha256(join(directory, dmg)), signature, sparkle: JSON.parse(await readFile(new URL('./sparkle-release.json', import.meta.url), 'utf8')) }
+    const provenance = { sourceRepository, repository: releaseRepository, sourceCommit: 'a'.repeat(40), sourceTag: 'v0.13.0', releaseTag: 'v0.13.0', version: '0.13.0', channel: 'stable', arch: 'arm64', minimumMacOS: '12.0', electronVersion: releaseElectronVersion, publicKey, zip, dmg, length: bytes.length, zipSha256: await sha256(join(directory, zip)), dmgSha256: await sha256(join(directory, dmg)), signature, sparkle: JSON.parse(await readFile(new URL('./sparkle-release.json', import.meta.url), 'utf8')) }
     const url = `https://github.com/${releaseRepository}/releases/download/v0.13.0/${zip}`
     const feed = `<?xml version="1.0" encoding="utf-8"?><sparkle:version>0.13.0</sparkle:version><sparkle:shortVersionString>0.13.0</sparkle:shortVersionString><sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion><enclosure url="${url}" sparkle:edSignature="${signature}" length="${bytes.length}"/>`
     await writeFile(join(directory, feedName), feed)
