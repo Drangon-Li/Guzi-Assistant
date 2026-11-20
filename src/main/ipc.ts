@@ -9,6 +9,7 @@ import { registerCaptureIpc } from './ipc/capture'
 import { registerTaskIpc } from './ipc/task'
 import { registerActivityIpc } from './ipc/activity'
 import { registerAppIpc } from './ipc/app'
+import { registerCloudIpc } from './ipc/cloud'
 
 export { triggerClipboardCapture, triggerScreenshotCapture } from './ipc/capture'
 
@@ -22,4 +23,5 @@ export function registerIpc(): void {
   registerTaskIpc()
   registerActivityIpc()
   registerAppIpc()
+  registerCloudIpc()
 }
