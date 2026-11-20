@@ -271,6 +271,30 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
   throw new Error(`未知工具：${name}`)
 }
 
+export interface McpToolResult {
+  content: { type: 'text'; text: string }[]
+  isError?: true
+}
+
+/**
+ * 执行一个 MCP 工具并包装成 MCP 结果。本地 HTTP 服务和谷子云端 MCP 共用这一个入口，
+ * 清除数据、退出中、内容纪元失效等保护在两条路径上完全一致。
+ * 工具执行失败按 MCP 约定回 isError 内容，而不是 JSON-RPC 错误。
+ */
+export async function executeMcpTool(name: string, args: Record<string, unknown>): Promise<McpToolResult> {
+  const fail = (message: string): McpToolResult => ({ content: [{ type: 'text', text: message }], isError: true })
+  if (isContentResetting()) return fail('正在清除用户内容')
+  const epoch = captureContentEpoch()
+  try {
+    if (isExitPreparing()) throw new Error('正在保存并退出，请稍后重试')
+    const out = await trackContentWork(callTool(name, args))
+    if (!isContentEpochCurrent(epoch)) return fail('此次请求已失效')
+    return { content: [{ type: 'text', text: JSON.stringify(out, null, 1) }] }
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : String(e))
+  }
+}
+
 // ---------- JSON-RPC / HTTP ----------
 
 function rpcResult(id: RpcRequest['id'], result: unknown): string {
@@ -300,23 +324,7 @@ async function handleRpc(req: RpcRequest): Promise<{ status: number; body: strin
   if (method === 'tools/call') {
     const name = typeof req.params?.name === 'string' ? req.params.name : ''
     const args = (req.params?.arguments ?? {}) as Record<string, unknown>
-    try {
-      if (isExitPreparing()) throw new Error('正在保存并退出，请稍后重试')
-      const out = await trackContentWork(callTool(name, args))
-      return {
-        status: 200,
-        body: rpcResult(req.id, { content: [{ type: 'text', text: JSON.stringify(out, null, 1) }] })
-      }
-    } catch (e) {
-      // 工具执行失败按 MCP 约定回 isError 内容，而不是 JSON-RPC 错误
-      return {
-        status: 200,
-        body: rpcResult(req.id, {
-          content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }],
-          isError: true
-        })
-      }
-    }
+    return { status: 200, body: rpcResult(req.id, await executeMcpTool(name, args)) }
   }
   return { status: 200, body: rpcError(req.id, -32601, `不支持的方法：${method}`) }
 }

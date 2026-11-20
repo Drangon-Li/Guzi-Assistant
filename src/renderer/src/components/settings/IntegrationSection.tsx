@@ -4,6 +4,7 @@ import type { AppSettings, FeishuStatus } from '@shared/types'
 import { api } from '../../api'
 import { isMac } from '../../platform'
 import { Section, Toggle } from '../ui'
+import CloudMcpSection from './CloudMcpSection'
 
 /** 生成 MCP Bearer token：48 位十六进制随机串（浏览器安全随机源） */
 function genMcpToken(): string {
@@ -72,7 +73,9 @@ export default function IntegrationSection({
               </div>
             </Section>
 
-            <Section title="MCP 接口">
+            <CloudMcpSection flash={flash} />
+
+            <Section title="本机 MCP 接口">
               <p className="mb-3 text-xs leading-5 text-slate-400">
                 把谷子的任务、工作记录、日报能力以 MCP 工具暴露给你自己的 AI 客户端（Claude Desktop / Cursor / Claude
                 Code 等），让它们替你查日程、加任务、标完成。服务只监听本机（127.0.0.1），凭下方 token

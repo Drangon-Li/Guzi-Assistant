@@ -125,7 +125,18 @@ export const INVOKE_CHANNELS = [
   'plugins:list',
   'plugins:enable',
   'plugins:disable',
-  'plugins:uninstall'
+  'plugins:uninstall',
+  'cloud:state',
+  'cloud:request-code',
+  'cloud:login',
+  'cloud:login-code',
+  'cloud:register',
+  'cloud:logout',
+  'cloud:set-enabled',
+  'cloud:tokens',
+  'cloud:create-token',
+  'cloud:revoke-token',
+  'cloud:open-account'
 ] as const
 
 /** 主进程 → 渲染层的事件通道（对应 broadcast / webContents.send 与渲染层 on） */
@@ -147,7 +158,8 @@ export const EVENT_CHANNELS = [
   'guzi-assistant:plugins-updated',
   'guzi-assistant:plugin-event',
   'guzi-assistant:voice-state',
-  'guzi-assistant:voice-updated'
+  'guzi-assistant:voice-updated',
+  'guzi-assistant:cloud-state'
 ] as const
 
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]

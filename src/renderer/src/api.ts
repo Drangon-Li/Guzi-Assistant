@@ -24,6 +24,7 @@ import type {
   HistoryAppSelection
 } from '@shared/types'
 import type { ModelProbeResult } from '@shared/model-configuration'
+import type { CloudState, CloudToken, CreatedCloudToken } from '@shared/cloud'
 import { pluginChannel, type PluginState } from '@shared/plugin-manifest'
 import type {
   HistoryDeleteResult,
@@ -95,6 +96,21 @@ export const api = {
   installQuickAction: () => inv<boolean>('quickaction:install'),
   uninstallQuickAction: () => inv<boolean>('quickaction:uninstall'),
   feishuStatus: () => inv<FeishuStatus>('feishu:status'),
+
+  // 谷子云端 MCP（统一账号）
+  cloudState: () => inv<CloudState>('cloud:state'),
+  cloudRequestCode: (purpose: 'register' | 'login', email: string) =>
+    inv<{ cooldownSeconds: number }>('cloud:request-code', { purpose, email }),
+  cloudLogin: (identifier: string, password: string) => inv<CloudState>('cloud:login', { identifier, password }),
+  cloudLoginWithCode: (email: string, code: string) => inv<CloudState>('cloud:login-code', { email, code }),
+  cloudRegister: (input: { username: string; password: string; email: string; code: string }) =>
+    inv<CloudState>('cloud:register', input),
+  cloudLogout: () => inv<CloudState>('cloud:logout'),
+  cloudSetEnabled: (enabled: boolean) => inv<CloudState>('cloud:set-enabled', enabled),
+  cloudTokens: () => inv<CloudToken[]>('cloud:tokens'),
+  cloudCreateToken: (name: string, bindDevice: boolean) => inv<CreatedCloudToken>('cloud:create-token', { name, bindDevice }),
+  cloudRevokeToken: (id: string) => inv<{ ok: true }>('cloud:revoke-token', id),
+  cloudOpenAccount: () => inv<void>('cloud:open-account'),
 
   screenScan: () => inv<ScanResult>('screen:scan'),
   screenActivityStatus: () => inv<ScreenActivityStatus>('screen:activity-status'),

@@ -36,6 +36,7 @@ import {
 } from './pet/controller'
 import { createQuickBar, toggleQuickBar } from './quickbar'
 import { applyMcpSettings, stopMcpServer } from './mcp-server'
+import { startCloud, stopCloud } from './cloud'
 import { bootstrapUpdater, cancelPendingUpdate, scheduleStartupUpdateCheck } from './updater'
 import { installExitLifecycle, requestExit } from './exit-lifecycle'
 import { getIsolatedUpdateProfile, isIsolatedUpdateTest } from './updating/config'
@@ -226,6 +227,7 @@ if (!hasSingleInstanceLock) {
       ensureFeishu()
       applyScreenSenseSettings()
       applyMcpSettings() // 对外 MCP 服务（默认关，设置页开启）
+      startCloud() // 谷子云端 MCP（登录谷子账号后可用）
       startDailyBrief()
       startWellnessReminder()
       applyTaskReminderSchedule() // 设置里关掉时连提醒窗都不建
@@ -252,6 +254,7 @@ if (!hasSingleInstanceLock) {
     stopTaskReminder()
     stopClipWatch()
     stopMcpServer()
+    stopCloud()
     if (historyShutdownStarted) return
     historyShutdownStarted = true
     event.preventDefault()
